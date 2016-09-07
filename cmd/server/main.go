@@ -19,26 +19,28 @@ package main
 import (
 	"flag"
 	"net"
+	"os"
 
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/util/exec"
-	"k8s.io/rktlet/rktlet/cli"
-	image "k8s.io/rktlet/rktlet/image"
-	"k8s.io/rktlet/rktlet/runtime"
 
 	"google.golang.org/grpc"
 
 	"github.com/golang/glog"
+	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
+	"github.com/kubernetes-incubator/rktlet/rktlet/image"
+	"github.com/kubernetes-incubator/rktlet/rktlet/runtime"
 )
 
 const defaultUnixSock = "/var/run/rktlet.sock"
 
 func main() {
-	// TODO options, flag parsing
+	flag.Parse()
+	glog.Warning("This rkt CRI server implementation is for development use only; we recommend using the copy of this code included in the kubelet")
+
 	socketPath := defaultUnixSock
 
-	flag.Parse()
-
+	os.Remove(socketPath)
 	sock, err := net.Listen("unix", socketPath)
 	if err != nil {
 		glog.Fatalf("Error listening on sock %q: %v ", socketPath, err)
@@ -60,7 +62,7 @@ func main() {
 	runtimeApi.RegisterImageServiceServer(grpcServer, store)
 	runtimeApi.RegisterRuntimeServiceServer(grpcServer, runtime.New())
 
-	glog.Info("Starting to serve on %q", socketPath)
+	glog.Infof("Starting to serve on %q", socketPath)
 	err = grpcServer.Serve(sock)
 	glog.Fatalf("Should never stop serving: %v", err)
 }
