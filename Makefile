@@ -27,9 +27,9 @@ test:
 	go test ./rktlet/...
 
 clean:
-	rm -f ./bin/rktlet
+	rm -f ./bin/rktlet ./hack/bin/mockery
 
-MOCKGEN_SOURCES := $(shell find ./vendor/github.com/vektra/mockery/ -name '*.go')
-./hack/bin/mockery: $(MOCKGEN_SOURCES)
+MOCKERY_SOURCES := $(shell find ./vendor/github.com/vektra/mockery/ -name '*.go')
+./hack/bin/mockery: $(MOCKERY_SOURCES)
 	go build -o ./hack/bin/mockery ./vendor/github.com/vektra/mockery/cmd/mockery
 
