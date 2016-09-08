@@ -19,7 +19,6 @@ package main
 import (
 	"flag"
 	"net"
-	"os"
 
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/util/exec"
@@ -39,14 +38,10 @@ func main() {
 	glog.Warning("This rkt CRI server implementation is for development use only; we recommend using the copy of this code included in the kubelet")
 
 	socketPath := defaultUnixSock
-
-	os.Remove(socketPath)
 	sock, err := net.Listen("unix", socketPath)
 	if err != nil {
 		glog.Fatalf("Error listening on sock %q: %v ", socketPath, err)
 	}
-
-	grpcServer := grpc.NewServer()
 
 	execer := exec.New()
 	rktPath, err := execer.LookPath("rkt")
@@ -55,12 +50,10 @@ func main() {
 	}
 
 	cli := cli.NewRktCLI(rktPath, execer, cli.CLIConfig{})
-	store, err := image.NewImageStore(image.ImageStoreConfig{CLI: cli})
-	if err != nil {
-		glog.Fatalf("Unable to create image store: %v", err)
-	}
-	runtimeApi.RegisterImageServiceServer(grpcServer, store)
-	runtimeApi.RegisterRuntimeServiceServer(grpcServer, runtime.New())
+	grpcServer := grpc.NewServer()
+
+	runtimeApi.RegisterImageServiceServer(grpcServer, image.NewImageStore(image.ImageStoreConfig{CLI: cli}))
+	runtimeApi.RegisterRuntimeServiceServer(grpcServer, runtime.New(cli))
 
 	glog.Infof("Starting to serve on %q", socketPath)
 	err = grpcServer.Serve(sock)
