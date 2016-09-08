@@ -60,7 +60,7 @@ func main() {
 		glog.Fatalf("Unable to create image store: %v", err)
 	}
 	runtimeApi.RegisterImageServiceServer(grpcServer, store)
-	runtimeApi.RegisterRuntimeServiceServer(grpcServer, runtime.New())
+	runtimeApi.RegisterRuntimeServiceServer(grpcServer, runtime.New(cli))
 
 	glog.Infof("Starting to serve on %q", socketPath)
 	err = grpcServer.Serve(sock)

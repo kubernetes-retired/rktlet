@@ -19,16 +19,21 @@ package runtime
 import (
 	"fmt"
 
+	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
+
 	context "golang.org/x/net/context"
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
 
 type RktRuntime struct {
+	cli cli.CLI
 }
 
 // NewImageStore creates an image storage that allows CRUD operations for images.
-func New() runtimeApi.RuntimeServiceServer {
-	return &RktRuntime{}
+func New(cli cli.CLI) runtimeApi.RuntimeServiceServer {
+	return &RktRuntime{
+		cli: cli,
+	}
 }
 
 func (r *RktRuntime) Version(ctx context.Context, req *runtimeApi.VersionRequest) (*runtimeApi.VersionResponse, error) {
@@ -59,33 +64,9 @@ func (r *RktRuntime) StopContainer(ctx context.Context, req *runtimeApi.StopCont
 }
 
 func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListContainersRequest) (*runtimeApi.ListContainersResponse, error) {
-	return nil, fmt.Errorf("TODO")
+	return &runtimeApi.ListContainersResponse{}, nil
 }
 
 func (r *RktRuntime) RemoveContainer(ctx context.Context, req *runtimeApi.RemoveContainerRequest) (*runtimeApi.RemoveContainerResponse, error) {
 	return nil, fmt.Errorf("TODO")
-}
-
-func (r *RktRuntime) CreatePodSandbox(ctx context.Context, req *runtimeApi.CreatePodSandboxRequest) (*runtimeApi.CreatePodSandboxResponse, error) {
-	return nil, fmt.Errorf("TODO")
-}
-
-func (r *RktRuntime) StopPodSandbox(ctx context.Context, req *runtimeApi.StopPodSandboxRequest) (*runtimeApi.StopPodSandboxResponse, error) {
-	return nil, fmt.Errorf("TODO")
-}
-
-func (r *RktRuntime) RemovePodSandbox(ctx context.Context, req *runtimeApi.RemovePodSandboxRequest) (*runtimeApi.RemovePodSandboxResponse, error) {
-	return nil, fmt.Errorf("TODO")
-}
-
-func (r *RktRuntime) PodSandboxStatus(ctx context.Context, req *runtimeApi.PodSandboxStatusRequest) (*runtimeApi.PodSandboxStatusResponse, error) {
-	return nil, fmt.Errorf("TODO")
-}
-
-func (r *RktRuntime) ListPodSandbox(ctx context.Context, req *runtimeApi.ListPodSandboxRequest) (*runtimeApi.ListPodSandboxResponse, error) {
-	return nil, fmt.Errorf("TODO")
-}
-
-func (r *RktRuntime) Exec(execService runtimeApi.RuntimeService_ExecServer) error {
-	return fmt.Errorf("TODO")
 }
