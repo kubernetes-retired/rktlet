@@ -1,6 +1,6 @@
-# rktlet - The rkt implemntation of a Kubernetes Container Runtime
+# rktlet - The rkt implementation of a Kubernetes Container Runtime
 
-The rktlet repository contains design and code related to letting the Kubelet run contains with the rkt container runtime.
+The rktlet repository contains design and code related to letting the Kubelet run containers with the rkt container runtime.
 
 The work in this repository is meant to eventually supplant the [rkt package](https://github.com/kubernetes/kubernetes/tree/v1.3.0/pkg/kubelet/rkt/) in the main Kubernetes repository.
 
