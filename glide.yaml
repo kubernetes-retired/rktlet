@@ -1,0 +1,24 @@
+package: github.com/kubernetes-incubator/rktlet
+import:
+- package: k8s.io/kubernetes
+  flatten: true
+  subpackages:
+  - pkg/kubelet/api/v1alpha1/runtime
+  - pkg/kubelet/container
+  - pkg/util/exec
+- package: golang.org/x/net/context
+  flatten: true
+- package: google.golang.org/grpc
+  flatten: true
+  version: ^1.0.1-GA
+- package: github.com/golang/glog
+  flatten: true
+- package: github.com/vektra/mockery
+  flatten: true
+  subpackages:
+  - cmd/mockery
+- package: github.com/stretchr/testify
+  subpackages:
+  - assert
+  - mock
+
