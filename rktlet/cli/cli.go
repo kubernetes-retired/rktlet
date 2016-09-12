@@ -133,12 +133,13 @@ func (c *cli) RunCommand(subcmd string, args ...string) ([]string, error) {
 
 	args = append(globalFlags, args...)
 
-	glog.V(4).Infof("rkt: calling cmd %v", subcmd, args)
+	glog.V(4).Infof("rkt: calling cmd %v %v", subcmd, args)
 	cmd := c.execer.Command(c.rktPath, append([]string{subcmd}, args...)...)
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("failed to run %v: %v\noutput: %v", args, err, out)
+		glog.Warningf("rkt: cmd %v %v errored with %v", subcmd, args, err)
+		return nil, fmt.Errorf("failed to run %v: %v\noutput: %s", args, err, out)
 	}
 
 	return strings.Split(strings.TrimSpace(string(out)), "\n"), nil
