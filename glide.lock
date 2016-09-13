@@ -1,5 +1,5 @@
 hash: 6bb891d7123848693643ca69ef7483260d68236e4a1b43675e44d91097a3c66b
-updated: 2016-09-07T12:47:54.968370797-07:00
+updated: 2016-09-12T17:02:17.095558251-07:00
 imports:
 - name: github.com/davecgh/go-spew
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
@@ -67,7 +67,7 @@ imports:
   - lex/httplex
   - internal/timeseries
 - name: golang.org/x/tools
-  version: 9deed8c6c1c89e0b6d68d727f215de8e851d1064
+  version: 86ad1193da6aba71355e71191641b9cfb26daa67
   subpackages:
   - go/loader
   - imports
@@ -85,7 +85,7 @@ imports:
   - transport
   - peer
 - name: k8s.io/kubernetes
-  version: 184e91bbf69633e836663d5f6364a0548453a39a
+  version: 71af33120a4dd3fe8d1109a343e44e07f8eafade
   subpackages:
   - pkg/kubelet/api/v1alpha1/runtime
   - pkg/kubelet/container
