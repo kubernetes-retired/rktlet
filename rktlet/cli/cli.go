@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	"github.com/golang/glog"
-
 	utilexec "k8s.io/kubernetes/pkg/util/exec"
 )
 
@@ -129,20 +128,24 @@ func (c *cli) With(cfg CLIConfig) CLI {
 }
 
 func (c *cli) RunCommand(subcmd string, args ...string) ([]string, error) {
-	globalFlags := getFlagFormOfStruct(c.config)
-
-	args = append(globalFlags, args...)
-
-	glog.V(4).Infof("rkt: calling cmd %v %v", subcmd, args)
-	cmd := c.execer.Command(c.rktPath, append([]string{subcmd}, args...)...)
+	command := c.Command(subcmd, args...)
+	glog.V(4).Infof("rkt: calling cmd %v", command)
+	cmd := c.execer.Command(command[0], command[1:]...)
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		glog.Warningf("rkt: cmd %v %v errored with %v", subcmd, args, err)
-		return nil, fmt.Errorf("failed to run %v: %v\noutput: %s", args, err, out)
+		return nil, fmt.Errorf("failed to run %v %v: %v\noutput: %s", subcmd, args, err, out)
 	}
 
 	return strings.Split(strings.TrimSpace(string(out)), "\n"), nil
+}
+
+// Command returns the final rkt command that will be executed by RunCommand.
+// e.g. `rkt status --debug=true $UUID`.
+func (c *cli) Command(subcmd string, args ...string) []string {
+	globalFlags := getFlagFormOfStruct(c.config)
+	return append(append([]string{c.rktPath, subcmd}, globalFlags...), args...)
 }
 
 // TODO(tmrts): implement CLI with timeout

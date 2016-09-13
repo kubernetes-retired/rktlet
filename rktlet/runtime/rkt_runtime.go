@@ -27,11 +27,12 @@ import (
 
 type RktRuntime struct {
 	cli.CLI
+	cli.Init
 }
 
 // NewImageStore creates an image storage that allows CRUD operations for images.
-func New(cli cli.CLI) runtimeApi.RuntimeServiceServer {
-	return &RktRuntime{cli}
+func New(cli cli.CLI, init cli.Init) runtimeApi.RuntimeServiceServer {
+	return &RktRuntime{cli, init}
 }
 
 func (r *RktRuntime) Version(ctx context.Context, req *runtimeApi.VersionRequest) (*runtimeApi.VersionResponse, error) {

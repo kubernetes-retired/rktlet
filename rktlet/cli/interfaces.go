@@ -20,6 +20,15 @@ package cli
 type CLI interface {
 	With(CLIConfig) CLI
 	RunCommand(string, ...string) ([]string, error)
+	Command(string, ...string) []string
+}
+
+// Init is an interface for interacting with the init system on the host
+// (e.g. systemd), to run rkt commands.
+type Init interface {
+	StartProcess(command string, args ...string) (id string, err error)
+	// TODO(yifan): Add StopProcess?
 }
 
 //go:generate ../../hack/generate/mockery.sh . CLI ./mocks/cli.go
+//go:generate ../../hack/generate/mockery.sh . Init ./mocks/init.go

@@ -30,19 +30,29 @@ import (
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
 
-func (r *RktRuntime) CreatePodSandbox(ctx context.Context, req *runtimeApi.CreatePodSandboxRequest) (*runtimeApi.CreatePodSandboxResponse, error) {
-	k8sPodUid := req.GetConfig().GetMetadata().GetUid()
+func formatPod(metaData *runtimeApi.PodSandboxMetadata) string {
+	return fmt.Sprintf("%s_%s(%s)", metaData.Name, metaData.Namespace, metaData.Uid)
+}
+
+func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSandboxRequest) (*runtimeApi.RunPodSandboxResponse, error) {
+	metaData := req.GetConfig().GetMetadata()
+	k8sPodUid := metaData.GetUid()
 	podUUIDFile, err := ioutil.TempFile("", "rktlet_"+k8sPodUid)
 	defer os.Remove(podUUIDFile.Name())
 	if err != nil {
 		return nil, fmt.Errorf("could not create temporary file for rkt UUID: %v", err)
 	}
-	// This is the parent for the pod.
-	// TODO, before we merge this should be under systemd-run! Please!
-	go func() {
-		_, err := r.RunCommand("app", "sandbox", "--uuid-file-save="+podUUIDFile.Name())
-		glog.Infof("pod %q edited with %q", k8sPodUid, err)
-	}()
+
+	// Let the init process to run the pod sandbox.
+	cmd := r.Command("app", "sandbox", "--uuid-file-save="+podUUIDFile.Name())
+	id, err := r.Init.StartProcess(cmd[0], cmd[1:]...)
+	if err != nil {
+		glog.Errorf("failed to run pod %q: %v", formatPod(metaData), err)
+		return nil, err
+
+	}
+
+	glog.V(4).Infof("pod sandbox is running as service %q", id)
 
 	var rktUUID string
 	// TODO, inotify watch for the uuid file would be slightly more efficient
@@ -64,7 +74,7 @@ func (r *RktRuntime) CreatePodSandbox(ctx context.Context, req *runtimeApi.Creat
 		return nil, fmt.Errorf("waited 10s for pod sandbox to start, but it didn't: %v", k8sPodUid)
 	}
 
-	return &runtimeApi.CreatePodSandboxResponse{
+	return &runtimeApi.RunPodSandboxResponse{
 		PodSandboxId: &rktUUID,
 	}, nil
 }
