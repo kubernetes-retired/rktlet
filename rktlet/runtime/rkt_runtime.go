@@ -17,8 +17,10 @@ limitations under the License.
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
 
+	"github.com/coreos/rkt/lib"
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
 
 	context "golang.org/x/net/context"
@@ -47,7 +49,27 @@ func (r *RktRuntime) Version(ctx context.Context, req *runtimeApi.VersionRequest
 }
 
 func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.ContainerStatusRequest) (*runtimeApi.ContainerStatusResponse, error) {
-	return nil, fmt.Errorf("TODO")
+	// Container ID is in the form of "uuid:container-name".
+	uuid, containerName, err := parseContainerID(*req.ContainerId)
+	if err != nil {
+		return nil, err
+	}
+
+	ret, err := r.RunCommand("app", "status", uuid, fmt.Sprintf("--app=%s", containerName), "--format=json")
+	if err != nil {
+		return nil, err
+	}
+
+	if len(ret) != 1 {
+		return nil, fmt.Errorf("unexpected result %q", ret)
+	}
+
+	var app rkt.App
+	if err := json.Unmarshal([]byte(ret[0]), &app); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal container: %v", err)
+	}
+
+	return &runtimeApi.ContainerStatusResponse{Status: toContainerStatus(uuid, &app)}, nil
 }
 
 func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.CreateContainerRequest) (*runtimeApi.CreateContainerResponse, error) {
