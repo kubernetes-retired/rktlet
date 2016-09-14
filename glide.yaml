@@ -1,26 +1,22 @@
 package: github.com/kubernetes-incubator/rktlet
 import:
 - package: k8s.io/kubernetes
-  flatten: true
   version: 71af33120a4dd3fe8d1109a343e44e07f8eafade
   subpackages:
   - pkg/kubelet/api/v1alpha1/runtime
   - pkg/kubelet/container
   - pkg/util/exec
-- package: golang.org/x/net/context
-  flatten: true
+- package: golang.org/x/net
   version: e90d6d0afc4c315a0d87a568ae68577cc15149a0
+  subpackages:
+  - context
 - package: golang.org/x/tools
-  flatten: true
   version: 86ad1193da6aba71355e71191641b9cfb26daa67
 - package: google.golang.org/grpc
-  flatten: true
   version: ^1.0.1-GA
 - package: github.com/golang/glog
-  flatten: true
   version: 23def4e6c14b4da8ac2ed8007337bc5eb5007998
 - package: github.com/vektra/mockery
-  flatten: true
   version: 50e94ccca3830b02af862920ec59f3dab0794901
   subpackages:
   - cmd/mockery
@@ -29,3 +25,7 @@ import:
   subpackages:
   - assert
   - mock
+- package: github.com/coreos/rkt
+  version: cri
+  subpackages:
+  - lib
