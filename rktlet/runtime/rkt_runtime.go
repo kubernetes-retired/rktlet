@@ -19,6 +19,7 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/coreos/rkt/lib"
 	"github.com/golang/glog"
@@ -56,7 +57,7 @@ func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.Contai
 		return nil, err
 	}
 
-	resp, err := r.RunCommand("app", "status", uuid, fmt.Sprintf("--app=%s", appName), "--format=json")
+	resp, err := r.RunCommand("app", "status", uuid, "--app="+appName, "--format=json")
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +75,35 @@ func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.Contai
 }
 
 func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.CreateContainerRequest) (*runtimeApi.CreateContainerResponse, error) {
-	return nil, fmt.Errorf("TODO")
+	// TODO(yifan): For now, let's just assume the podsandbox config is not used.
+	// TODO(yifan): More fields need to be supported by 'rkt app add'.
+
+	var imageID string
+
+	// Get the image hash.
+	imageName := *req.Config.Image.Image
+	resp, err := r.RunCommand("image", "fetch", "--store-only=true", "--full=true", "docker://"+imageName)
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range resp {
+		if strings.HasPrefix(line, "sha512") {
+			imageID = line
+		}
+	}
+
+	if imageID == "" {
+		return nil, fmt.Errorf("failed to get image ID for image %q", imageName)
+	}
+
+	uuid := *req.PodSandboxId
+	if _, err := r.RunCommand("app", "add", uuid, imageID); err != nil {
+		return nil, err
+	}
+
+	// TODO(yifan): Replace image name with container name.
+	containerID := buildContainerID(uuid, imageName)
+	return &runtimeApi.CreateContainerResponse{ContainerId: &containerID}, nil
 }
 
 func (r *RktRuntime) StartContainer(ctx context.Context, req *runtimeApi.StartContainerRequest) (*runtimeApi.StartContainerResponse, error) {
@@ -84,7 +113,7 @@ func (r *RktRuntime) StartContainer(ctx context.Context, req *runtimeApi.StartCo
 		return nil, err
 	}
 
-	if _, err := r.RunCommand("app", "start", uuid, fmt.Sprintf("--app=%s", appName)); err != nil {
+	if _, err := r.RunCommand("app", "start", uuid, "--app="+appName); err != nil {
 		return nil, err
 	}
 	return &runtimeApi.StartContainerResponse{}, nil
@@ -98,7 +127,7 @@ func (r *RktRuntime) StopContainer(ctx context.Context, req *runtimeApi.StopCont
 	}
 
 	// TODO(yifan): Support timeout.
-	if _, err := r.RunCommand("app", "stop", uuid, fmt.Sprintf("--app=%s", appName)); err != nil {
+	if _, err := r.RunCommand("app", "stop", uuid, "--app="+appName); err != nil {
 		return nil, err
 	}
 	return &runtimeApi.StopContainerResponse{}, nil
@@ -156,7 +185,7 @@ func (r *RktRuntime) RemoveContainer(ctx context.Context, req *runtimeApi.Remove
 	}
 
 	// TODO(yifan): Support timeout.
-	if _, err := r.RunCommand("app", "rm", uuid, fmt.Sprintf("--app=%s", appName)); err != nil {
+	if _, err := r.RunCommand("app", "rm", uuid, "--app="+appName); err != nil {
 		return nil, err
 	}
 	return &runtimeApi.RemoveContainerResponse{}, nil

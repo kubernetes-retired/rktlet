@@ -76,8 +76,7 @@ func toContainerStatus(uuid string, app *rkt.App) *runtimeApi.ContainerStatus {
 	status.CreatedAt = app.CreatedAt
 	status.StartedAt = app.StartedAt
 	status.FinishedAt = app.FinishedAt
-	exitCode := int32(*app.ExitCode) // TODO: Remove this when https://github.com/coreos/rkt/pull/3193 lands.
-	status.ExitCode = &exitCode
+	status.ExitCode = app.ExitCode
 	status.ImageRef = &app.ImageID
 	status.Image = &runtimeApi.ImageSpec{Image: getImageName(app.Annotations)}
 
