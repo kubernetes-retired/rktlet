@@ -61,7 +61,7 @@ type (
 		// Finish time of the container, nanoseconds since epoch.
 		FinishedAt *int64 `json:"finished_at,omitempty"`
 		// Exit code of the container.
-		ExitCode *int `json:"exit_code,omitempty"`
+		ExitCode *int32 `json:"exit_code,omitempty"`
 		// Image ID of the container.
 		ImageID string `json:"image_id"`
 		// Mount points of the container.
@@ -231,8 +231,8 @@ func appState(app *App, pod *pkgPod.Pod) error {
 	return nil
 }
 
-func readExitCode(path string) (int, error) {
-	var exitCode int
+func readExitCode(path string) (int32, error) {
+	var exitCode int32
 
 	b, err := ioutil.ReadFile(path)
 	if err != nil {

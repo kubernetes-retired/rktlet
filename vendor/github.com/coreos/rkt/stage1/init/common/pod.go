@@ -350,6 +350,20 @@ func generateDeviceAllows(root string, appName types.ACName, mountPoints []types
 	return devAllow, nil
 }
 
+// supportsNotify returns true if in the image manifest appc.io/executor/supports-systemd-notify is set to true
+func supportsNotify(p *stage1commontypes.Pod, appName string) bool {
+	appImg := p.Images[appName]
+	if appImg == nil {
+		return false
+	}
+	supportNotifyAnnotation, ok := appImg.Annotations.Get("appc.io/executor/supports-systemd-notify")
+	supportNotify, err := strconv.ParseBool(supportNotifyAnnotation)
+	if ok && supportNotify && err == nil {
+		return true
+	}
+	return false
+}
+
 // parseUserGroup parses the User and Group fields of an App and returns its
 // UID and GID.
 // The User and Group fields accept several formats:

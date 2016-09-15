@@ -163,14 +163,19 @@ func runAppSandbox(cmd *cobra.Command, args []string) int {
 		rktgid = -1
 	}
 
+	DNSConfMode, DNSConfig, HostsEntries, err := parseDNSFlags(flagHostsEntries, flagDNS, flagDNSSearch, flagDNSOpt, flagDNSDomain)
+	if err != nil {
+		stderr.PrintE("error with dns flags", err)
+		return 1
+	}
+
 	rcfg := stage0.RunConfig{
 		CommonConfig:         &cfg,
 		Net:                  flagNet,
 		LockFd:               lfd,
 		Interactive:          true,
-		DNS:                  flagDNS,
-		DNSSearch:            flagDNSSearch,
-		DNSOpt:               flagDNSOpt,
+		DNSConfMode:          DNSConfMode,
+		DNSConfig:            DNSConfig,
 		MDSRegister:          false,
 		LocalConfig:          globalFlags.LocalConfigDir,
 		RktGid:               rktgid,
@@ -179,6 +184,7 @@ func runAppSandbox(cmd *cobra.Command, args []string) int {
 		InsecurePaths:        globalFlags.InsecureFlags.SkipPaths(),
 		InsecureSeccomp:      globalFlags.InsecureFlags.SkipSeccomp(),
 		UseOverlay:           useOverlay,
+		HostsEntries:         *HostsEntries,
 	}
 
 	_, manifest, err := p.PodManifest()

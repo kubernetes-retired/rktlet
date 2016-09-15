@@ -1,10 +1,40 @@
 hash: 8de72d5e173ebc1697b5f4129e3bb75e4c525bf95964ece1b45dab6ba5ceb142
-updated: 2016-09-14T16:19:52.00001244-07:00
+updated: 2016-09-15T12:53:06.230385091-07:00
 imports:
+- name: github.com/appc/spec
+  version: ab50d12e88f57788bf84b83fef2be236eb1fcc0b
+  subpackages:
+  - schema
+  - schema/common
+  - schema/types
+  - aci
+  - pkg/tarheader
+  - pkg/device
+- name: github.com/containernetworking/cni
+  version: 9d5e6e60e79491207834ae8439e80c943db65a69
+  subpackages:
+  - libcni
+  - pkg/invoke
+  - pkg/types
+- name: github.com/coreos/go-semver
+  version: 568e959cd89871e61434c1143528d9162da89ef2
+  subpackages:
+  - semver
 - name: github.com/coreos/rkt
-  version: 97baef6bb7a75ebba65aa03cd86d6ed1dac1adcb
+  version: bd75727a9c05db990bdce30501568262618694b5
   subpackages:
   - lib
+  - networking/netinfo
+  - common
+  - pkg/pod
+  - pkg/fileutil
+  - pkg/group
+  - pkg/user
+  - pkg/label
+  - pkg/lock
+  - pkg/sys
+  - pkg/passwd
+  - pkg/selinux
 - name: github.com/davecgh/go-spew
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
   subpackages:
@@ -43,10 +73,16 @@ imports:
   version: 1f49d83d9aa00e6ce4fc8258c71cc7786aec968a
   subpackages:
   - proto
+- name: github.com/hashicorp/errwrap
+  version: 7554cd9344cec97297fa6649b055a8c98c2a1e55
+- name: github.com/pborman/uuid
+  version: ca53cad383cad2479bbba7f7a1a05797ec1386e4
 - name: github.com/pmezard/go-difflib
   version: d8ed2627bdf02c080bf22230dbb337003b7aba2d
   subpackages:
   - difflib
+- name: github.com/spf13/pflag
+  version: 1560c1005499d61b80f865c04d39ca7505bf7f0b
 - name: github.com/stretchr/objx
   version: 1a9d0bb9f541897e62256577b352fdbc1fb4fd94
 - name: github.com/stretchr/testify
@@ -54,6 +90,10 @@ imports:
   subpackages:
   - assert
   - mock
+- name: github.com/syndtr/gocapability
+  version: 2c00daeb6c3b45114c80ac44119e7b8801fdd852
+  subpackages:
+  - capability
 - name: github.com/vektra/errors
   version: c64d83aba85aa4392895aadeefabbd24e89f3580
 - name: github.com/vektra/mockery
@@ -61,6 +101,10 @@ imports:
   subpackages:
   - cmd/mockery
   - mockery
+- name: go4.org
+  version: 03efcb870d84809319ea509714dd6d19a1498483
+  subpackages:
+  - errorutil
 - name: golang.org/x/net
   version: e90d6d0afc4c315a0d87a568ae68577cc15149a0
   subpackages:
@@ -88,10 +132,13 @@ imports:
   - naming
   - transport
   - peer
+- name: gopkg.in/inf.v0
+  version: 3887ee99ecf07df5b447e9b00d9c0b2adaa9f3e4
 - name: k8s.io/kubernetes
   version: 71af33120a4dd3fe8d1109a343e44e07f8eafade
   subpackages:
   - pkg/kubelet/api/v1alpha1/runtime
   - pkg/kubelet/container
   - pkg/util/exec
+  - pkg/api/resource
 testImports: []

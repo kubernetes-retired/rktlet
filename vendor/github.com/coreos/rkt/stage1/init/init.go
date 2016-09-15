@@ -47,6 +47,7 @@ import (
 	"github.com/coreos/rkt/common"
 	"github.com/coreos/rkt/common/cgroup"
 	"github.com/coreos/rkt/networking"
+	pkgflag "github.com/coreos/rkt/pkg/flag"
 	rktlog "github.com/coreos/rkt/pkg/log"
 	"github.com/coreos/rkt/pkg/sys"
 	"github.com/coreos/rkt/stage1/init/kvm"
@@ -110,6 +111,7 @@ var (
 	disableCapabilities bool
 	disablePaths        bool
 	disableSeccomp      bool
+	dnsConfMode         *pkgflag.PairList
 	mutable             bool
 )
 
@@ -124,6 +126,14 @@ func init() {
 	flag.BoolVar(&disableCapabilities, "disable-capabilities-restriction", false, "Disable capability restrictions")
 	flag.BoolVar(&disablePaths, "disable-paths", false, "Disable paths restrictions")
 	flag.BoolVar(&disableSeccomp, "disable-seccomp", false, "Disable seccomp restrictions")
+	dnsConfMode = pkgflag.MustNewPairList(map[string][]string{
+		"resolv": {"host", "stage0", "none", "default"},
+		"hosts":  {"host", "stage0", "default"},
+	}, map[string]string{
+		"resolv": "default",
+		"hosts":  "default",
+	})
+	flag.Var(dnsConfMode, "dns-conf-mode", "DNS config file modes")
 	flag.BoolVar(&mutable, "mutable", false, "Enable mutable operations on this pod, including starting an empty one")
 
 	// this ensures that main runs only on main thread (thread group leader).
@@ -318,7 +328,8 @@ func getArgsEnv(p *stage1commontypes.Pod, flavor string, canMachinedRegister boo
 	case "coreos":
 		args = append(args, filepath.Join(common.Stage1RootfsPath(p.Root), interpBin))
 		args = append(args, filepath.Join(common.Stage1RootfsPath(p.Root), nspawnBin))
-		args = append(args, "--boot") // Launch systemd in the pod
+		args = append(args, "--boot")             // Launch systemd in the pod
+		args = append(args, "--notify-ready=yes") // From systemd v231
 
 		if context := os.Getenv(common.EnvSELinuxContext); context != "" {
 			args = append(args, fmt.Sprintf("-Z%s", context))
@@ -344,7 +355,8 @@ func getArgsEnv(p *stage1commontypes.Pod, flavor string, canMachinedRegister boo
 	case "src":
 		args = append(args, filepath.Join(common.Stage1RootfsPath(p.Root), interpBin))
 		args = append(args, filepath.Join(common.Stage1RootfsPath(p.Root), nspawnBin))
-		args = append(args, "--boot") // Launch systemd in the pod
+		args = append(args, "--boot")             // Launch systemd in the pod
+		args = append(args, "--notify-ready=yes") // From systemd v231
 
 		if context := os.Getenv(common.EnvSELinuxContext); context != "" {
 			args = append(args, fmt.Sprintf("-Z%s", context))
@@ -385,6 +397,9 @@ func getArgsEnv(p *stage1commontypes.Pod, flavor string, canMachinedRegister boo
 		}
 		if n != 1 || version < 220 {
 			return nil, nil, fmt.Errorf("rkt needs systemd-nspawn >= 220. %s version not supported: %v", hostNspawnBin, versionStr)
+		}
+		if version >= 231 {
+			args = append(args, "--notify-ready=yes") // From systemd v231
 		}
 
 		// Copy systemd, bash, etc. in stage1 at run-time
@@ -551,7 +566,8 @@ func stage1() int {
 			return 1
 		}
 
-		n, err = networking.Setup(root, p.UUID, fps, netList, localConfig, flavor, debug)
+		noDNS := dnsConfMode.Pairs["resolv"] != "default" // force ignore CNI DNS results
+		n, err = networking.Setup(root, p.UUID, fps, netList, localConfig, flavor, noDNS, debug)
 		if err != nil {
 			log.PrintE("failed to setup network", err)
 			return 1
@@ -586,6 +602,14 @@ func stage1() int {
 		DisablePaths:        disablePaths,
 		DisableCapabilities: disableCapabilities,
 		DisableSeccomp:      disableSeccomp,
+	}
+
+	if dnsConfMode.Pairs["resolv"] == "host" {
+		stage1initcommon.UseHostResolv(root)
+	}
+
+	if dnsConfMode.Pairs["hosts"] == "host" {
+		stage1initcommon.UseHostHosts(root)
 	}
 
 	if mutable {

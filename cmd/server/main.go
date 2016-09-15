@@ -20,6 +20,8 @@ import (
 	"flag"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/util/exec"
@@ -38,15 +40,17 @@ func main() {
 	flag.Parse()
 	glog.Warning("This rkt CRI server implementation is for development use only; we recommend using the copy of this code included in the kubelet")
 
-	socketPath := defaultUnixSock
+	exitCh := make(chan os.Signal, 1)
+	signal.Notify(exitCh, syscall.SIGINT, syscall.SIGTERM)
 
-	os.Remove(socketPath)
+	socketPath := defaultUnixSock
+	defer os.Remove(socketPath)
+
 	sock, err := net.Listen("unix", socketPath)
 	if err != nil {
 		glog.Fatalf("Error listening on sock %q: %v ", socketPath, err)
 	}
-
-	grpcServer := grpc.NewServer()
+	defer sock.Close()
 
 	execer := exec.New()
 	rktPath, err := execer.LookPath("rkt")
@@ -54,15 +58,22 @@ func main() {
 		glog.Fatalf("Must have rkt installed: %v", err)
 	}
 
-	cli := cli.NewRktCLI(rktPath, execer, cli.CLIConfig{})
-	store, err := image.NewImageStore(image.ImageStoreConfig{CLI: cli})
+	systemdRunPath, err := execer.LookPath("systemd-run")
 	if err != nil {
-		glog.Fatalf("Unable to create image store: %v", err)
+		glog.Fatalf("Must have systemd-run installed: %v", err)
 	}
-	runtimeApi.RegisterImageServiceServer(grpcServer, store)
-	runtimeApi.RegisterRuntimeServiceServer(grpcServer, runtime.New())
+
+	cli, init := cli.NewRktCLI(rktPath, execer, cli.CLIConfig{}), cli.NewSystemd(systemdRunPath, execer)
+
+	grpcServer := grpc.NewServer()
+
+	runtimeApi.RegisterImageServiceServer(grpcServer, image.NewImageStore(image.ImageStoreConfig{CLI: cli}))
+	runtimeApi.RegisterRuntimeServiceServer(grpcServer, runtime.New(cli, init))
 
 	glog.Infof("Starting to serve on %q", socketPath)
-	err = grpcServer.Serve(sock)
-	glog.Fatalf("Should never stop serving: %v", err)
+	go grpcServer.Serve(sock)
+
+	<-exitCh
+
+	glog.Infof("rktlet service exiting...")
 }

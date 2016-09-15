@@ -39,7 +39,7 @@ var (
 
 // ImageStore supports CRUD operations for images.
 type ImageStore struct {
-	rkt            cli.CLI
+	cli.CLI
 	requestTimeout time.Duration
 }
 
@@ -50,8 +50,8 @@ type ImageStoreConfig struct {
 }
 
 // NewImageStore creates an image storage that allows CRUD operations for images.
-func NewImageStore(cfg ImageStoreConfig) (runtime.ImageServiceServer, error) {
-	return &ImageStore{rkt: cfg.CLI, requestTimeout: cfg.RequestTimeout}, nil
+func NewImageStore(cfg ImageStoreConfig) runtime.ImageServiceServer {
+	return &ImageStore{cfg.CLI, cfg.RequestTimeout}
 }
 
 // Remove removes the image from the image store.
@@ -61,7 +61,7 @@ func (s *ImageStore) RemoveImage(ctx context.Context, req *runtime.RemoveImageRe
 		return nil, err
 	}
 
-	if _, err := s.rkt.RunCommand("image", "rm", *img.Image.Id); err != nil {
+	if _, err := s.RunCommand("image", "rm", *img.Image.Id); err != nil {
 		return nil, fmt.Errorf("failed to remove the image: %v", err)
 	}
 
@@ -90,7 +90,7 @@ func (s *ImageStore) ImageStatus(ctx context.Context, req *runtime.ImageStatusRe
 
 // ListImages lists images in the store
 func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequest) (*runtime.ListImagesResponse, error) {
-	list, err := s.rkt.RunCommand("image", "list",
+	list, err := s.RunCommand("image", "list",
 		"--full",
 		"--no-legend",
 		"--fields=id,name,size",
@@ -114,9 +114,12 @@ func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequ
 		}
 
 		images = append(images, &runtime.Image{
-			Id:       &id,
+			Id: &id,
+			// TODO(yifan): Why not just call it name.
 			RepoTags: []string{name},
-			Size_:    &size,
+			// TODO(yifan): Rename this field to something more generic?
+			RepoDigests: []string{id},
+			Size_:       &size,
 		})
 	}
 
@@ -126,7 +129,7 @@ func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequ
 // PullImage pulls an image into the store
 func (s *ImageStore) PullImage(ctx context.Context, req *runtime.PullImageRequest) (*runtime.PullImageResponse, error) {
 	// TODO auth
-	output, err := s.rkt.RunCommand("image", "fetch", "--no-store=true", "--full=true", "docker://"+*req.Image.Image)
+	output, err := s.RunCommand("image", "fetch", "--no-store=true", "--insecure-options=image,ondisk", "--full=true", "docker://"+*req.Image.Image)
 
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch image: %v", err)

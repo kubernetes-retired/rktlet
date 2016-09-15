@@ -25,6 +25,22 @@ type CLI struct {
 	mock.Mock
 }
 
+// Command provides a mock function with given fields: _a0, _a1
+func (_m *CLI) Command(_a0 string, _a1 ...string) []string {
+	ret := _m.Called(_a0, _a1)
+
+	var r0 []string
+	if rf, ok := ret.Get(0).(func(string, ...string) []string); ok {
+		r0 = rf(_a0, _a1...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	return r0
+}
+
 // RunCommand provides a mock function with given fields: _a0, _a1
 func (_m *CLI) RunCommand(_a0 string, _a1 ...string) ([]string, error) {
 	ret := _m.Called(_a0, _a1)
