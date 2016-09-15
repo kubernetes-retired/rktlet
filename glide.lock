@@ -1,6 +1,10 @@
-hash: 6bb891d7123848693643ca69ef7483260d68236e4a1b43675e44d91097a3c66b
-updated: 2016-09-12T17:02:17.095558251-07:00
+hash: 8de72d5e173ebc1697b5f4129e3bb75e4c525bf95964ece1b45dab6ba5ceb142
+updated: 2016-09-14T16:19:52.00001244-07:00
 imports:
+- name: github.com/coreos/rkt
+  version: 97baef6bb7a75ebba65aa03cd86d6ed1dac1adcb
+  subpackages:
+  - lib
 - name: github.com/davecgh/go-spew
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
   subpackages:
