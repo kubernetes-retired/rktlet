@@ -109,7 +109,7 @@ func (r *RktRuntime) PodSandboxStatus(ctx context.Context, req *runtimeApi.PodSa
 	var ip string
 	if rktStatus.state == "running" {
 		apiStatus = runtimeApi.PodSandBoxState_READY
-		ip = parseRktNetworkIp(rktStatus.network)
+		ip = parseRktNetworkIp(rktStatus.networks)
 	}
 
 	createdUnix := rktStatus.created.Unix()
@@ -128,9 +128,9 @@ func (r *RktRuntime) PodSandboxStatus(ctx context.Context, req *runtimeApi.PodSa
 }
 
 type rktStatusResponse struct {
-	state   string
-	created time.Time
-	network string
+	state    string
+	created  time.Time
+	networks string
 }
 
 func parseRktStatus(status []string) rktStatusResponse {
@@ -153,7 +153,7 @@ func parseRktStatus(status []string) rktStatusResponse {
 			}
 			resp.created = time
 		case "networks":
-			resp.network = parts[1]
+			resp.networks = parts[1]
 		}
 	}
 
