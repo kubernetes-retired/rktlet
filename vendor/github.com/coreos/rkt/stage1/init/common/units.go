@@ -367,6 +367,10 @@ func (uw *UnitWriter) AppUnit(
 		unit.NewUnitOption("Service", "SyslogIdentifier", appName.String()),
 	}...)
 
+	if supportsNotify(uw.p, appName.String()) {
+		opts = append(opts, unit.NewUnitOption("Service", "Type", "notify"))
+	}
+
 	if !insecureOptions.DisableCapabilities {
 		opts = append(opts, unit.NewUnitOption("Service", "CapabilityBoundingSet", strings.Join(capabilitiesStr, " ")))
 	}
