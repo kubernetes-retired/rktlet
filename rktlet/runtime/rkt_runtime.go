@@ -50,13 +50,13 @@ func (r *RktRuntime) Version(ctx context.Context, req *runtimeApi.VersionRequest
 }
 
 func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.ContainerStatusRequest) (*runtimeApi.ContainerStatusResponse, error) {
-	// Container ID is in the form of "uuid:container-name".
-	uuid, containerName, err := parseContainerID(*req.ContainerId)
+	// Container ID is in the form of "uuid:appName".
+	uuid, appName, err := parseContainerID(*req.ContainerId)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := r.RunCommand("app", "status", uuid, fmt.Sprintf("--app=%s", containerName), "--format=json")
+	resp, err := r.RunCommand("app", "status", uuid, fmt.Sprintf("--app=%s", appName), "--format=json")
 	if err != nil {
 		return nil, err
 	}
@@ -78,11 +78,30 @@ func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.Create
 }
 
 func (r *RktRuntime) StartContainer(ctx context.Context, req *runtimeApi.StartContainerRequest) (*runtimeApi.StartContainerResponse, error) {
-	return nil, fmt.Errorf("TODO")
+	// Container ID is in the form of "uuid:appName".
+	uuid, appName, err := parseContainerID(*req.ContainerId)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := r.RunCommand("app", "start", uuid, fmt.Sprintf("--app=%s", appName)); err != nil {
+		return nil, err
+	}
+	return &runtimeApi.StartContainerResponse{}, nil
 }
 
 func (r *RktRuntime) StopContainer(ctx context.Context, req *runtimeApi.StopContainerRequest) (*runtimeApi.StopContainerResponse, error) {
-	return nil, fmt.Errorf("TODO")
+	// Container ID is in the form of "uuid:appName".
+	uuid, appName, err := parseContainerID(*req.ContainerId)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(yifan): Support timeout.
+	if _, err := r.RunCommand("app", "stop", uuid, fmt.Sprintf("--app=%s", appName)); err != nil {
+		return nil, err
+	}
+	return &runtimeApi.StopContainerResponse{}, nil
 }
 
 func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListContainersRequest) (*runtimeApi.ListContainersResponse, error) {
@@ -130,5 +149,15 @@ func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListCon
 }
 
 func (r *RktRuntime) RemoveContainer(ctx context.Context, req *runtimeApi.RemoveContainerRequest) (*runtimeApi.RemoveContainerResponse, error) {
-	return nil, fmt.Errorf("TODO")
+	// Container ID is in the form of "uuid:appName".
+	uuid, appName, err := parseContainerID(*req.ContainerId)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(yifan): Support timeout.
+	if _, err := r.RunCommand("app", "rm", uuid, fmt.Sprintf("--app=%s", appName)); err != nil {
+		return nil, err
+	}
+	return &runtimeApi.RemoveContainerResponse{}, nil
 }
