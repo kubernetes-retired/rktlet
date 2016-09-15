@@ -17,6 +17,7 @@ limitations under the License.
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -207,29 +208,33 @@ func parseRktNetworkIp(networks string) string {
 }
 
 func (r *RktRuntime) ListPodSandbox(ctx context.Context, req *runtimeApi.ListPodSandboxRequest) (*runtimeApi.ListPodSandboxResponse, error) {
-	resp, err := r.RunCommand("list", "--full=true")
+	resp, err := r.RunCommand("list", "--full=true", "--no-legend=true", "--format=json")
 	if err != nil {
 		return nil, err
 	}
-	if len(resp) < 1 {
-		return nil, fmt.Errorf("malformed rkt list response: %v", resp)
-	}
 
 	// TODO, we should not call status for all of these, just get enough info from list in the first place
-	sandboxes := make([]*runtimeApi.PodSandbox, 0, len(resp)-1)
 
-	for _, line := range resp {
-		parts := strings.Split(line, "\t")
-		if parts[0] == "UUID" {
-			continue
-		}
+	if len(resp) != 1 {
+		return nil, fmt.Errorf("unexpected result %q", resp)
+	}
 
+	var pods []Pod
+	if err := json.Unmarshal([]byte(resp[0]), &pods); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal pods: %v", err)
+	}
+
+	sandboxes := make([]*runtimeApi.PodSandbox, 0, len(pods))
+
+	for _, p := range pods {
 		sandboxStatus, err := r.PodSandboxStatus(ctx, &runtimeApi.PodSandboxStatusRequest{
-			PodSandboxId: &parts[0],
+			PodSandboxId: &p.UUID,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("error getting status of pod sandbox %v: %v", parts[0], err)
+			return nil, fmt.Errorf("error getting status of pod sandbox %v: %v", p.UUID, err)
 		}
+
+		// TODO(yifan): Filter.
 
 		sandboxes = append(sandboxes, &runtimeApi.PodSandbox{
 			Id:        sandboxStatus.Status.Id,

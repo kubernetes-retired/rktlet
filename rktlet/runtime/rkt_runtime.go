@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/coreos/rkt/lib"
+	"github.com/golang/glog"
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
 
 	context "golang.org/x/net/context"
@@ -55,17 +56,17 @@ func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.Contai
 		return nil, err
 	}
 
-	ret, err := r.RunCommand("app", "status", uuid, fmt.Sprintf("--app=%s", containerName), "--format=json")
+	resp, err := r.RunCommand("app", "status", uuid, fmt.Sprintf("--app=%s", containerName), "--format=json")
 	if err != nil {
 		return nil, err
 	}
 
-	if len(ret) != 1 {
-		return nil, fmt.Errorf("unexpected result %q", ret)
+	if len(resp) != 1 {
+		return nil, fmt.Errorf("unexpected result %q", resp)
 	}
 
 	var app rkt.App
-	if err := json.Unmarshal([]byte(ret[0]), &app); err != nil {
+	if err := json.Unmarshal([]byte(resp[0]), &app); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal container: %v", err)
 	}
 
@@ -85,7 +86,47 @@ func (r *RktRuntime) StopContainer(ctx context.Context, req *runtimeApi.StopCont
 }
 
 func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListContainersRequest) (*runtimeApi.ListContainersResponse, error) {
-	return &runtimeApi.ListContainersResponse{}, nil
+	// We assume the containers in data dir are all managed by kubelet.
+	resp, err := r.RunCommand("list", "--full=true", "--no-legend=true", "--format=json")
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp) != 1 {
+		return nil, fmt.Errorf("unexpected result %q", resp)
+	}
+
+	var pods []Pod
+	if err := json.Unmarshal([]byte(resp[0]), &pods); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal pods: %v", err)
+	}
+
+	// TODO(yifan): Could optimize this so that we don't have to check ContainerStatus on every container.
+	var containers []*runtimeApi.Container
+	for _, p := range pods {
+		for _, appName := range p.AppNames {
+			containerID := buildContainerID(p.UUID, appName)
+			resp, err := r.ContainerStatus(ctx, &runtimeApi.ContainerStatusRequest{
+				ContainerId: &containerID,
+			})
+			if err != nil {
+				glog.Warningf("rkt: cannot get container status for pod %q, app %q: %v", p.UUID, appName, err)
+				continue
+			}
+			// TODO: filter.
+			containers = append(containers, &runtimeApi.Container{
+				Id:          resp.Status.Id,
+				Metadata:    resp.Status.Metadata,
+				Image:       resp.Status.Image,
+				ImageRef:    resp.Status.ImageRef,
+				State:       resp.Status.State,
+				Labels:      resp.Status.Labels,
+				Annotations: resp.Status.Annotations,
+			})
+		}
+	}
+
+	return &runtimeApi.ListContainersResponse{Containers: containers}, nil
 }
 
 func (r *RktRuntime) RemoveContainer(ctx context.Context, req *runtimeApi.RemoveContainerRequest) (*runtimeApi.RemoveContainerResponse, error) {

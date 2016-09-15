@@ -24,6 +24,7 @@ import (
 	"github.com/coreos/rkt/lib"
 	"github.com/golang/glog"
 
+	"github.com/coreos/rkt/networking/netinfo"
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
 
@@ -137,4 +138,14 @@ func getAttemptCount(annotations map[string]string) *uint32 {
 func getImageName(annotations map[string]string) *string {
 	name := annotations[kubernetesReservedAnnoImageNameKey]
 	return &name
+}
+
+// TODO remove this once https://github.com/coreos/rkt/pull/3194 is merged.
+type Pod struct {
+	UUID string `json:"name"`
+	// State is defined in pkg/pod/pods.go
+	State    string            `json:"state"`
+	Networks []netinfo.NetInfo `json:"networks,omitempty"`
+	// TODO(yifan): Decide if we want to include detailed app info.
+	AppNames []string `json:"app_names,omitempty"`
 }
