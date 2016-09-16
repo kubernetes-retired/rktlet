@@ -21,7 +21,6 @@ import (
 	"os/exec"
 
 	"github.com/golang/glog"
-
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
 

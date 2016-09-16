@@ -22,40 +22,83 @@ import (
 	"strings"
 
 	"github.com/coreos/rkt/lib"
-	"github.com/golang/glog"
-
 	"github.com/coreos/rkt/networking/netinfo"
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
 
 const (
-	kubernetesLabelKeyPrefix              = "k8s.io/label/"
-	kubernetesAnnotationKeyPrefix         = "k8s.io/annotation/"
-	kubernetesReservedAnnoImageNameKey    = "k8s.io/reserved/image-name"
-	kubernetesReservedAnnoAttemptCountKey = "k8s.io/reserved/attempt-count"
+	// Exists per app.
+	kubernetesReservedAnnoImageNameKey = "k8s.io/reserved/image-name"
+
+	// Exists per pod.
+	kubernetesReservedAnnoPodUid       = "k8s.io/reserved/pod-uid"
+	kubernetesReservedAnnoPodName      = "k8s.io/reserved/pod-name"
+	kubernetesReservedAnnoPodNamespace = "k8s.io/reserved/pod-namespace"
+	kubernetesReservedAnnoPodAttempt   = "k8s.io/reserved/pod-attempt"
 )
 
-func parseContainerID(containerID string) (uuid, containerName string, err error) {
-	values := strings.Split(containerID, ":")
+// List of reserved keys in the annotations.
+var kubernetesReservedAnnoKeys []string
+
+func init() {
+	kubernetesReservedAnnoKeys = []string{
+		kubernetesReservedAnnoImageNameKey,
+		kubernetesReservedAnnoPodUid,
+		kubernetesReservedAnnoPodName,
+		kubernetesReservedAnnoPodNamespace,
+		kubernetesReservedAnnoPodAttempt,
+	}
+}
+
+// parseContainerID parses the container ID string into "uuid" + "appname".
+// containerID will be "${uuid}:${attempt}:${containerName}".
+// So the result will be "${uuid}", and "${attempt}-${containerName}".
+func parseContainerID(containerID string) (uuid, appName string, err error) {
+	values := strings.SplitN(containerID, ":", 2)
 	if len(values) != 2 {
 		return "", "", fmt.Errorf("invalid container ID %q", containerID)
 	}
 	return values[0], values[1], nil
 }
 
-func buildContainerID(uuid, containerName string) (containerID string) {
-	return fmt.Sprintf("%s:%s", uuid, containerName)
+func buildContainerID(uuid, appName string) (containerID string) {
+	return fmt.Sprintf("%s:%s", uuid, appName)
 }
 
-func toContainerStatus(uuid string, app *rkt.App) *runtimeApi.ContainerStatus {
+// parseAppName parses the app name string into "attempt" + "container name".
+// appName will be "${attempt}:${containerName}".
+func parseAppName(appName string) (attempt uint32, containerName string, err error) {
+	values := strings.SplitN(appName, "-", 2)
+	if len(values) != 2 {
+		return 0, "", fmt.Errorf("invalid appName %q", appName)
+	}
+
+	a, err := strconv.ParseUint(values[0], 10, 32)
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid appName %q", appName)
+	}
+
+	return uint32(a), values[1], nil
+}
+
+func buildAppName(attempt uint32, containerName string) string {
+	return fmt.Sprintf("%d-%s", attempt, containerName)
+}
+
+func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, error) {
 	var status runtimeApi.ContainerStatus
 
 	id := buildContainerID(uuid, app.Name)
 	status.Id = &id
 
+	attempt, containerName, err := parseAppName(app.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse app name: %v", err)
+	}
+
 	status.Metadata = &runtimeApi.ContainerMetadata{
-		Name:    &app.Name,
-		Attempt: getAttemptCount(app.Annotations),
+		Name:    &containerName,
+		Attempt: &attempt,
 	}
 
 	state := runtimeApi.ContainerState_UNKNOWN
@@ -78,10 +121,10 @@ func toContainerStatus(uuid string, app *rkt.App) *runtimeApi.ContainerStatus {
 	status.FinishedAt = app.FinishedAt
 	status.ExitCode = app.ExitCode
 	status.ImageRef = &app.ImageID
-	status.Image = &runtimeApi.ImageSpec{Image: getImageName(app.Annotations)}
+	status.Image = &runtimeApi.ImageSpec{Image: getImageName(app.CRIAnnotations)}
 
-	status.Labels = getKubernetesLabels(app.Annotations)
-	status.Annotations = getKubernetesAnnotations(app.Annotations)
+	status.Labels = getKubernetesLabels(app.CRILabels)
+	status.Annotations = getKubernetesAnnotations(app.CRIAnnotations)
 
 	// TODO: Make sure mount name is unique.
 	for _, mnt := range app.Mounts {
@@ -94,44 +137,23 @@ func toContainerStatus(uuid string, app *rkt.App) *runtimeApi.ContainerStatus {
 		})
 	}
 
-	return &status
+	return &status, nil
 }
 
-func getKubernetesLabels(annotations map[string]string) map[string]string {
-	ret := make(map[string]string)
-	for key, value := range annotations {
-		if strings.HasPrefix(key, kubernetesLabelKeyPrefix) {
-			ret[strings.TrimPrefix(key, kubernetesLabelKeyPrefix)] = value
-		}
-	}
-	return ret
+func getKubernetesLabels(labels map[string]string) map[string]string {
+	return labels
 }
 
 func getKubernetesAnnotations(annotations map[string]string) map[string]string {
-	ret := make(map[string]string)
-	for key, value := range annotations {
-		if strings.HasPrefix(key, kubernetesAnnotationKeyPrefix) {
-			ret[strings.TrimPrefix(key, kubernetesAnnotationKeyPrefix)] = value
-		}
+	if len(annotations) == 0 {
+		return nil
+	}
+
+	ret := annotations
+	for _, key := range kubernetesReservedAnnoKeys {
+		delete(ret, key)
 	}
 	return ret
-}
-
-func getAttemptCount(annotations map[string]string) *uint32 {
-	var cnt uint32 = 0
-	attemptCountStr := annotations[kubernetesReservedAnnoAttemptCountKey]
-	if attemptCountStr == "" {
-		return &cnt
-	}
-
-	attemptCount, err := strconv.Atoi(attemptCountStr)
-	if err != nil {
-		glog.Warningf("rkt: cannot parse attempt count %q: %v, assume zero", attemptCountStr, err)
-		return &cnt
-	}
-
-	cnt = uint32(attemptCount)
-	return &cnt
 }
 
 func getImageName(annotations map[string]string) *string {
@@ -139,12 +161,135 @@ func getImageName(annotations map[string]string) *string {
 	return &name
 }
 
-// TODO remove this once https://github.com/coreos/rkt/pull/3194 is merged.
-type Pod struct {
-	UUID string `json:"name"`
-	// State is defined in pkg/pod/pods.go
-	State    string            `json:"state"`
-	Networks []netinfo.NetInfo `json:"networks,omitempty"`
-	// TODO(yifan): Decide if we want to include detailed app info.
-	AppNames []string `json:"app_names,omitempty"`
+func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID string) []string {
+	// Generate labels and annotations.
+	var labels, annotations []string
+	for k, v := range req.Config.Labels {
+		labels = append(labels, fmt.Sprintf("%s=%s", k, v))
+	}
+	for k, v := range req.Config.Annotations {
+		annotations = append(annotations, fmt.Sprintf("%s=%s", k, v))
+	}
+	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoImageNameKey, *req.Config.Image.Image))
+
+	// Generate app name.
+	appName := buildAppName(*req.Config.Metadata.Attempt, *req.Config.Metadata.Name)
+
+	// Generate the command and arguments for 'rkt app add'.
+	cmd := []string{"app", "add", *req.PodSandboxId, imageID, "--name=" + appName}
+	for _, anno := range annotations {
+		cmd = append(cmd, "--annotation="+anno)
+	}
+	for _, label := range labels {
+		cmd = append(cmd, "--label="+label)
+	}
+	return cmd
+}
+
+func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile string) []string {
+	// Generate annotations.
+	var labels, annotations []string
+	for k, v := range req.Config.Labels {
+		labels = append(labels, fmt.Sprintf("%s=%s", k, v))
+	}
+	for k, v := range req.Config.Annotations {
+		annotations = append(annotations, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	// Reserved annotations.
+	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodUid, *req.Config.Metadata.Uid))
+	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodName, *req.Config.Metadata.Name))
+	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodNamespace, *req.Config.Metadata.Namespace))
+	annotations = append(annotations, fmt.Sprintf("%s=%d", kubernetesReservedAnnoPodAttempt, *req.Config.Metadata.Attempt))
+
+	cmd := []string{"app", "sandbox", "--uuid-file-save=" + uuidfile}
+	for _, anno := range annotations {
+		cmd = append(cmd, "--annotation="+anno)
+	}
+	for _, label := range labels {
+		cmd = append(cmd, "--label="+label)
+	}
+	return cmd
+}
+
+func getKubernetesMetadata(annotations map[string]string) (*runtimeApi.PodSandboxMetadata, error) {
+	podUid := annotations[kubernetesReservedAnnoPodUid]
+	podName := annotations[kubernetesReservedAnnoPodName]
+	podNamespace := annotations[kubernetesReservedAnnoPodNamespace]
+	podAttemptStr := annotations[kubernetesReservedAnnoPodAttempt]
+
+	attempt, err := strconv.ParseUint(podAttemptStr, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing attempt count %q: %v", podAttemptStr, err)
+	}
+	podAttempt := uint32(attempt)
+
+	return &runtimeApi.PodSandboxMetadata{
+		Uid:       &podUid,
+		Name:      &podName,
+		Namespace: &podNamespace,
+		Attempt:   &podAttempt,
+	}, nil
+}
+
+func toPodSandboxStatus(pod *rkt.Pod) (*runtimeApi.PodSandboxStatus, error) {
+	metadata, err := getKubernetesMetadata(pod.CRIAnnotations)
+	if err != nil {
+		return nil, err
+	}
+
+	var startedAt int64
+	if pod.StartedAt != nil {
+		startedAt = *pod.StartedAt
+	}
+
+	state := runtimeApi.PodSandBoxState_NOTREADY
+	if pod.State == "running" {
+		state = runtimeApi.PodSandBoxState_READY
+	}
+
+	ip := getIP(pod.Networks)
+
+	return &runtimeApi.PodSandboxStatus{
+		Id:          &pod.UUID,
+		Metadata:    metadata,
+		State:       &state,
+		CreatedAt:   &startedAt,
+		Network:     &runtimeApi.PodSandboxNetworkStatus{Ip: &ip},
+		Linux:       nil, // TODO
+		Labels:      getKubernetesLabels(pod.CRILabels),
+		Annotations: getKubernetesAnnotations(pod.CRIAnnotations),
+	}, nil
+}
+
+// getIP returns the ip of the pod.
+// The ip of a network named rkt.kubernetes.io will be preferred, followed by
+// default, followed by the first one
+// The input might look something like 'default:ip4=172.16.28.27,foo:ip4=x.y.z.a'
+func getIP(networks []netinfo.NetInfo) string {
+	var foundIP string
+	for _, network := range networks {
+
+		// Always prefer this network if available.
+		// We're done if we find it
+		if network.NetName == "rkt.kubernetes.io" {
+			return network.IP.To4().String()
+		}
+
+		// Even if we already have a previous ip,
+		// prefer default over it.
+		// If it was rkt.kubernetes.io, we already returned,
+		// so it must have been an arbitrary one.
+		if network.NetName == "default" {
+			foundIP = network.IP.To4().String()
+		}
+
+		// If nothing else has matched, we can use this one,
+		// but keep going to see if we find 'default' or
+		// 'rkt.kubernetes.io'.
+		if foundIP == "" {
+			foundIP = network.IP.To4().String()
+		}
+	}
+	return foundIP
 }

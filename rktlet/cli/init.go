@@ -18,6 +18,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/golang/glog"
 	"github.com/pborman/uuid"
@@ -42,6 +43,8 @@ func (s *systemd) StartProcess(command string, args ...string) (id string, err e
 	cmdList := []string{s.systemdRunPath, "--unit=" + unitName}
 	cmdList = append(cmdList, command)
 	cmdList = append(cmdList, args...)
+
+	glog.V(4).Infof("Running %s", strings.Join(cmdList, " "))
 
 	cmd := s.execer.Command(cmdList[0], cmdList[1:]...)
 	out, err := cmd.CombinedOutput()
