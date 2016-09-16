@@ -22,40 +22,66 @@ import (
 	"strings"
 
 	"github.com/coreos/rkt/lib"
-	"github.com/golang/glog"
 
 	"github.com/coreos/rkt/networking/netinfo"
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
 
 const (
-	kubernetesLabelKeyPrefix              = "k8s.io/label/"
-	kubernetesAnnotationKeyPrefix         = "k8s.io/annotation/"
-	kubernetesReservedAnnoImageNameKey    = "k8s.io/reserved/image-name"
-	kubernetesReservedAnnoAttemptCountKey = "k8s.io/reserved/attempt-count"
+	kubernetesLabelKeyPrefix           = "k8s.io/label/"
+	kubernetesAnnotationKeyPrefix      = "k8s.io/annotation/"
+	kubernetesReservedAnnoImageNameKey = "k8s.io/reserved/image-name"
 )
 
-func parseContainerID(containerID string) (uuid, containerName string, err error) {
-	values := strings.Split(containerID, ":")
+// parseContainerID parses the container ID string into "uuid" + "appname".
+// containerID will be "${uuid}:${attempt}:${containerName}".
+// So the result will be "${uuid}", and "${attempt}-${containerName}".
+func parseContainerID(containerID string) (uuid, appName string, err error) {
+	values := strings.SplitN(containerID, ":", 2)
 	if len(values) != 2 {
 		return "", "", fmt.Errorf("invalid container ID %q", containerID)
 	}
 	return values[0], values[1], nil
 }
 
-func buildContainerID(uuid, containerName string) (containerID string) {
-	return fmt.Sprintf("%s:%s", uuid, containerName)
+func buildContainerID(uuid, appName string) (containerID string) {
+	return fmt.Sprintf("%s:%s", uuid, appName)
 }
 
-func toContainerStatus(uuid string, app *rkt.App) *runtimeApi.ContainerStatus {
+// parseAppName parses the app name string into "attempt" + "container name".
+// appName will be "${attempt}:${containerName}".
+func parseAppName(appName string) (attempt uint32, containerName string, err error) {
+	values := strings.SplitN(appName, "-", 2)
+	if len(values) != 2 {
+		return 0, "", fmt.Errorf("invalid appName %q", appName)
+	}
+
+	a, err := strconv.ParseUint(values[0], 10, 32)
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid appName %q", appName)
+	}
+
+	return uint32(a), values[1], nil
+}
+
+func buildAppName(attempt uint32, containerName string) string {
+	return fmt.Sprintf("%d-%s", attempt, containerName)
+}
+
+func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, error) {
 	var status runtimeApi.ContainerStatus
 
 	id := buildContainerID(uuid, app.Name)
 	status.Id = &id
 
+	attempt, containerName, err := parseAppName(app.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse app name: %v", err)
+	}
+
 	status.Metadata = &runtimeApi.ContainerMetadata{
-		Name:    &app.Name,
-		Attempt: getAttemptCount(app.Annotations),
+		Name:    &containerName,
+		Attempt: &attempt,
 	}
 
 	state := runtimeApi.ContainerState_UNKNOWN
@@ -94,7 +120,7 @@ func toContainerStatus(uuid string, app *rkt.App) *runtimeApi.ContainerStatus {
 		})
 	}
 
-	return &status
+	return &status, nil
 }
 
 func getKubernetesLabels(annotations map[string]string) map[string]string {
@@ -117,23 +143,6 @@ func getKubernetesAnnotations(annotations map[string]string) map[string]string {
 	return ret
 }
 
-func getAttemptCount(annotations map[string]string) *uint32 {
-	var cnt uint32 = 0
-	attemptCountStr := annotations[kubernetesReservedAnnoAttemptCountKey]
-	if attemptCountStr == "" {
-		return &cnt
-	}
-
-	attemptCount, err := strconv.Atoi(attemptCountStr)
-	if err != nil {
-		glog.Warningf("rkt: cannot parse attempt count %q: %v, assume zero", attemptCountStr, err)
-		return &cnt
-	}
-
-	cnt = uint32(attemptCount)
-	return &cnt
-}
-
 func getImageName(annotations map[string]string) *string {
 	name := annotations[kubernetesReservedAnnoImageNameKey]
 	return &name
@@ -147,4 +156,26 @@ type Pod struct {
 	Networks []netinfo.NetInfo `json:"networks,omitempty"`
 	// TODO(yifan): Decide if we want to include detailed app info.
 	AppNames []string `json:"app_names,omitempty"`
+}
+
+func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID string) []string {
+	// Generate annotations.
+	var annotations []string
+	for k, v := range req.Config.Labels {
+		annotations = append(annotations, fmt.Sprintf("%s%s=%s", kubernetesLabelKeyPrefix, k, v))
+	}
+	for k, v := range req.Config.Annotations {
+		annotations = append(annotations, fmt.Sprintf("%s%s=%s", kubernetesAnnotationKeyPrefix, k, v))
+	}
+	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoImageNameKey, *req.Config.Image.Image))
+
+	// Generate app name.
+	appName := buildAppName(*req.Config.Metadata.Attempt, *req.Config.Metadata.Name)
+
+	// Generate the command and arguments for 'rkt app add'.
+	cmd := []string{"app", "add", *req.PodSandboxId, imageID, "--name=" + appName}
+	for _, anno := range annotations {
+		cmd = append(cmd, "--set-annotation="+anno)
+	}
+	return cmd
 }
