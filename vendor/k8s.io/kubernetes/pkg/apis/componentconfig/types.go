@@ -257,8 +257,14 @@ type KubeletConfiguration struct {
 	// computed (such as IPSEC).
 	NetworkPluginMTU int32 `json:"networkPluginMTU"`
 	// networkPluginDir is the full path of the directory in which to search
-	// for network plugins
+	// for network plugins (and, for backwards-compat, CNI config files)
 	NetworkPluginDir string `json:"networkPluginDir"`
+	// CNIConfDir is the full path of the directory in which to search for
+	// CNI config files
+	CNIConfDir string `json:"cniConfDir"`
+	// CNIBinDir is the full path of the directory in which to search for
+	// CNI plugin binaries
+	CNIBinDir string `json:"cniBinDir"`
 	// volumePluginDir is the full path of the directory in which to search
 	// for additional third party volume plugins
 	VolumePluginDir string `json:"volumePluginDir"`
@@ -546,6 +552,8 @@ type KubeControllerManagerConfiguration struct {
 	// periods will result in fewer calls to cloud provider, but may delay addition
 	// of new nodes to cluster.
 	NodeSyncPeriod unversioned.Duration `json:"nodeSyncPeriod"`
+	// routeReconciliationPeriod is the period for reconciling routes created for Nodes by cloud provider..
+	RouteReconciliationPeriod unversioned.Duration `json:"routeReconciliationPeriod"`
 	// resourceQuotaSyncPeriod is the period for syncing quota usage status
 	// in the system.
 	ResourceQuotaSyncPeriod unversioned.Duration `json:"resourceQuotaSyncPeriod"`

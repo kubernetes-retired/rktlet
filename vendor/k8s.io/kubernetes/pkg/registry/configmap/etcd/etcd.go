@@ -36,7 +36,7 @@ func NewREST(opts generic.RESTOptions) *REST {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &api.ConfigMapList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.ConfigMaps),
 		&api.ConfigMap{},
@@ -75,13 +75,15 @@ func NewREST(opts generic.RESTOptions) *REST {
 
 		QualifiedResource: api.Resource("configmaps"),
 
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		CreateStrategy: configmap.Strategy,
 		UpdateStrategy: configmap.Strategy,
 		DeleteStrategy: configmap.Strategy,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 	return &REST{store}
 }

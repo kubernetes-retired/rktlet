@@ -21,6 +21,8 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/golang/glog"
+
 	"k8s.io/kubernetes/pkg/client/restclient"
 	clientcmdapi "k8s.io/kubernetes/pkg/client/unversioned/clientcmd/api"
 )
@@ -112,14 +114,18 @@ func (config *DeferredLoadingClientConfig) ClientConfig() (*restclient.Config, e
 		//   "empty due to defaults"
 		// TODO: this shouldn't be a global - the client config rules should be
 		//   handling this.
-		defaultConfig, err := DefaultClientConfig.ClientConfig()
-		if err == nil && !reflect.DeepEqual(mergedConfig, defaultConfig) {
+		defaultConfig, defErr := DefaultClientConfig.ClientConfig()
+		if IsConfigurationInvalid(defErr) && !IsEmptyConfig(err) {
+			return mergedConfig, nil
+		}
+		if defErr == nil && !reflect.DeepEqual(mergedConfig, defaultConfig) {
 			return mergedConfig, nil
 		}
 	}
 
 	// check for in-cluster configuration and use it
 	if config.icc.Possible() {
+		glog.V(4).Infof("Using in-cluster configuration")
 		return config.icc.ClientConfig()
 	}
 
@@ -134,7 +140,18 @@ func (config *DeferredLoadingClientConfig) Namespace() (string, bool, error) {
 		return "", false, err
 	}
 
-	return mergedKubeConfig.Namespace()
+	ns, ok, err := mergedKubeConfig.Namespace()
+	// if we get an error and it is not empty config, or if the merged config defined an explicit namespace, or
+	// if in-cluster config is not possible, return immediately
+	if (err != nil && !IsEmptyConfig(err)) || ok || !config.icc.Possible() {
+		// return on any error except empty config
+		return ns, ok, err
+	}
+
+	glog.V(4).Infof("Using in-cluster namespace")
+
+	// allow the namespace from the service account token directory to be used.
+	return config.icc.Namespace()
 }
 
 // ConfigAccess implements ClientConfig

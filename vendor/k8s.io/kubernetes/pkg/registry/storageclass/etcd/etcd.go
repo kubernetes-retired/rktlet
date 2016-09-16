@@ -36,7 +36,7 @@ func NewREST(opts generic.RESTOptions) *REST {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &storageapi.StorageClassList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.StorageClasses),
 		&storageapi.StorageClass{},
@@ -60,6 +60,7 @@ func NewREST(opts generic.RESTOptions) *REST {
 		},
 		PredicateFunc:           storageclass.MatchStorageClasses,
 		QualifiedResource:       storageapi.Resource("storageclasses"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		CreateStrategy:      storageclass.Strategy,
@@ -67,7 +68,8 @@ func NewREST(opts generic.RESTOptions) *REST {
 		DeleteStrategy:      storageclass.Strategy,
 		ReturnDeletedObject: true,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 
 	return &REST{store}

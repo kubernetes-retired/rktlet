@@ -37,7 +37,7 @@ func NewREST(opts generic.RESTOptions) *REST {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &extensionsapi.NetworkPolicyList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.NetworkPolicys),
 		&extensionsapi.NetworkPolicy{},
@@ -69,6 +69,7 @@ func NewREST(opts generic.RESTOptions) *REST {
 		// Used to match objects based on labels/fields for list and watch
 		PredicateFunc:           networkpolicy.MatchNetworkPolicy,
 		QualifiedResource:       extensionsapi.Resource("networkpolicies"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		// Used to validate controller creation
@@ -78,7 +79,8 @@ func NewREST(opts generic.RESTOptions) *REST {
 		UpdateStrategy: networkpolicy.Strategy,
 		DeleteStrategy: networkpolicy.Strategy,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 	return &REST{store}
 }

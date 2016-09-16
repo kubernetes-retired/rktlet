@@ -36,7 +36,7 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &api.PersistentVolumeClaimList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.PersistentVolumeClaims),
 		&api.PersistentVolumeClaim{},
@@ -60,6 +60,7 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 		},
 		PredicateFunc:           persistentvolumeclaim.MatchPersistentVolumeClaim,
 		QualifiedResource:       api.Resource("persistentvolumeclaims"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		CreateStrategy:      persistentvolumeclaim.Strategy,
@@ -67,7 +68,8 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 		DeleteStrategy:      persistentvolumeclaim.Strategy,
 		ReturnDeletedObject: true,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 
 	statusStore := *store

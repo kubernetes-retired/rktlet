@@ -37,8 +37,10 @@ function copy-logs-from-node() {
     local -r node="${1}"
     local -r dir="${2}"
     local files=(${3})
-    # Append ".log"
-    files=("${files[@]/%/.log}")
+    # Append ".log*"
+    # The * at the end is needed to also copy rotated logs (which happens
+    # in large clusters and long runs).
+    files=("${files[@]/%/.log*}")
     # Prepend "/var/log/"
     files=("${files[@]/#/\/var\/log\/}")
     # Replace spaces with commas, surround with braces
@@ -58,18 +60,20 @@ function copy-logs-from-node() {
 function save-logs() {
     local -r node_name="${1}"
     local -r dir="${2}"
-    local files="${3} ${common_logfiles}"
+    local files="${3}"
     if [[ "${KUBERNETES_PROVIDER}" == "gce" || "${KUBERNETES_PROVIDER}" == "gke" ]]; then
         files="${files} ${gce_logfiles}"
     fi
     if [[ "${KUBERNETES_PROVIDER}" == "aws" ]]; then
         files="${files} ${aws_logfiles}"
     fi
+
     if ssh-to-node "${node_name}" "sudo systemctl status kubelet.service" &> /dev/null; then
         ssh-to-node "${node_name}" "sudo journalctl --output=cat -u kubelet.service" > "${dir}/kubelet.log" || true
         ssh-to-node "${node_name}" "sudo journalctl --output=cat -u docker.service" > "${dir}/docker.log" || true
+        ssh-to-node "${node_name}" "sudo journalctl --output=cat -k" > "${dir}/kern.log" || true
     else
-        files="${files} ${initd_logfiles} ${supervisord_logfiles}"
+        files="${kern_logfile} ${files} ${initd_logfiles} ${supervisord_logfiles}"
     fi
     copy-logs-from-node "${node_name}" "${dir}" "${files}"
 }
@@ -81,7 +85,7 @@ readonly master_logfiles="kube-apiserver kube-scheduler kube-controller-manager 
 readonly node_logfiles="kube-proxy"
 readonly aws_logfiles="cloud-init-output"
 readonly gce_logfiles="startupscript"
-readonly common_logfiles="kern"
+readonly kern_logfile="kern"
 readonly initd_logfiles="docker"
 readonly supervisord_logfiles="kubelet supervisor/supervisord supervisor/kubelet-stdout supervisor/kubelet-stderr supervisor/docker-stdout supervisor/docker-stderr"
 

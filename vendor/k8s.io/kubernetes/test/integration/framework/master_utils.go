@@ -42,6 +42,7 @@ import (
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/client/restclient"
 	client "k8s.io/kubernetes/pkg/client/unversioned"
+	clientsetadapter "k8s.io/kubernetes/pkg/client/unversioned/adapters/internalclientset"
 	"k8s.io/kubernetes/pkg/controller"
 	replicationcontroller "k8s.io/kubernetes/pkg/controller/replication"
 	"k8s.io/kubernetes/pkg/fields"
@@ -228,6 +229,7 @@ func NewMasterConfig() *master.Config {
 			// Set those values to avoid annoying warnings in logs.
 			ServiceClusterIPRange: parseCIDROrDie("10.0.0.0/24"),
 			ServiceNodePortRange:  utilnet.PortRange{Base: 30000, Size: 2768},
+			EnableVersion:         true,
 		},
 		KubeletClient: kubeletclient.FakeKubeletClient{},
 	}
@@ -238,6 +240,7 @@ func NewIntegrationTestMasterConfig() *master.Config {
 	masterConfig := NewMasterConfig()
 	masterConfig.EnableCoreControllers = true
 	masterConfig.EnableIndex = true
+	masterConfig.EnableVersion = true
 	masterConfig.PublicAddress = net.ParseIP("192.168.10.4")
 	masterConfig.APIResourceConfigSource = master.DefaultAPIResourceConfigSource()
 	return masterConfig
@@ -290,7 +293,7 @@ func RCFromManifest(fileName string) *api.ReplicationController {
 
 // StopRC stops the rc via kubectl's stop library
 func StopRC(rc *api.ReplicationController, restClient *client.Client) error {
-	reaper, err := kubectl.ReaperFor(api.Kind("ReplicationController"), restClient)
+	reaper, err := kubectl.ReaperFor(api.Kind("ReplicationController"), clientsetadapter.FromUnversionedClient(restClient))
 	if err != nil || reaper == nil {
 		return err
 	}
@@ -303,7 +306,7 @@ func StopRC(rc *api.ReplicationController, restClient *client.Client) error {
 
 // ScaleRC scales the given rc to the given replicas.
 func ScaleRC(name, ns string, replicas int32, restClient *client.Client) (*api.ReplicationController, error) {
-	scaler, err := kubectl.ScalerFor(api.Kind("ReplicationController"), restClient)
+	scaler, err := kubectl.ScalerFor(api.Kind("ReplicationController"), clientsetadapter.FromUnversionedClient(restClient))
 	if err != nil {
 		return nil, err
 	}

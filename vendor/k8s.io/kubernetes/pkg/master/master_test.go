@@ -37,7 +37,7 @@ import (
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	"k8s.io/kubernetes/pkg/apis/apps"
-	appsapi "k8s.io/kubernetes/pkg/apis/apps"
+	appsapiv1alpha1 "k8s.io/kubernetes/pkg/apis/apps/v1alpha1"
 	"k8s.io/kubernetes/pkg/apis/autoscaling"
 	autoscalingapiv1 "k8s.io/kubernetes/pkg/apis/autoscaling/v1"
 	"k8s.io/kubernetes/pkg/apis/batch"
@@ -60,10 +60,10 @@ import (
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/etcd/etcdtest"
 	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
-	"k8s.io/kubernetes/pkg/storage/storagebackend"
 	"k8s.io/kubernetes/pkg/util/intstr"
 	utilnet "k8s.io/kubernetes/pkg/util/net"
 	"k8s.io/kubernetes/pkg/util/sets"
+	"k8s.io/kubernetes/pkg/version"
 
 	"github.com/go-openapi/loads"
 	"github.com/go-openapi/spec"
@@ -75,23 +75,13 @@ import (
 
 // setUp is a convience function for setting up for (most) tests.
 func setUp(t *testing.T) (*Master, *etcdtesting.EtcdTestServer, Config, *assert.Assertions) {
-	server := etcdtesting.NewUnsecuredEtcdTestClientServer(t)
+	server, storageConfig := etcdtesting.NewUnsecuredEtcd3TestClientServer(t)
 
 	master := &Master{
 		GenericAPIServer: &genericapiserver.GenericAPIServer{},
 	}
 	config := Config{
 		Config: &genericapiserver.Config{},
-	}
-
-	storageConfig := storagebackend.Config{
-		Prefix:   etcdtest.PathPrefix(),
-		CAFile:   server.CAFile,
-		KeyFile:  server.KeyFile,
-		CertFile: server.CertFile,
-	}
-	for _, url := range server.ClientURLs {
-		storageConfig.ServerList = append(storageConfig.ServerList, url.String())
 	}
 
 	resourceEncoding := genericapiserver.NewDefaultResourceEncodingConfig()
@@ -102,7 +92,7 @@ func setUp(t *testing.T) (*Master, *etcdtesting.EtcdTestServer, Config, *assert.
 	resourceEncoding.SetVersionEncoding(extensions.GroupName, *testapi.Extensions.GroupVersion(), unversioned.GroupVersion{Group: extensions.GroupName, Version: runtime.APIVersionInternal})
 	resourceEncoding.SetVersionEncoding(rbac.GroupName, *testapi.Rbac.GroupVersion(), unversioned.GroupVersion{Group: rbac.GroupName, Version: runtime.APIVersionInternal})
 	resourceEncoding.SetVersionEncoding(certificates.GroupName, *testapi.Certificates.GroupVersion(), unversioned.GroupVersion{Group: certificates.GroupName, Version: runtime.APIVersionInternal})
-	storageFactory := genericapiserver.NewDefaultStorageFactory(storageConfig, testapi.StorageMediaType(), api.Codecs, resourceEncoding, DefaultAPIResourceConfigSource())
+	storageFactory := genericapiserver.NewDefaultStorageFactory(*storageConfig, testapi.StorageMediaType(), api.Codecs, resourceEncoding, DefaultAPIResourceConfigSource())
 
 	config.StorageFactory = storageFactory
 	config.APIResourceConfigSource = DefaultAPIResourceConfigSource()
@@ -115,6 +105,7 @@ func setUp(t *testing.T) (*Master, *etcdtesting.EtcdTestServer, Config, *assert.
 	config.ProxyDialer = func(network, addr string) (net.Conn, error) { return nil, nil }
 	config.ProxyTLSClientConfig = &tls.Config{}
 	config.RequestContextMapper = api.NewRequestContextMapper()
+	config.Config.EnableVersion = true
 
 	// TODO: this is kind of hacky.  The trouble is that the sync loop
 	// runs in a go-routine and there is no way to validate in the test
@@ -148,7 +139,7 @@ func limitedAPIResourceConfigSource() *genericapiserver.ResourceConfig {
 		extensionsapiv1beta1.SchemeGroupVersion,
 		batchapiv1.SchemeGroupVersion,
 		batchapiv2alpha1.SchemeGroupVersion,
-		appsapi.SchemeGroupVersion,
+		appsapiv1alpha1.SchemeGroupVersion,
 		autoscalingapiv1.SchemeGroupVersion,
 	)
 	return ret
@@ -211,6 +202,29 @@ func TestNamespaceSubresources(t *testing.T) {
 
 	if !reflect.DeepEqual(expectedSubresources.List(), foundSubresources.List()) {
 		t.Errorf("Expected namespace subresources %#v, got %#v. Update apiserver/handlers.go#namespaceSubresources", expectedSubresources.List(), foundSubresources.List())
+	}
+}
+
+// TestVersion tests /version
+func TestVersion(t *testing.T) {
+	s, etcdserver, _, _ := newMaster(t)
+	defer etcdserver.Terminate(t)
+
+	req, _ := http.NewRequest("GET", "/version", nil)
+	resp := httptest.NewRecorder()
+	s.InsecureHandler.ServeHTTP(resp, req)
+	if resp.Code != 200 {
+		t.Fatalf("expected http 200, got: %d", resp.Code)
+	}
+
+	var info version.Info
+	err := json.NewDecoder(resp.Body).Decode(&info)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	if !reflect.DeepEqual(version.Get(), info) {
+		t.Errorf("Expected %#v, Got %#v", version.Get(), info)
 	}
 }
 
@@ -821,6 +835,16 @@ func decodeResponse(resp *http.Response, obj interface{}) error {
 	return nil
 }
 
+func writeResponseToFile(resp *http.Response, filename string) error {
+	defer resp.Body.Close()
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(filename, data, 0755)
+}
+
 func TestInstallThirdPartyAPIGet(t *testing.T) {
 	for _, version := range versionsToTest {
 		testInstallThirdPartyAPIGetVersion(t, version)
@@ -1228,6 +1252,7 @@ func TestValidOpenAPISpec(t *testing.T) {
 	defer etcdserver.Terminate(t)
 
 	config.EnableOpenAPISupport = true
+	config.EnableIndex = true
 	config.OpenAPIInfo = spec.Info{
 		InfoProps: spec.InfoProps{
 			Title:   "Kubernetes",
@@ -1262,12 +1287,67 @@ func TestValidOpenAPISpec(t *testing.T) {
 		assert.NoError(res.AsError())
 	}
 
+	// TODO(mehdy): The actual validation part of these tests are timing out on jerkin but passing locally. Enable it after debugging timeout issue.
+	disableValidation := true
+
+	// Saving specs to a temporary folder is a good way to debug spec generation without bringing up an actual
+	// api server.
+	saveSwaggerSpecs := false
+
 	// Validate OpenApi spec
 	doc, err := loads.Spec(server.URL + "/swagger.json")
 	if assert.NoError(err) {
-		// TODO(mehdy): This test is timing out on jerkin but passing locally. Enable it after debugging timeout issue.
-		_ = validate.NewSpecValidator(doc.Schema(), strfmt.Default)
-		// res, _ := validator.Validate(doc)
-		// assert.NoError(res.AsError())
+		validator := validate.NewSpecValidator(doc.Schema(), strfmt.Default)
+		if !disableValidation {
+			res, warns := validator.Validate(doc)
+			assert.NoError(res.AsError())
+			if !warns.IsValid() {
+				t.Logf("Open API spec on root has some warnings : %v", warns)
+			}
+		} else {
+			t.Logf("Validation is disabled because it is timing out on jenkins put passing locally.")
+		}
 	}
+
+	// validate specs on each end-point
+	resp, err = http.Get(server.URL)
+	if !assert.NoError(err) {
+		t.Errorf("unexpected error: %v", err)
+	}
+	assert.Equal(http.StatusOK, resp.StatusCode)
+	var list unversioned.RootPaths
+	if assert.NoError(decodeResponse(resp, &list)) {
+		for _, path := range list.Paths {
+			if !strings.HasPrefix(path, "/api") {
+				continue
+			}
+			t.Logf("Validating open API spec on %v ...", path)
+
+			if saveSwaggerSpecs {
+				resp, err = http.Get(server.URL + path + "/swagger.json")
+				if !assert.NoError(err) {
+					t.Errorf("unexpected error: %v", err)
+				}
+				assert.Equal(http.StatusOK, resp.StatusCode)
+				assert.NoError(writeResponseToFile(resp, "/tmp/swagger_"+strings.Replace(path, "/", "_", -1)+".json"))
+			}
+
+			// Validate OpenApi spec on path
+			doc, err := loads.Spec(server.URL + path + "/swagger.json")
+			if assert.NoError(err) {
+				validator := validate.NewSpecValidator(doc.Schema(), strfmt.Default)
+				if !disableValidation {
+					res, warns := validator.Validate(doc)
+					assert.NoError(res.AsError())
+					if !warns.IsValid() {
+						t.Logf("Open API spec on %v has some warnings : %v", path, warns)
+					}
+				} else {
+					t.Logf("Validation is disabled because it is timing out on jenkins put passing locally.")
+				}
+			}
+
+		}
+	}
+
 }

@@ -123,8 +123,7 @@ type GenericAPIServer struct {
 	// should be determining the backing storage for the RESTStorage interfaces
 	storageDecorator generic.StorageDecorator
 
-	mux              apiserver.Mux
-	MuxHelper        *apiserver.MuxHelper
+	Mux              *apiserver.PathRecorderMux
 	HandlerContainer *restful.Container
 	MasterCount      int
 
@@ -198,7 +197,7 @@ func (s *GenericAPIServer) HandleWithAuth(pattern string, handler http.Handler) 
 	// sensible policy defaults for plugged-in endpoints.  This will be different
 	// for generic endpoints versus REST object endpoints.
 	// TODO: convert to go-restful
-	s.MuxHelper.Handle(pattern, handler)
+	s.Mux.Handle(pattern, handler)
 }
 
 // HandleFuncWithAuth adds an http.Handler for pattern to an http.ServeMux
@@ -206,7 +205,7 @@ func (s *GenericAPIServer) HandleWithAuth(pattern string, handler http.Handler) 
 // to the request is used for the GenericAPIServer's built-in endpoints.
 func (s *GenericAPIServer) HandleFuncWithAuth(pattern string, handler func(http.ResponseWriter, *http.Request)) {
 	// TODO: convert to go-restful
-	s.MuxHelper.HandleFunc(pattern, handler)
+	s.Mux.HandleFunc(pattern, handler)
 }
 
 func NewHandlerContainer(mux *http.ServeMux, s runtime.NegotiatedSerializer) *restful.Container {
@@ -408,6 +407,10 @@ func (s *GenericAPIServer) InstallAPIGroup(apiGroupInfo *APIGroupInfo) error {
 		// Add a handler at /apis/<groupName> to enumerate all versions supported by this group.
 		apiVersionsForDiscovery := []unversioned.GroupVersionForDiscovery{}
 		for _, groupVersion := range apiGroupInfo.GroupMeta.GroupVersions {
+			// Check the config to make sure that we elide versions that don't have any resources
+			if len(apiGroupInfo.VersionedResourcesStorageMap[groupVersion.Version]) == 0 {
+				continue
+			}
 			apiVersionsForDiscovery = append(apiVersionsForDiscovery, unversioned.GroupVersionForDiscovery{
 				GroupVersion: groupVersion.String(),
 				Version:      groupVersion.Version,
@@ -422,6 +425,7 @@ func (s *GenericAPIServer) InstallAPIGroup(apiGroupInfo *APIGroupInfo) error {
 			Versions:         apiVersionsForDiscovery,
 			PreferredVersion: preferedVersionForDiscovery,
 		}
+
 		s.AddAPIGroupForDiscovery(apiGroup)
 		apiserver.AddGroupWebService(s.Serializer, s.HandlerContainer, apiPrefix+"/"+apiGroup.Name, apiGroup)
 	}
@@ -522,17 +526,38 @@ func (s *GenericAPIServer) InstallSwaggerAPI() {
 	swagger.RegisterSwaggerService(*s.getSwaggerConfig(), s.HandlerContainer)
 }
 
-// InstallOpenAPI installs the /swagger.json endpoint to allow new OpenAPI schema discovery.
+// InstallOpenAPI installs spec endpoints for each web service.
 func (s *GenericAPIServer) InstallOpenAPI() {
-	openAPIConfig := openapi.Config{
-		SwaggerConfig:   s.getSwaggerConfig(),
-		IgnorePrefixes:  []string{"/swaggerapi"},
-		Info:            &s.openAPIInfo,
-		DefaultResponse: &s.openAPIDefaultResponse,
+	// Install one spec per web service, an ideal client will have a ClientSet containing one client
+	// per each of these specs.
+	for _, w := range s.HandlerContainer.RegisteredWebServices() {
+		if w.RootPath() == "/swaggerapi" {
+			continue
+		}
+		info := s.openAPIInfo
+		info.Title = info.Title + " " + w.RootPath()
+		err := openapi.RegisterOpenAPIService(&openapi.Config{
+			OpenAPIServePath: w.RootPath() + "/swagger.json",
+			WebServices:      []*restful.WebService{w},
+			ProtocolList:     []string{"https"},
+			IgnorePrefixes:   []string{"/swaggerapi"},
+			Info:             &info,
+			DefaultResponse:  &s.openAPIDefaultResponse,
+		}, s.HandlerContainer)
+		if err != nil {
+			glog.Fatalf("Failed to register open api spec for %v: %v", w.RootPath(), err)
+		}
 	}
-	err := openapi.RegisterOpenAPIService(&openAPIConfig, s.HandlerContainer)
+	err := openapi.RegisterOpenAPIService(&openapi.Config{
+		OpenAPIServePath: "/swagger.json",
+		WebServices:      s.HandlerContainer.RegisteredWebServices(),
+		ProtocolList:     []string{"https"},
+		IgnorePrefixes:   []string{"/swaggerapi"},
+		Info:             &s.openAPIInfo,
+		DefaultResponse:  &s.openAPIDefaultResponse,
+	}, s.HandlerContainer)
 	if err != nil {
-		glog.Fatalf("Failed to generate open api spec: %v", err)
+		glog.Fatalf("Failed to register open api spec for root: %v", err)
 	}
 }
 
