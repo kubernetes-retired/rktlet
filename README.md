@@ -21,7 +21,7 @@ You can reach the maintainers of this project at:
 
 ## Kubernetes Incubator
 
-This is a [Kubernetes Incubator project](https://github.com/kubernetes/community/blob/master/incubator.md). The project was established 2006-01-02. The incubator team for the project is:
+This is a [Kubernetes Incubator project](https://github.com/kubernetes/community/blob/master/incubator.md). The project was established 2016-01-02. The incubator team for the project is:
 
 - Sponsor: Tim Hockin (@thockin)
 - Champion: Yu-Ju Hong (@yujuhong)
