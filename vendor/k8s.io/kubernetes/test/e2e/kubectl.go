@@ -47,6 +47,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/api/unversioned"
 	client "k8s.io/kubernetes/pkg/client/unversioned"
+	clientsetadapter "k8s.io/kubernetes/pkg/client/unversioned/adapters/internalclientset"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/labels"
@@ -118,11 +119,19 @@ var (
 	// TODO(ihmccreery): remove once we don't care about v1.1 anymore, (tentatively in v1.4).
 	deploymentsVersion = version.MustParse("v1.2.0-alpha.7.726")
 
-	// Pod probe parameters were introduced in #15967 (v1.2) so we dont expect tests that use
+	// Pod probe parameters were introduced in #15967 (v1.2) so we don't expect tests that use
 	// these probe parameters to work on clusters before that.
 	//
 	// TODO(ihmccreery): remove once we don't care about v1.1 anymore, (tentatively in v1.4).
 	podProbeParametersVersion = version.MustParse("v1.2.0-alpha.4")
+
+	// 'kubectl create quota' was introduced in #28351 (v1.4) so we don't expect tests that use
+	// 'kubectl create quota' to work on kubectl clients before that.
+	kubectlCreateQuotaVersion = version.MustParse("v1.4.0-alpha.2")
+
+	// Returning container command exit codes in kubectl run/exec was introduced in #26541 (v1.4)
+	// so we don't expect tests that verifies return code to work on kubectl clients before that.
+	kubectlContainerExitCodeVersion = version.MustParse("v1.4.0-alpha.3")
 )
 
 // Stops everything from filePath from namespace ns and checks if everything matching selectors from the given namespace is correctly stopped.
@@ -162,7 +171,7 @@ func runKubectlRetryOrDie(args ...string) string {
 
 var _ = framework.KubeDescribe("Kubectl client", func() {
 	defer GinkgoRecover()
-	f := framework.NewDefaultFramework("kubectl")
+	f := framework.NewDefaultGroupVersionFramework("kubectl", BatchV2Alpha1GroupVersion)
 
 	// Reustable cluster state function.  This won't be adversly affected by lazy initialization of framework.
 	clusterState := func() *framework.ClusterVerification {
@@ -350,6 +359,7 @@ var _ = framework.KubeDescribe("Kubectl client", func() {
 		})
 
 		It("should return command exit codes", func() {
+			framework.SkipUnlessKubectlVersionGTE(kubectlContainerExitCodeVersion)
 			nsFlag := fmt.Sprintf("--namespace=%v", ns)
 
 			By("execing into a container with a successful command")
@@ -420,7 +430,7 @@ var _ = framework.KubeDescribe("Kubectl client", func() {
 				ExecOrDie()
 			Expect(runOutput).ToNot(ContainSubstring("stdin closed"))
 			f := func(pods []*api.Pod) sort.Interface { return sort.Reverse(controller.ActivePods(pods)) }
-			runTestPod, _, err := util.GetFirstPod(c, ns, labels.SelectorFromSet(map[string]string{"run": "run-test-3"}), 1*time.Minute, f)
+			runTestPod, _, err := util.GetFirstPod(clientsetadapter.FromUnversionedClient(c), ns, labels.SelectorFromSet(map[string]string{"run": "run-test-3"}), 1*time.Minute, f)
 			if err != nil {
 				os.Exit(1)
 			}
@@ -833,6 +843,7 @@ var _ = framework.KubeDescribe("Kubectl client", func() {
 				for key, val := range pod.Annotations {
 					if key == "x" && val == "y" {
 						found = true
+						break
 					}
 				}
 				if !found {
@@ -1063,10 +1074,47 @@ var _ = framework.KubeDescribe("Kubectl client", func() {
 			}
 			containers := job.Spec.Template.Spec.Containers
 			if containers == nil || len(containers) != 1 || containers[0].Image != nginxImage {
-				framework.Failf("Failed creating job %s for 1 pod with expected image %s", jobName, nginxImage)
+				framework.Failf("Failed creating job %s for 1 pod with expected image %s: %#v", jobName, nginxImage, containers)
 			}
 			if job.Spec.Template.Spec.RestartPolicy != api.RestartPolicyOnFailure {
 				framework.Failf("Failed creating a job with correct restart policy for --restart=OnFailure")
+			}
+		})
+	})
+
+	framework.KubeDescribe("Kubectl run ScheduledJob", func() {
+		var nsFlag string
+		var sjName string
+
+		BeforeEach(func() {
+			nsFlag = fmt.Sprintf("--namespace=%v", ns)
+			sjName = "e2e-test-echo-scheduledjob"
+		})
+
+		AfterEach(func() {
+			framework.RunKubectlOrDie("delete", "scheduledjobs", sjName, nsFlag)
+		})
+
+		It("should create a ScheduledJob", func() {
+			framework.SkipIfMissingResource(f.ClientPool, ScheduledJobGroupVersionResource, f.Namespace.Name)
+
+			schedule := "*/5 * * * ?"
+			framework.RunKubectlOrDie("run", sjName, "--restart=OnFailure", "--generator=scheduledjob/v2alpha1",
+				"--schedule="+schedule, "--image="+busyboxImage, nsFlag)
+			By("verifying the ScheduledJob " + sjName + " was created")
+			sj, err := c.Batch().ScheduledJobs(ns).Get(sjName)
+			if err != nil {
+				framework.Failf("Failed getting ScheduledJob %s: %v", sjName, err)
+			}
+			if sj.Spec.Schedule != schedule {
+				framework.Failf("Failed creating a ScheduledJob with correct schedule %s", schedule)
+			}
+			containers := sj.Spec.JobTemplate.Spec.Template.Spec.Containers
+			if containers == nil || len(containers) != 1 || containers[0].Image != busyboxImage {
+				framework.Failf("Failed creating ScheduledJob %s for 1 pod with expected image %s: %#v", sjName, busyboxImage, containers)
+			}
+			if sj.Spec.JobTemplate.Spec.Template.Spec.RestartPolicy != api.RestartPolicyOnFailure {
+				framework.Failf("Failed creating a ScheduledJob with correct restart policy for --restart=OnFailure")
 			}
 		})
 	})
@@ -1315,6 +1363,7 @@ var _ = framework.KubeDescribe("Kubectl client", func() {
 
 	framework.KubeDescribe("Kubectl create quota", func() {
 		It("should create a quota without scopes", func() {
+			framework.SkipUnlessKubectlVersionGTE(kubectlCreateQuotaVersion)
 			nsFlag := fmt.Sprintf("--namespace=%v", ns)
 			quotaName := "million"
 
@@ -1344,6 +1393,7 @@ var _ = framework.KubeDescribe("Kubectl client", func() {
 		})
 
 		It("should create a quota with scopes", func() {
+			framework.SkipUnlessKubectlVersionGTE(kubectlCreateQuotaVersion)
 			nsFlag := fmt.Sprintf("--namespace=%v", ns)
 			quotaName := "scopes"
 
@@ -1372,6 +1422,7 @@ var _ = framework.KubeDescribe("Kubectl client", func() {
 		})
 
 		It("should reject quota with invalid scopes", func() {
+			framework.SkipUnlessKubectlVersionGTE(kubectlCreateQuotaVersion)
 			nsFlag := fmt.Sprintf("--namespace=%v", ns)
 			quotaName := "scopes"
 
@@ -1528,6 +1579,7 @@ func readBytesFromFile(filename string) []byte {
 		framework.Failf(err.Error())
 	}
 	defer file.Close()
+
 	data, err := ioutil.ReadAll(file)
 	if err != nil {
 		framework.Failf(err.Error())

@@ -63,7 +63,7 @@ func NewStorage(opts generic.RESTOptions, k client.ConnectionInfoGetter, proxyTr
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &api.PodList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.Pods),
 		&api.Pod{},
@@ -87,6 +87,7 @@ func NewStorage(opts generic.RESTOptions, k client.ConnectionInfoGetter, proxyTr
 		},
 		PredicateFunc:           pod.MatchPod,
 		QualifiedResource:       api.Resource("pods"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		CreateStrategy:      pod.Strategy,
@@ -94,7 +95,8 @@ func NewStorage(opts generic.RESTOptions, k client.ConnectionInfoGetter, proxyTr
 		DeleteStrategy:      pod.Strategy,
 		ReturnDeletedObject: true,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 
 	statusStore := *store

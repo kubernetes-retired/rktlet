@@ -35,7 +35,7 @@ func NewREST(opts generic.RESTOptions) *REST {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &api.PodTemplateList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.PodTemplates),
 		&api.PodTemplate{},
@@ -59,6 +59,7 @@ func NewREST(opts generic.RESTOptions) *REST {
 		},
 		PredicateFunc:           podtemplate.MatchPodTemplate,
 		QualifiedResource:       api.Resource("podtemplates"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		CreateStrategy: podtemplate.Strategy,
@@ -68,7 +69,8 @@ func NewREST(opts generic.RESTOptions) *REST {
 
 		ReturnDeletedObject: true,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 	return &REST{store}
 }

@@ -83,7 +83,7 @@ type ServerRunOptions struct {
 	AuditLogMaxAge            int
 	AuditLogMaxBackups        int
 	AuditLogMaxSize           int
-	EnableLogsSupport         bool
+	EnableGarbageCollection   bool
 	EnableProfiling           bool
 	EnableSwaggerUI           bool
 	EnableWatchCache          bool
@@ -133,7 +133,7 @@ func NewServerRunOptions() *ServerRunOptions {
 		DefaultStorageMediaType:                  "application/json",
 		DefaultStorageVersions:                   registered.AllPreferredGroupVersions(),
 		DeleteCollectionWorkers:                  1,
-		EnableLogsSupport:                        true,
+		EnableGarbageCollection:                  true,
 		EnableProfiling:                          true,
 		EnableWatchCache:                         true,
 		InsecureBindAddress:                      net.ParseIP("127.0.0.1"),
@@ -305,6 +305,10 @@ func (s *ServerRunOptions) AddUniversalFlags(fs *pflag.FlagSet) {
 		"The maximum number of old audit log files to retain.")
 	fs.IntVar(&s.AuditLogMaxSize, "audit-log-maxsize", s.AuditLogMaxSize,
 		"The maximum size in megabytes of the audit log file before it gets rotated. Defaults to 100MB.")
+
+	fs.BoolVar(&s.EnableGarbageCollection, "enable-garbage-collector", s.EnableGarbageCollection, ""+
+		"Enables the generic garbage collector. MUST be synced with the corresponding flag "+
+		"of the kube-controller-manager.")
 
 	fs.BoolVar(&s.EnableProfiling, "profiling", s.EnableProfiling,
 		"Enable profiling via web interface host:port/debug/pprof/")

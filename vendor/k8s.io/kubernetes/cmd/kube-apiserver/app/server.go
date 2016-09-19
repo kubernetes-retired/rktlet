@@ -43,7 +43,7 @@ import (
 	"k8s.io/kubernetes/pkg/apiserver/authenticator"
 	"k8s.io/kubernetes/pkg/capabilities"
 	"k8s.io/kubernetes/pkg/cloudprovider"
-	"k8s.io/kubernetes/pkg/controller/framework/informers"
+	"k8s.io/kubernetes/pkg/controller/informers"
 	serviceaccountcontroller "k8s.io/kubernetes/pkg/controller/serviceaccount"
 	"k8s.io/kubernetes/pkg/genericapiserver"
 	"k8s.io/kubernetes/pkg/genericapiserver/authorizer"
@@ -289,6 +289,8 @@ func Run(s *options.APIServer) error {
 		DeleteCollectionWorkers: s.DeleteCollectionWorkers,
 		EventTTL:                s.EventTTL,
 		KubeletClient:           kubeletClient,
+		EnableUISupport:         true,
+		EnableLogsSupport:       true,
 
 		Tunneler: tunneler,
 	}

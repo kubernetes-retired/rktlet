@@ -38,7 +38,7 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &extensions.DaemonSetList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.Daemonsets),
 		&extensions.DaemonSet{},
@@ -70,6 +70,7 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 		// Used to match objects based on labels/fields for list and watch
 		PredicateFunc:           daemonset.MatchDaemonSet,
 		QualifiedResource:       extensions.Resource("daemonsets"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		// Used to validate daemon set creation
@@ -79,7 +80,8 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 		UpdateStrategy: daemonset.Strategy,
 		DeleteStrategy: daemonset.Strategy,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 	statusStore := *store
 	statusStore.UpdateStrategy = daemonset.StatusStrategy

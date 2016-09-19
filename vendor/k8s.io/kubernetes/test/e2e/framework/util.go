@@ -56,6 +56,7 @@ import (
 	"k8s.io/kubernetes/pkg/client/typed/discovery"
 	"k8s.io/kubernetes/pkg/client/typed/dynamic"
 	client "k8s.io/kubernetes/pkg/client/unversioned"
+	clientsetadapter "k8s.io/kubernetes/pkg/client/unversioned/adapters/internalclientset"
 	"k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
 	clientcmdapi "k8s.io/kubernetes/pkg/client/unversioned/clientcmd/api"
 	gcecloud "k8s.io/kubernetes/pkg/cloudprovider/providers/gce"
@@ -1026,7 +1027,7 @@ func CreateTestingNS(baseName string, c *client.Client, labels map[string]string
 	}
 	// Be robust about making the namespace creation call.
 	var got *api.Namespace
-	if err := wait.PollImmediate(Poll, SingleCallTimeout, func() (bool, error) {
+	if err := wait.PollImmediate(Poll, 30*time.Second, func() (bool, error) {
 		var err error
 		got, err = c.Namespaces().Create(namespaceObj)
 		if err != nil {
@@ -1753,6 +1754,16 @@ func ServerVersionGTE(v semver.Version, c discovery.ServerVersionInterface) (boo
 		return false, fmt.Errorf("Unable to parse server version %q: %v", serverVersion.GitVersion, err)
 	}
 	return sv.GTE(v), nil
+}
+
+func SkipUnlessKubectlVersionGTE(v semver.Version) {
+	gte, err := KubectlVersionGTE(v)
+	if err != nil {
+		Failf("Failed to get kubectl version: %v", err)
+	}
+	if !gte {
+		Skipf("Not supported for kubectl versions before %q", v)
+	}
 }
 
 // KubectlVersionGTE returns true if the kubectl version is greater than or
@@ -3197,7 +3208,7 @@ func RemoveTaintOffNode(c *client.Client, nodeName string, taint api.Taint) {
 
 func ScaleRC(c *client.Client, ns, name string, size uint, wait bool) error {
 	By(fmt.Sprintf("Scaling replication controller %s in namespace %s to %d", name, ns, size))
-	scaler, err := kubectl.ScalerFor(api.Kind("ReplicationController"), c)
+	scaler, err := kubectl.ScalerFor(api.Kind("ReplicationController"), clientsetadapter.FromUnversionedClient(c))
 	if err != nil {
 		return err
 	}
@@ -3314,7 +3325,7 @@ func DeleteRCAndPods(c *client.Client, ns, name string) error {
 		}
 		return err
 	}
-	reaper, err := kubectl.ReaperForReplicationController(c, 10*time.Minute)
+	reaper, err := kubectl.ReaperForReplicationController(clientsetadapter.FromUnversionedClient(c).Core(), 10*time.Minute)
 	if err != nil {
 		if apierrs.IsNotFound(err) {
 			Logf("RC %s was already deleted: %v", name, err)
@@ -3404,7 +3415,7 @@ func DeleteRCAndWaitForGC(c *client.Client, ns, name string) error {
 	}
 	terminatePodTime := time.Now().Sub(startTime) - deleteRCTime
 	Logf("Terminating RC %s pods took: %v", name, terminatePodTime)
-	err = waitForPodsGone(ps, 10*time.Second, 10*time.Minute)
+	err = waitForPodsGone(ps, interval, 10*time.Minute)
 	if err != nil {
 		return fmt.Errorf("error while waiting for pods gone %s: %v", name, err)
 	}
@@ -3462,7 +3473,7 @@ func DeleteReplicaSet(c *client.Client, ns, name string) error {
 		}
 		return err
 	}
-	reaper, err := kubectl.ReaperFor(extensions.Kind("ReplicaSet"), c)
+	reaper, err := kubectl.ReaperFor(extensions.Kind("ReplicaSet"), clientsetadapter.FromUnversionedClient(c))
 	if err != nil {
 		if apierrs.IsNotFound(err) {
 			Logf("ReplicaSet %s was already deleted: %v", name, err)
@@ -4097,6 +4108,12 @@ func GetSigner(provider string) (ssh.Signer, error) {
 		}
 		// Otherwise revert to home dir
 		keyfile = "kube_aws_rsa"
+	case "vagrant":
+		keyfile := os.Getenv("VAGRANT_SSH_KEY")
+		if len(keyfile) != 0 {
+			return sshutil.MakePrivateKeySignerFromFile(keyfile)
+		}
+		return nil, fmt.Errorf("VAGRANT_SSH_KEY env variable should be provided")
 	default:
 		return nil, fmt.Errorf("GetSigner(...) not implemented for %s", provider)
 	}

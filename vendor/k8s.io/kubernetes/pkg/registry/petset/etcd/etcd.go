@@ -38,7 +38,7 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &appsapi.PetSetList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.PetSet),
 		&appsapi.PetSet{},
@@ -70,6 +70,7 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 		// Used to match objects based on labels/fields for list and watch
 		PredicateFunc:           petset.MatchPetSet,
 		QualifiedResource:       appsapi.Resource("petsets"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		// Used to validate controller creation
@@ -79,7 +80,8 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 		UpdateStrategy: petset.Strategy,
 		DeleteStrategy: petset.Strategy,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 	statusStore := *store
 	statusStore.UpdateStrategy = petset.StatusStrategy

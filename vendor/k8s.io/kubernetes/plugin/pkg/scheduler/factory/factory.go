@@ -29,7 +29,6 @@ import (
 	"k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/client/cache"
 	client "k8s.io/kubernetes/pkg/client/unversioned"
-	"k8s.io/kubernetes/pkg/controller/framework"
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/types"
 	"k8s.io/kubernetes/pkg/util/runtime"
@@ -77,8 +76,8 @@ type ConfigFactory struct {
 	// Close this to stop all reflectors
 	StopEverything chan struct{}
 
-	scheduledPodPopulator *framework.Controller
-	nodePopulator         *framework.Controller
+	scheduledPodPopulator *cache.Controller
+	nodePopulator         *cache.Controller
 
 	schedulerCache schedulercache.Cache
 
@@ -125,11 +124,11 @@ func NewConfigFactory(client *client.Client, schedulerName string, hardPodAffini
 	// We construct this here instead of in CreateFromKeys because
 	// ScheduledPodLister is something we provide to plug in functions that
 	// they may need to call.
-	c.ScheduledPodLister.Indexer, c.scheduledPodPopulator = framework.NewIndexerInformer(
+	c.ScheduledPodLister.Indexer, c.scheduledPodPopulator = cache.NewIndexerInformer(
 		c.createAssignedNonTerminatedPodLW(),
 		&api.Pod{},
 		0,
-		framework.ResourceEventHandlerFuncs{
+		cache.ResourceEventHandlerFuncs{
 			AddFunc:    c.addPodToCache,
 			UpdateFunc: c.updatePodInCache,
 			DeleteFunc: c.deletePodFromCache,
@@ -137,11 +136,11 @@ func NewConfigFactory(client *client.Client, schedulerName string, hardPodAffini
 		cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 	)
 
-	c.NodeLister.Store, c.nodePopulator = framework.NewInformer(
+	c.NodeLister.Store, c.nodePopulator = cache.NewInformer(
 		c.createNodeLW(),
 		&api.Node{},
 		0,
-		framework.ResourceEventHandlerFuncs{
+		cache.ResourceEventHandlerFuncs{
 			AddFunc:    c.addNodeToCache,
 			UpdateFunc: c.updateNodeInCache,
 			DeleteFunc: c.deleteNodeFromCache,
@@ -532,10 +531,13 @@ func (factory *ConfigFactory) makeDefaultErrorFunc(backoff *podBackoff, podQueue
 				return
 			}
 			// Get the pod again; it may have changed/been scheduled already.
-			pod = &api.Pod{}
 			getBackoff := initialGetBackoff
 			for {
-				if err := factory.Client.Get().Namespace(podID.Namespace).Resource("pods").Name(podID.Name).Do().Into(pod); err == nil {
+				pod, err := factory.Client.Pods(podID.Namespace).Get(podID.Name)
+				if err == nil {
+					if len(pod.Spec.NodeName) == 0 {
+						podQueue.AddIfNotPresent(pod)
+					}
 					break
 				}
 				if errors.IsNotFound(err) {
@@ -547,9 +549,6 @@ func (factory *ConfigFactory) makeDefaultErrorFunc(backoff *podBackoff, podQueue
 					getBackoff = maximalGetBackoff
 				}
 				time.Sleep(getBackoff)
-			}
-			if pod.Spec.NodeName == "" {
-				podQueue.AddIfNotPresent(pod)
 			}
 		}()
 	}

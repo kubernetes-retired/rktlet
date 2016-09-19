@@ -35,7 +35,7 @@ func NewREST(opts generic.RESTOptions) *REST {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &api.LimitRangeList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.LimitRanges),
 		&api.LimitRange{},
@@ -59,6 +59,7 @@ func NewREST(opts generic.RESTOptions) *REST {
 		},
 		PredicateFunc:           limitrange.MatchLimitRange,
 		QualifiedResource:       api.Resource("limitranges"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		CreateStrategy: limitrange.Strategy,
@@ -66,7 +67,8 @@ func NewREST(opts generic.RESTOptions) *REST {
 		DeleteStrategy: limitrange.Strategy,
 		ExportStrategy: limitrange.Strategy,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 	return &REST{store}
 }

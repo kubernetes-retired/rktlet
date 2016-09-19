@@ -40,7 +40,7 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST, *ApprovalREST) {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &certificates.CertificateSigningRequestList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.CertificateSigningRequests),
 		&certificates.CertificateSigningRequest{},
@@ -66,13 +66,15 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST, *ApprovalREST) {
 			return csrregistry.Matcher(label, field)
 		},
 		QualifiedResource:       certificates.Resource("certificatesigningrequests"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		CreateStrategy: csrregistry.Strategy,
 		UpdateStrategy: csrregistry.Strategy,
 		DeleteStrategy: csrregistry.Strategy,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 
 	// Subresources use the same store and creation strategy, which only

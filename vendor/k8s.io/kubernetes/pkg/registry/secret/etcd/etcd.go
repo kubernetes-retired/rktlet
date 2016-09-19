@@ -35,7 +35,7 @@ func NewREST(opts generic.RESTOptions) *REST {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &api.SecretList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.Secrets),
 		&api.Secret{},
@@ -59,13 +59,15 @@ func NewREST(opts generic.RESTOptions) *REST {
 		},
 		PredicateFunc:           secret.Matcher,
 		QualifiedResource:       api.Resource("secrets"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		CreateStrategy: secret.Strategy,
 		UpdateStrategy: secret.Strategy,
 		DeleteStrategy: secret.Strategy,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 	return &REST{store}
 }

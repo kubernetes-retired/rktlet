@@ -41,7 +41,7 @@ type calledDetail struct {
 // FakeDockerClient is a simple fake docker client, so that kubelet can be run for testing without requiring a real docker setup.
 type FakeDockerClient struct {
 	sync.Mutex
-	Clock                *clock.FakeClock
+	Clock                clock.Clock
 	RunningContainerList []dockertypes.Container
 	ExitedContainerList  []dockertypes.Container
 	ContainerMap         map[string]*dockertypes.ContainerJSON
@@ -72,12 +72,20 @@ func NewFakeDockerClient() *FakeDockerClient {
 	return NewFakeDockerClientWithVersion(fakeDockerVersion, minimumDockerAPIVersion)
 }
 
+func NewFakeDockerClientWithClock(c clock.Clock) *FakeDockerClient {
+	return newClientWithVersionAndClock(fakeDockerVersion, minimumDockerAPIVersion, c)
+}
+
 func NewFakeDockerClientWithVersion(version, apiVersion string) *FakeDockerClient {
+	return newClientWithVersionAndClock(version, apiVersion, clock.RealClock{})
+}
+
+func newClientWithVersionAndClock(version, apiVersion string, c clock.Clock) *FakeDockerClient {
 	return &FakeDockerClient{
 		VersionInfo:  dockertypes.Version{Version: version, APIVersion: apiVersion},
 		Errors:       make(map[string]error),
 		ContainerMap: make(map[string]*dockertypes.ContainerJSON),
-		Clock:        clock.NewFakeClock(time.Time{}),
+		Clock:        c,
 	}
 }
 

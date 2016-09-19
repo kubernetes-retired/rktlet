@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"k8s.io/kubernetes/pkg/api"
+	coreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/unversioned"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/kubectl/metricsutil"
 	"k8s.io/kubernetes/pkg/labels"
@@ -38,6 +39,7 @@ type TopPodOptions struct {
 	Selector        string
 	AllNamespaces   bool
 	PrintContainers bool
+	PodClient       coreclient.PodsGetter
 	Client          *metricsutil.HeapsterMetricsClient
 	Printer         *metricsutil.TopCmdPrinter
 }
@@ -79,6 +81,9 @@ func NewCmdTopPod(f *cmdutil.Factory, out io.Writer) *cobra.Command {
 			if err := options.Complete(f, cmd, args, out); err != nil {
 				cmdutil.CheckErr(err)
 			}
+			if err := options.Validate(); err != nil {
+				cmdutil.CheckErr(cmdutil.UsageError(cmd, err.Error()))
+			}
 			if err := options.RunTopPod(); err != nil {
 				cmdutil.CheckErr(err)
 			}
@@ -103,11 +108,12 @@ func (o *TopPodOptions) Complete(f *cmdutil.Factory, cmd *cobra.Command, args []
 	if err != nil {
 		return err
 	}
-	cli, err := f.Client()
+	clientset, err := f.ClientSet()
 	if err != nil {
 		return err
 	}
-	o.Client = metricsutil.DefaultHeapsterMetricsClient(cli)
+	o.PodClient = clientset.Core()
+	o.Client = metricsutil.DefaultHeapsterMetricsClient(clientset.Core())
 	o.Printer = metricsutil.NewTopCmdPrinter(out)
 	return nil
 }
@@ -147,7 +153,7 @@ func (o TopPodOptions) RunTopPod() error {
 
 func verifyEmptyMetrics(o TopPodOptions, selector labels.Selector) error {
 	if len(o.ResourceName) > 0 {
-		pod, err := o.Client.Pods(o.Namespace).Get(o.ResourceName)
+		pod, err := o.PodClient.Pods(o.Namespace).Get(o.ResourceName)
 		if err != nil {
 			return err
 		}
@@ -155,7 +161,7 @@ func verifyEmptyMetrics(o TopPodOptions, selector labels.Selector) error {
 			return err
 		}
 	} else {
-		pods, err := o.Client.Pods(o.Namespace).List(api.ListOptions{
+		pods, err := o.PodClient.Pods(o.Namespace).List(api.ListOptions{
 			LabelSelector: selector,
 		})
 		if err != nil {

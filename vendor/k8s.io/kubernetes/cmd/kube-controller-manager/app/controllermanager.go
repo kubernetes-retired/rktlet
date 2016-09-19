@@ -51,9 +51,9 @@ import (
 	"k8s.io/kubernetes/pkg/controller/deployment"
 	"k8s.io/kubernetes/pkg/controller/disruption"
 	endpointcontroller "k8s.io/kubernetes/pkg/controller/endpoint"
-	"k8s.io/kubernetes/pkg/controller/framework/informers"
 	"k8s.io/kubernetes/pkg/controller/garbagecollector"
 	"k8s.io/kubernetes/pkg/controller/garbagecollector/metaonly"
+	"k8s.io/kubernetes/pkg/controller/informers"
 	"k8s.io/kubernetes/pkg/controller/job"
 	namespacecontroller "k8s.io/kubernetes/pkg/controller/namespace"
 	nodecontroller "k8s.io/kubernetes/pkg/controller/node"
@@ -260,7 +260,7 @@ func StartControllers(s *options.CMServer, kubeClient *client.Client, kubeconfig
 			glog.Warning("configure-cloud-routes is set, but cloud provider does not support routes. Will not configure cloud provider routes.")
 		} else {
 			routeController := routecontroller.New(routes, clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "route-controller")), s.ClusterName, clusterCIDR)
-			routeController.Run(s.NodeSyncPeriod.Duration)
+			routeController.Run(s.RouteReconciliationPeriod.Duration)
 			time.Sleep(wait.Jitter(s.ControllerStartInterval.Duration, ControllerStartJitter))
 		}
 	} else {
@@ -341,7 +341,7 @@ func StartControllers(s *options.CMServer, kubeClient *client.Client, kubeconfig
 
 		if containsResource(resources, "daemonsets") {
 			glog.Infof("Starting daemon set controller")
-			go daemon.NewDaemonSetsController(sharedInformers.Pods().Informer(), clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "daemon-set-controller")), ResyncPeriod(s), int(s.LookupCacheSizeForDaemonSet)).
+			go daemon.NewDaemonSetsController(sharedInformers.DaemonSets(), sharedInformers.Pods(), sharedInformers.Nodes(), clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "daemon-set-controller")), int(s.LookupCacheSizeForDaemonSet)).
 				Run(int(s.ConcurrentDaemonSetSyncs), wait.NeverStop)
 			time.Sleep(wait.Jitter(s.ControllerStartInterval.Duration, ControllerStartJitter))
 		}
@@ -404,13 +404,9 @@ func StartControllers(s *options.CMServer, kubeClient *client.Client, kubeconfig
 		glog.Infof("Starting %s apis", groupVersion)
 		if containsResource(resources, "scheduledjobs") {
 			glog.Infof("Starting scheduledjob controller")
-			// TODO: this is a temp fix for allowing kubeClient list v2alpha1 sj, should switch to using clientset
+			// // TODO: this is a temp fix for allowing kubeClient list v2alpha1 sj, should switch to using clientset
 			kubeconfig.ContentConfig.GroupVersion = &unversioned.GroupVersion{Group: batch.GroupName, Version: "v2alpha1"}
-			kubeClient, err := client.New(kubeconfig)
-			if err != nil {
-				glog.Fatalf("Invalid API configuration: %v", err)
-			}
-			go scheduledjob.NewScheduledJobController(kubeClient).
+			go scheduledjob.NewScheduledJobController(clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "scheduledjob-controller"))).
 				Run(wait.NeverStop)
 			time.Sleep(wait.Jitter(s.ControllerStartInterval.Duration, ControllerStartJitter))
 			time.Sleep(wait.Jitter(s.ControllerStartInterval.Duration, ControllerStartJitter))
@@ -430,7 +426,7 @@ func StartControllers(s *options.CMServer, kubeClient *client.Client, kubeconfig
 		ProbeControllerVolumePlugins(cloud, s.VolumeConfiguration),
 		cloud,
 		s.ClusterName,
-		sharedInformers.PersistentVolumes().Informer(),
+		nil, // volumeSource
 		nil, // claimSource
 		nil, // classSource
 		nil, // eventRecorder

@@ -71,6 +71,8 @@ cluster-tag
 cluster-monitor-period
 cluster-signing-cert-file
 cluster-signing-key-file
+cni-bin-dir
+cni-conf-dir
 concurrent-deployment-syncs
 concurrent-endpoint-syncs
 concurrent-namespace-syncs
@@ -100,6 +102,7 @@ create-external-load-balancer
 current-release-pr
 current-replicas
 daemonset-lookup-cache-size
+data-dir
 default-container-cpu-limit
 default-container-mem-limit
 delay-shutdown
@@ -436,6 +439,7 @@ rkt-path
 rkt-stage1-image
 root-ca-file
 root-dir
+route-reconciliation-period
 run-proxy
 run-services-mode
 runtime-cgroups
@@ -512,6 +516,7 @@ udp-timeout
 unhealthy-zone-threshold
 unix-socket
 update-period
+upgrade-image
 upgrade-target
 use-kubernetes-cluster-service
 user-whitelist

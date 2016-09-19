@@ -36,7 +36,7 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 	prefix := "/" + opts.ResourcePrefix
 
 	newListFunc := func() runtime.Object { return &api.ServiceList{} }
-	storageInterface, _ := opts.Decorator(
+	storageInterface, dFunc := opts.Decorator(
 		opts.StorageConfig,
 		cachesize.GetWatchCacheSizeByResource(cachesize.Services),
 		&api.Service{},
@@ -60,6 +60,7 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 		},
 		PredicateFunc:           service.MatchServices,
 		QualifiedResource:       api.Resource("services"),
+		EnableGarbageCollection: opts.EnableGarbageCollection,
 		DeleteCollectionWorkers: opts.DeleteCollectionWorkers,
 
 		CreateStrategy: service.Strategy,
@@ -67,7 +68,8 @@ func NewREST(opts generic.RESTOptions) (*REST, *StatusREST) {
 		DeleteStrategy: service.Strategy,
 		ExportStrategy: service.Strategy,
 
-		Storage: storageInterface,
+		Storage:     storageInterface,
+		DestroyFunc: dFunc,
 	}
 	statusStore := *store
 	statusStore.UpdateStrategy = service.StatusStrategy
