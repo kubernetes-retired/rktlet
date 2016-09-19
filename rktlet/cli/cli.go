@@ -133,12 +133,13 @@ func (c *cli) RunCommand(subcmd string, args ...string) ([]string, error) {
 	cmd := c.execer.Command(command[0], command[1:]...)
 
 	out, err := cmd.CombinedOutput()
+	result := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if err != nil {
 		glog.Warningf("rkt: cmd %v %v errored with %v", subcmd, args, err)
-		return nil, fmt.Errorf("failed to run %v %v: %v\noutput: %s", subcmd, args, err, out)
+		return result, fmt.Errorf("failed to run %v %v: %v\noutput: %s", subcmd, args, err, out)
 	}
 
-	return strings.Split(strings.TrimSpace(string(out)), "\n"), nil
+	return result, nil
 }
 
 // Command returns the final rkt command that will be executed by RunCommand.
