@@ -18,10 +18,9 @@ package cli
 
 import (
 	"fmt"
-	"regexp"
-	"strings"
 
 	"github.com/golang/glog"
+	"github.com/pborman/uuid"
 	utilexec "k8s.io/kubernetes/pkg/util/exec"
 )
 
@@ -38,22 +37,17 @@ func NewSystemd(systemdRunPath string, execer utilexec.Interface) Init {
 // StartProcess runs the 'command + args' as a child of the init process,
 // and returns the id of the process.
 func (s *systemd) StartProcess(command string, args ...string) (id string, err error) {
-	cmd := s.execer.Command(s.systemdRunPath, append([]string{command}, args...)...)
+	unitName := fmt.Sprintf("rktlet-%s", uuid.New())
+
+	cmdList := []string{s.systemdRunPath, "--unit=" + unitName}
+	cmdList = append(cmdList, command)
+	cmdList = append(cmdList, args...)
+
+	cmd := s.execer.Command(cmdList[0], cmdList[1:]...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		glog.Warningf("rkt: systemd-run %v %v errored with %v", command, args, err)
 		return "", fmt.Errorf("failed to run systemd-run %v %v: %v\noutput: %s", command, args, err, out)
 	}
-
-	// The output is like 'Running as unit run-30192.service.'
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if strings.Contains(line, "Running as unit") {
-			re := regexp.MustCompile(`run-[\d]+\.service`)
-			serviceName := re.FindString(line)
-			if serviceName != "" {
-				return serviceName, nil
-			}
-		}
-	}
-	return "", fmt.Errorf("failed to find the service name of the process")
+	return unitName, nil
 }
