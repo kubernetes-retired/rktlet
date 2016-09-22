@@ -1,13 +1,13 @@
-hash: 3fd77efe2c549b49ae8cff623e11655e98988d337c35bcb5293861276cf3cd3f
-updated: 2016-09-22T12:21:39.362617598-07:00
+hash: 99b3baa06178470ed1cc92fe29d8073cb48de8b700457d9993fa218bf2cebd93
+updated: 2016-09-22T14:38:58.541663879-07:00
 imports:
 - name: github.com/appc/spec
-  version: ab50d12e88f57788bf84b83fef2be236eb1fcc0b
+  version: 549b066b7c15e0154504a512df02d076d50da460
   subpackages:
   - schema
-  - schema/common
   - schema/types
   - aci
+  - schema/common
   - pkg/tarheader
   - pkg/device
 - name: github.com/containernetworking/cni

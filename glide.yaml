@@ -29,3 +29,5 @@ import:
   version: cri
   subpackages:
   - lib
+- package: github.com/appc/spec
+  version: cri
