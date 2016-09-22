@@ -56,15 +56,34 @@ type StopConfig struct {
 	PodPID  int
 }
 
-// TODO(iaguis): add override options for Exec, Environment (à la patch-manifest)
-func AddApp(cfg RunConfig, dir string, img *types.Hash) error {
-	im, err := cfg.Store.GetImageManifest(img.String())
+type AddConfig struct {
+	Name        *types.ACName
+	Annotations types.Annotations
+}
+
+func AddApp(pcfg PrepareConfig, cfg RunConfig, dir string, img *types.Hash) error {
+	// there should be only one app in the config
+	app := pcfg.Apps.Last()
+	if app == nil {
+		return errors.New("no image specified")
+	}
+
+	am, err := cfg.Store.GetImageManifest(img.String())
 	if err != nil {
 		return err
 	}
-	appName, err := imageNameToAppName(im.Name)
-	if err != nil {
-		return err
+
+	var appName *types.ACName
+	if app.Name != "" {
+		appName, err = types.NewACName(app.Name)
+		if err != nil {
+			return err
+		}
+	} else {
+		appName, err = imageNameToAppName(am.Name)
+		if err != nil {
+			return err
+		}
 	}
 
 	p, err := stage1types.LoadPod(dir, cfg.UUID)
@@ -90,8 +109,8 @@ func AddApp(cfg RunConfig, dir string, img *types.Hash) error {
 	if pm.Apps.Get(*appName) != nil {
 		return fmt.Errorf("error: multiple apps with name %s", *appName)
 	}
-	if im.App == nil {
-		return fmt.Errorf("error: image %s has no app section)", img)
+	if am.App == nil && app.Exec == "" {
+		return fmt.Errorf("error: image %s has no app section and --exec argument is not provided", img)
 	}
 
 	appInfoDir := common.AppInfoPath(dir, *appName)
@@ -170,13 +189,56 @@ func AddApp(cfg RunConfig, dir string, img *types.Hash) error {
 
 	ra := schema.RuntimeApp{
 		Name: *appName,
-		App:  im.App,
+		App:  am.App,
 		Image: schema.RuntimeImage{
-			Name:   &im.Name,
+			Name:   &am.Name,
 			ID:     *img,
-			Labels: im.Labels,
+			Labels: am.Labels,
 		},
-		// TODO(iaguis): default isolators
+	}
+
+	if execOverride := app.Exec; execOverride != "" {
+		// Create a minimal App section if not present
+		if am.App == nil {
+			ra.App = &types.App{
+				User:  strconv.Itoa(os.Getuid()),
+				Group: strconv.Itoa(os.Getgid()),
+			}
+		}
+		ra.App.Exec = []string{execOverride}
+	}
+
+	if execAppends := app.Args; execAppends != nil {
+		ra.App.Exec = append(ra.App.Exec, execAppends...)
+	}
+
+	if err := prepareIsolators(app, ra.App); err != nil {
+		return err
+	}
+
+	if user := app.User; user != "" {
+		ra.App.User = user
+	}
+
+	if group := app.Group; group != "" {
+		ra.App.Group = group
+	}
+
+	if app.CRIAnnotations != nil {
+		ra.App.CRIAnnotations = app.CRIAnnotations
+	}
+
+	if app.CRILabels != nil {
+		ra.App.CRILabels = app.CRILabels
+	}
+
+	if app.Environments != nil {
+		envs := make([]string, 0, len(app.Environments))
+		for name, value := range app.Environments {
+			envs = append(envs, fmt.Sprintf("%s=%s", name, value))
+		}
+		// Let the app level environment override the environment variables.
+		mergeEnvs(&ra.App.Environment, envs, true)
 	}
 
 	env := ra.App.Environment
@@ -313,19 +375,24 @@ func RmApp(dir string, uuid *types.UUID, usesOverlay bool, appName *types.ACName
 		return errwrap.Wrap(errors.New("error determining 'enter' entrypoint"), err)
 	}
 
-	args := []string{
-		uuid.String(),
-		appName.String(),
-		filepath.Join(common.Stage1RootfsPath(dir), eep),
-		strconv.Itoa(podPID),
-	}
+	if podPID > 0 {
+		// Call app-stop and app-rm entrypoint only if the pod is still running.
+		// Otherwise, there's not much we can do about it except unmounting/removing
+		// the file system.
+		args := []string{
+			uuid.String(),
+			appName.String(),
+			filepath.Join(common.Stage1RootfsPath(dir), eep),
+			strconv.Itoa(podPID),
+		}
 
-	if err := callEntrypoint(dir, appStopEntrypoint, args); err != nil {
-		return err
-	}
+		if err := callEntrypoint(dir, appStopEntrypoint, args); err != nil {
+			return err
+		}
 
-	if err := callEntrypoint(dir, appRmEntrypoint, args); err != nil {
-		return err
+		if err := callEntrypoint(dir, appRmEntrypoint, args); err != nil {
+			return err
+		}
 	}
 
 	appInfoDir := common.AppInfoPath(dir, *appName)

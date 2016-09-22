@@ -56,20 +56,18 @@ func runAppRm(cmd *cobra.Command, args []string) (exit int) {
 	}
 	defer p.Close()
 
-	if p.State() != pkgPod.Running {
-		stderr.Printf("pod %q isn't currently running", p.UUID)
-		return 1
-	}
-
 	appName, err := types.NewACName(flagAppName)
 	if err != nil {
 		stderr.PrintE("invalid app name", err)
 	}
 
-	podPID, err := p.ContainerPid1()
-	if err != nil {
-		stderr.PrintE(fmt.Sprintf("unable to determine the pid for pod %q", p.UUID), err)
-		return 1
+	podPID := -1
+	if p.State() == pkgPod.Running {
+		podPID, err = p.ContainerPid1()
+		if err != nil {
+			stderr.PrintE(fmt.Sprintf("unable to determine the pid for pod %q", p.UUID), err)
+			return 1
+		}
 	}
 
 	err = stage0.RmApp(p.Path(), p.UUID, p.UsesOverlay(), appName, podPID)

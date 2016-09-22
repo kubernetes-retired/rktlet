@@ -180,7 +180,7 @@ var (
 								{"FILE", mountFilePath},
 							},
 							MountPoints: []types.MountPoint{
-								{mountName, mountDir, false},
+								{mountName, mountDir, false, nil},
 							},
 						},
 					},
@@ -213,7 +213,7 @@ var (
 								{"CONTENT", "should-not-see-me"},
 							},
 							MountPoints: []types.MountPoint{
-								{mountName, mountDir, false},
+								{mountName, mountDir, false, nil},
 							},
 						},
 					},
@@ -249,7 +249,7 @@ var (
 								{"CONTENT", "host:foo"},
 							},
 							MountPoints: []types.MountPoint{
-								{mountName, mountDir, false},
+								{mountName, mountDir, false, nil},
 							},
 						},
 						ReadOnlyRootFS: true,
@@ -285,7 +285,7 @@ var (
 								{"FILE", mountFilePath},
 							},
 							MountPoints: []types.MountPoint{
-								{mountName, mountDir, false},
+								{mountName, mountDir, false, nil},
 							},
 						},
 					},

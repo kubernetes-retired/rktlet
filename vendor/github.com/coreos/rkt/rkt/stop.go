@@ -68,6 +68,12 @@ func runStop(cmd *cobra.Command, args []string) (exit int) {
 		if err != nil {
 			errors++
 			stderr.PrintE("cannot get pod", err)
+			continue
+		}
+
+		if p.AfterRun() {
+			stdout.Printf("pod %q is already stopped", p.UUID)
+			continue
 		}
 
 		if p.State() != pkgPod.Running {

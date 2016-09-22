@@ -42,6 +42,7 @@ import (
 	cnitypes "github.com/containernetworking/cni/pkg/types"
 	"github.com/coreos/rkt/common"
 	"github.com/coreos/rkt/common/apps"
+	commonnet "github.com/coreos/rkt/common/networking"
 	"github.com/coreos/rkt/common/overlay"
 	"github.com/coreos/rkt/pkg/aci"
 	"github.com/coreos/rkt/pkg/fileutil"
@@ -60,15 +61,17 @@ var debugEnabled bool
 // PrepareConfig defines the configuration parameters required by Prepare
 type PrepareConfig struct {
 	*CommonConfig
-	Apps               *apps.Apps          // apps to prepare
-	InheritEnv         bool                // inherit parent environment into apps
-	ExplicitEnv        []string            // always set these environment variables for all the apps
-	EnvFromFile        []string            // environment variables loaded from files, set for all the apps
-	Ports              []types.ExposedPort // list of ports that rkt will expose on the host
-	UseOverlay         bool                // prepare pod with overlay fs
-	SkipTreeStoreCheck bool                // skip checking the treestore before rendering
-	PodManifest        string              // use the pod manifest specified by the user, this will ignore flags such as '--volume', '--port', etc.
-	PrivateUsers       *user.UidRange      // User namespaces
+	Apps               *apps.Apps           // apps to prepare
+	InheritEnv         bool                 // inherit parent environment into apps
+	ExplicitEnv        []string             // always set these environment variables for all the apps
+	EnvFromFile        []string             // environment variables loaded from files, set for all the apps
+	Ports              []types.ExposedPort  // list of ports that rkt will expose on the host
+	UseOverlay         bool                 // prepare pod with overlay fs
+	SkipTreeStoreCheck bool                 // skip checking the treestore before rendering
+	PodManifest        string               // use the pod manifest specified by the user, this will ignore flags such as '--volume', '--port', etc.
+	PrivateUsers       *user.UidRange       // user namespaces
+	CRIAnnotations     types.CRIAnnotations // CRI annotations for the pod.
+	CRILabels          types.CRILabels      // CRI labels for the pod.
 }
 
 // RunConfig defines the configuration parameters needed by Run
@@ -246,74 +249,8 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 			ra.App.Exec = append(ra.App.Exec, execAppends...)
 		}
 
-		if memoryOverride := app.MemoryLimit; memoryOverride != nil {
-			isolator := memoryOverride.AsIsolator()
-			ra.App.Isolators = append(ra.App.Isolators, isolator)
-		}
-
-		if cpuOverride := app.CPULimit; cpuOverride != nil {
-			isolator := cpuOverride.AsIsolator()
-			ra.App.Isolators = append(ra.App.Isolators, isolator)
-		}
-
-		if app.CapsRetain != nil && app.CapsRemove != nil {
-			return fmt.Errorf("error: cannot use both --caps-retain and --caps-remove on the same image")
-		}
-
-		// Delete existing caps isolators if the user wants to override
-		// them with either --caps-retain or --caps-remove
-		if app.CapsRetain != nil || app.CapsRemove != nil {
-			for i := len(ra.App.Isolators) - 1; i >= 0; i-- {
-				isolator := ra.App.Isolators[i]
-				if _, ok := isolator.Value().(types.LinuxCapabilitiesSet); ok {
-					ra.App.Isolators = append(ra.App.Isolators[:i],
-						ra.App.Isolators[i+1:]...)
-				}
-			}
-		}
-
-		if capsRetain := app.CapsRetain; capsRetain != nil {
-			isolator, err := capsRetain.AsIsolator()
-			if err != nil {
-				return err
-			}
-			ra.App.Isolators = append(ra.App.Isolators, *isolator)
-		} else if capsRemove := app.CapsRemove; capsRemove != nil {
-			isolator, err := capsRemove.AsIsolator()
-			if err != nil {
-				return err
-			}
-			ra.App.Isolators = append(ra.App.Isolators, *isolator)
-		}
-
-		// Override seccomp isolators via --seccomp CLI switch
-		if app.SeccompFilter != "" {
-			var is *types.Isolator
-			mode, errno, set, err := app.SeccompOverride()
-			if err != nil {
-				return err
-			}
-			switch mode {
-			case "retain":
-				lss, err := types.NewLinuxSeccompRetainSet(errno, set...)
-				if err != nil {
-					return err
-				}
-				if is, err = lss.AsIsolator(); err != nil {
-					return err
-				}
-			case "remove":
-				lss, err := types.NewLinuxSeccompRemoveSet(errno, set...)
-				if err != nil {
-					return err
-				}
-				if is, err = lss.AsIsolator(); err != nil {
-					return err
-				}
-			default:
-				return apps.ErrInvalidSeccompMode
-			}
-			ra.App.Isolators.ReplaceIsolatorsByName(*is, []types.ACIdentifier{types.LinuxSeccompRemoveSetName, types.LinuxSeccompRetainSetName})
+		if err := prepareIsolators(app, ra.App); err != nil {
+			return err
 		}
 
 		if user := app.User; user != "" {
@@ -341,7 +278,12 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 	// TODO(jonboulle): check that app mountpoint expectations are
 	// satisfied here, rather than waiting for stage1
 	pm.Volumes = cfg.Apps.Volumes
+
+	// Check to see if ports have any errors
 	pm.Ports = cfg.Ports
+	if _, err := commonnet.ForwardedPorts(&pm); err != nil {
+		return nil, err
+	}
 
 	// TODO(sur): add to stage1-implementors-guide and to the spec
 	pm.Annotations = append(pm.Annotations, types.Annotation{
@@ -349,11 +291,87 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 		Value: strconv.FormatBool(cfg.Mutable),
 	})
 
+	pm.CRIAnnotations = cfg.CRIAnnotations
+	pm.CRILabels = cfg.CRILabels
+
 	pmb, err := json.Marshal(pm)
 	if err != nil {
 		return nil, errwrap.Wrap(errors.New("error marshalling pod manifest"), err)
 	}
 	return pmb, nil
+}
+
+func prepareIsolators(setup *apps.App, app *types.App) error {
+	if memoryOverride := setup.MemoryLimit; memoryOverride != nil {
+		isolator := memoryOverride.AsIsolator()
+		app.Isolators = append(app.Isolators, isolator)
+	}
+
+	if cpuOverride := setup.CPULimit; cpuOverride != nil {
+		isolator := cpuOverride.AsIsolator()
+		app.Isolators = append(app.Isolators, isolator)
+	}
+
+	if setup.CapsRetain != nil && setup.CapsRemove != nil {
+		return fmt.Errorf("error: cannot use both --caps-retain and --caps-remove on the same image")
+	}
+
+	// Delete existing caps isolators if the user wants to override
+	// them with either --caps-retain or --caps-remove
+	if setup.CapsRetain != nil || setup.CapsRemove != nil {
+		for i := len(app.Isolators) - 1; i >= 0; i-- {
+			isolator := app.Isolators[i]
+			if _, ok := isolator.Value().(types.LinuxCapabilitiesSet); ok {
+				app.Isolators = append(app.Isolators[:i],
+					app.Isolators[i+1:]...)
+			}
+		}
+	}
+
+	if capsRetain := setup.CapsRetain; capsRetain != nil {
+		isolator, err := capsRetain.AsIsolator()
+		if err != nil {
+			return err
+		}
+		app.Isolators = append(app.Isolators, *isolator)
+	} else if capsRemove := setup.CapsRemove; capsRemove != nil {
+		isolator, err := capsRemove.AsIsolator()
+		if err != nil {
+			return err
+		}
+		app.Isolators = append(app.Isolators, *isolator)
+	}
+
+	// Override seccomp isolators via --seccomp CLI switch
+	if setup.SeccompFilter != "" {
+		var is *types.Isolator
+		mode, errno, set, err := setup.SeccompOverride()
+		if err != nil {
+			return err
+		}
+		switch mode {
+		case "retain":
+			lss, err := types.NewLinuxSeccompRetainSet(errno, set...)
+			if err != nil {
+				return err
+			}
+			if is, err = lss.AsIsolator(); err != nil {
+				return err
+			}
+		case "remove":
+			lss, err := types.NewLinuxSeccompRemoveSet(errno, set...)
+			if err != nil {
+				return err
+			}
+			if is, err = lss.AsIsolator(); err != nil {
+				return err
+			}
+		default:
+			return apps.ErrInvalidSeccompMode
+		}
+		app.Isolators.ReplaceIsolatorsByName(*is, []types.ACIdentifier{types.LinuxSeccompRemoveSetName, types.LinuxSeccompRetainSetName})
+	}
+	return nil
 }
 
 // validatePodManifest reads the user-specified pod manifest, prepares the app images
@@ -391,6 +409,11 @@ func validatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 		if ra.App == nil && am.App == nil {
 			return nil, fmt.Errorf("no app section in the pod manifest or the image manifest")
 		}
+	}
+
+	// Validate forwarded ports
+	if _, err := commonnet.ForwardedPorts(&pm); err != nil {
+		return nil, err
 	}
 	return pmb, nil
 }
@@ -561,7 +584,7 @@ func Run(cfg RunConfig, dir string, dataDir string) {
 	}
 
 	if err := os.Setenv(common.EnvSELinuxMountContext, fmt.Sprintf("%v", cfg.MountLabel)); err != nil {
-		log.FatalE("setting SELinux mount context enviroment", err)
+		log.FatalE("setting SELinux mount context environment", err)
 	}
 
 	debug("Pivoting to filesystem %s", dir)

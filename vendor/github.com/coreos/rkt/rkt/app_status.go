@@ -31,7 +31,6 @@ var (
 		Long:  "This will print detailed status of an app",
 		Run:   runWrapper(runAppStatus),
 	}
-	flagFormat string
 )
 
 func init() {
@@ -67,13 +66,23 @@ func printApp(app *rkt.App) {
 		stdout.Println()
 	}
 
-	if len(app.Annotations) > 0 {
-		stdout.Printf("annotations=")
+	if len(app.CRIAnnotations) > 0 {
+		stdout.Printf("cri_annotations=")
 		var annos []string
-		for key, value := range app.Annotations {
+		for key, value := range app.CRIAnnotations {
 			annos = append(annos, fmt.Sprintf("%s:%s", key, value))
 		}
 		stdout.Printf(strings.Join(annos, ","))
+		stdout.Println()
+	}
+
+	if len(app.CRILabels) > 0 {
+		stdout.Printf("cri_labels=")
+		var labels []string
+		for key, value := range app.CRILabels {
+			labels = append(labels, fmt.Sprintf("%s:%s", key, value))
+		}
+		stdout.Printf(strings.Join(labels, ","))
 		stdout.Println()
 	}
 }

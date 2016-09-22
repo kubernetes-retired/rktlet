@@ -56,6 +56,11 @@ func runAppStop(cmd *cobra.Command, args []string) (exit int) {
 	}
 	defer p.Close()
 
+	if p.AfterRun() {
+		stdout.Printf("pod %q is already stopped", p.UUID)
+		return 0
+	}
+
 	if p.State() != pkgPod.Running {
 		stderr.Printf("pod %q isn't currently running", p.UUID)
 		return 1
