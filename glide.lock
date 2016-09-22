@@ -1,5 +1,5 @@
 hash: 3fd77efe2c549b49ae8cff623e11655e98988d337c35bcb5293861276cf3cd3f
-updated: 2016-09-16T15:08:11.83143572-07:00
+updated: 2016-09-22T12:21:39.362617598-07:00
 imports:
 - name: github.com/appc/spec
   version: ab50d12e88f57788bf84b83fef2be236eb1fcc0b
@@ -21,7 +21,7 @@ imports:
   subpackages:
   - semver
 - name: github.com/coreos/rkt
-  version: bd75727a9c05db990bdce30501568262618694b5
+  version: 1cf11b560f16858f3cbc3a076c35ccdeaac0c2c7
   subpackages:
   - lib
   - networking/netinfo
