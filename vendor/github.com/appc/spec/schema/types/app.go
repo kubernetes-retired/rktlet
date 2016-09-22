@@ -32,6 +32,8 @@ type App struct {
 	MountPoints       []MountPoint   `json:"mountPoints,omitempty"`
 	Ports             []Port         `json:"ports,omitempty"`
 	Isolators         Isolators      `json:"isolators,omitempty"`
+	CRIAnnotations    CRIAnnotations `json:"criAnnotations,omitempty"`
+	CRILabels         CRILabels      `json:"criLabels,omitempty"`
 }
 
 // app is a model to facilitate extra validation during the
@@ -84,6 +86,9 @@ func (a *App) assertValid() error {
 		eh[name] = true
 	}
 	if err := a.Environment.assertValid(); err != nil {
+		return err
+	}
+	if err := a.Isolators.assertValid(); err != nil {
 		return err
 	}
 	return nil

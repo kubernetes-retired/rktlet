@@ -27,6 +27,41 @@ func TestIsolatorUnmarshal(t *testing.T) {
 	}{
 		{
 			`{
+				"name": "os/linux/no-new-privileges",
+				"value": true
+			}`,
+			false,
+		},
+		{
+			`{
+				"name": "os/linux/no-new-privileges",
+				"value": false
+			}`,
+			false,
+		},
+		{
+			`{
+				"name": "os/linux/no-new-privileges",
+				"value": 123
+			}`,
+			true,
+		},
+		{
+			`{
+				"name": "os/linux/no-new-privileges",
+				"value": {"set": ["CAP_KILL"]}
+			}`,
+			true,
+		},
+		{
+			`{
+				"name": "os/linux/no-new-privileges",
+				"value": "foo"
+			}`,
+			true,
+		},
+		{
+			`{
 				"name": "os/linux/capabilities-retain-set",
 				"value": {"set": ["CAP_KILL"]}
 			}`,
@@ -137,6 +172,27 @@ func TestIsolatorUnmarshal(t *testing.T) {
 			}`,
 			true,
 		},
+		{
+			`{
+				"name": "os/unix/sysctl",
+				"value": {"net.ipv4.tcp_rfc1337": "1"}
+			}`,
+			false,
+		},
+		{
+			`{
+				"name": "os/unix/sysctl",
+				"value": {"net.ipv4.tcp_rfc1337": 1}
+			}`,
+			true,
+		},
+		{
+			`{
+				"name": "os/unix/sysctl",
+				"value": {["net.ipv4.tcp_rfc1337"]}
+			}`,
+			true,
+		},
 	}
 
 	for i, tt := range tests {
@@ -166,6 +222,14 @@ func TestIsolatorsGetByName(t *testing.T) {
 			{
 				"name": "os/linux/capabilities-remove-set",
 				"value": {"set": ["CAP_KILL"]}
+			},
+			{
+				"name": "os/linux/no-new-privileges",
+				"value": true
+			},
+			{
+				"name": "os/unix/sysctl",
+				"value": {"net.ipv4.tcp_rfc1337": "1"}
 			}
 		]
 	`
@@ -175,11 +239,15 @@ func TestIsolatorsGetByName(t *testing.T) {
 		wlimit   int64
 		wrequest int64
 		wset     []LinuxCapability
+		wprivs   LinuxNoNewPrivileges
+		wsysctl  UnixSysctl
 	}{
-		{"resource/cpu", 1, 30, nil},
-		{"resource/memory", 2147483648, 1000000000, nil},
-		{"os/linux/capabilities-retain-set", 0, 0, []LinuxCapability{"CAP_KILL"}},
-		{"os/linux/capabilities-remove-set", 0, 0, []LinuxCapability{"CAP_KILL"}},
+		{"resource/cpu", 1, 30, nil, false, nil},
+		{"resource/memory", 2147483648, 1000000000, nil, false, nil},
+		{"os/linux/capabilities-retain-set", 0, 0, []LinuxCapability{"CAP_KILL"}, false, nil},
+		{"os/linux/capabilities-remove-set", 0, 0, []LinuxCapability{"CAP_KILL"}, false, nil},
+		{"os/linux/no-new-privileges", 0, 0, nil, LinuxNoNewPrivileges(true), nil},
+		{"os/unix/sysctl", 0, 0, nil, false, UnixSysctl{"net.ipv4.tcp_rfc1337": "1"}},
 	}
 
 	var is Isolators
@@ -223,8 +291,18 @@ func TestIsolatorsGetByName(t *testing.T) {
 				t.Errorf("#%d: gset=%v, want %v", i, s.Set(), tt.wset)
 			}
 
+		case *LinuxNoNewPrivileges:
+			if tt.wprivs != *v {
+				t.Errorf("#%d: got %v, want %v", i, v, tt.wprivs)
+			}
+
+		case *UnixSysctl:
+			if !reflect.DeepEqual(*v, tt.wsysctl) {
+				t.Errorf("#%d: got %v, want %v", i, *v, tt.wsysctl)
+			}
+
 		default:
-			panic("unexecpected type")
+			panic("unexpected type")
 		}
 	}
 }
