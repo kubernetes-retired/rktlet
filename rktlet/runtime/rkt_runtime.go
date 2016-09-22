@@ -71,7 +71,11 @@ func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.Contai
 		return nil, fmt.Errorf("failed to unmarshal container: %v", err)
 	}
 
-	return &runtimeApi.ContainerStatusResponse{Status: toContainerStatus(uuid, &app)}, nil
+	status, err := toContainerStatus(uuid, &app)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert to container status: %v", err)
+	}
+	return &runtimeApi.ContainerStatusResponse{Status: status}, nil
 }
 
 func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.CreateContainerRequest) (*runtimeApi.CreateContainerResponse, error) {
@@ -89,6 +93,7 @@ func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.Create
 	for _, line := range resp {
 		if strings.HasPrefix(line, "sha512") {
 			imageID = line
+			break
 		}
 	}
 
@@ -96,13 +101,14 @@ func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.Create
 		return nil, fmt.Errorf("failed to get image ID for image %q", imageName)
 	}
 
-	uuid := *req.PodSandboxId
-	if _, err := r.RunCommand("app", "add", uuid, imageID); err != nil {
+	command := generateAppAddCommand(req, imageID)
+	if _, err := r.RunCommand(command[0], command[1:]...); err != nil {
 		return nil, err
 	}
 
-	// TODO(yifan): Replace image name with container name.
-	containerID := buildContainerID(uuid, imageName)
+	appName := buildAppName(*req.Config.Metadata.Attempt, *req.Config.Metadata.Name)
+	containerID := buildContainerID(*req.PodSandboxId, appName)
+
 	return &runtimeApi.CreateContainerResponse{ContainerId: &containerID}, nil
 }
 
@@ -135,7 +141,7 @@ func (r *RktRuntime) StopContainer(ctx context.Context, req *runtimeApi.StopCont
 
 func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListContainersRequest) (*runtimeApi.ListContainersResponse, error) {
 	// We assume the containers in data dir are all managed by kubelet.
-	resp, err := r.RunCommand("list", "--full=true", "--no-legend=true", "--format=json")
+	resp, err := r.RunCommand("list", "--format=json")
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +150,7 @@ func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListCon
 		return nil, fmt.Errorf("unexpected result %q", resp)
 	}
 
-	var pods []Pod
+	var pods []rkt.Pod
 	if err := json.Unmarshal([]byte(resp[0]), &pods); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal pods: %v", err)
 	}
