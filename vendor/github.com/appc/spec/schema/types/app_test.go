@@ -211,6 +211,24 @@ func TestAppUnmarshal(t *testing.T) {
 			},
 			false,
 		},
+		{
+			`{"Exec":["/a"],"User":"0","Group":"0","CRIAnnotations":{"weird!":"normal?"},"CRILabels":{"one!":"two?"}}`,
+			&App{
+				Exec: Exec{
+					"/a",
+				},
+				User:        "0",
+				Group:       "0",
+				Environment: make(Environment, 0),
+				CRIAnnotations: CRIAnnotations{
+					"weird!": "normal?",
+				},
+				CRILabels: CRILabels{
+					"one!": "two?",
+				},
+			},
+			false,
+		},
 	}
 	for i, tt := range tests {
 		a := &App{}
