@@ -24,58 +24,6 @@ import (
 	pkgPod "github.com/coreos/rkt/pkg/pod"
 )
 
-// AppState defines the state of the app.
-type AppState string
-
-const (
-	AppStateUnknown AppState = "unknown"
-	AppStateCreated AppState = "created"
-	AppStateRunning AppState = "running"
-	AppStateExited  AppState = "exited"
-)
-
-type (
-	// Mount defines the mount point.
-	Mount struct {
-		// Name of the mount.
-		Name string `json:"name"`
-		// Container path of the mount.
-		ContainerPath string `json:"container_path"`
-		// Host path of the mount.
-		HostPath string `json:"host_path"`
-		// Whether the mount is read-only.
-		ReadOnly bool `json:"read_only"`
-		// TODO(yifan): What about 'SelinuxRelabel bool'?
-	}
-
-	// App defines the app object.
-	App struct {
-		// Name of the app.
-		Name string `json:"name"`
-		// State of the app, can be created, running, exited, or unknown.
-		State AppState `json:"state"`
-		// Creation time of the container, nanoseconds since epoch.
-		CreatedAt *int64 `json:"created_at,omitempty"`
-		// Start time of the container, nanoseconds since epoch.
-		StartedAt *int64 `json:"started_at,omitempty"`
-		// Finish time of the container, nanoseconds since epoch.
-		FinishedAt *int64 `json:"finished_at,omitempty"`
-		// Exit code of the container.
-		ExitCode *int32 `json:"exit_code,omitempty"`
-		// Image ID of the container.
-		ImageID string `json:"image_id"`
-		// Mount points of the container.
-		Mounts []*Mount `json:"mounts,omitempty"`
-		// Annotations of the container.
-		Annotations map[string]string `json:"annotations,omitempty"`
-	}
-
-	// Apps is a list of apps.
-	Apps struct {
-		AppList []App `json:"app_list,omitempty"`
-	}
-)
-
 // AppsForPod returns the apps of the pod with the given uuid in the given data directory.
 // If appName is non-empty, then only the app with the given name will be returned.
 func AppsForPod(uuid, dataDir string, appName string) ([]*App, error) {
@@ -111,9 +59,10 @@ func AppsForPod(uuid, dataDir string, appName string) ([]*App, error) {
 // newApp constructs the App object with the runtime app and pod manifest.
 func newApp(ra *schema.RuntimeApp, podManifest *schema.PodManifest, pod *pkgPod.Pod) (*App, error) {
 	app := &App{
-		Name:        ra.Name.String(),
-		ImageID:     ra.Image.ID.String(),
-		Annotations: make(map[string]string),
+		Name:           ra.Name.String(),
+		ImageID:        ra.Image.ID.String(),
+		CRIAnnotations: ra.App.CRIAnnotations,
+		CRILabels:      ra.App.CRILabels,
 	}
 
 	// Generate mounts
@@ -147,11 +96,6 @@ func newApp(ra *schema.RuntimeApp, podManifest *schema.PodManifest, pod *pkgPod.
 		})
 	}
 
-	// Generate annotations.
-	for _, anno := range ra.Annotations {
-		app.Annotations[anno.Name.String()] = anno.Value
-	}
-
 	// Generate state.
 	if err := appState(app, pod); err != nil {
 		return nil, fmt.Errorf("error getting app's state: %v", err)
@@ -174,7 +118,7 @@ func appState(app *App, pod *pkgPod.Pod) error {
 					fmt.Fprintf(os.Stderr, "Cannot get GC marked time: %v", err)
 				}
 				if !t.IsZero() {
-					finishedAt := t.UnixNano()
+					finishedAt := t.Unix()
 					app.FinishedAt = &finishedAt
 				}
 			}
@@ -191,7 +135,7 @@ func appState(app *App, pod *pkgPod.Pod) error {
 	}
 
 	app.State = AppStateCreated
-	createdAt := fi.ModTime().UnixNano()
+	createdAt := fi.ModTime().Unix()
 	app.CreatedAt = &createdAt
 
 	// Check if the app is started.
@@ -204,7 +148,7 @@ func appState(app *App, pod *pkgPod.Pod) error {
 	}
 
 	app.State = AppStateRunning
-	startedAt := fi.ModTime().UnixNano()
+	startedAt := fi.ModTime().Unix()
 	app.StartedAt = &startedAt
 
 	// Check if the app is exited.
@@ -218,7 +162,7 @@ func appState(app *App, pod *pkgPod.Pod) error {
 	}
 
 	app.State = AppStateExited
-	finishedAt := fi.ModTime().UnixNano()
+	finishedAt := fi.ModTime().Unix()
 	app.FinishedAt = &finishedAt
 
 	// Read exit code.

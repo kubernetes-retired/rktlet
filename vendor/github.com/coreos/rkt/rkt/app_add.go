@@ -15,6 +15,9 @@
 package main
 
 import (
+	"fmt"
+
+	"github.com/appc/spec/schema/types"
 	"github.com/coreos/rkt/common/apps"
 
 	"github.com/coreos/rkt/common"
@@ -25,11 +28,12 @@ import (
 	"github.com/coreos/rkt/store/treestore"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var (
 	cmdAppAdd = &cobra.Command{
-		Use:   "add UUID IMAGEID",
+		Use:   "add UUID IMAGEID ...",
 		Short: "Add an app to a pod",
 		Long:  `This allows addin an app that's present on the store to a running pod`,
 		Run:   runWrapper(runAppAdd),
@@ -38,11 +42,28 @@ var (
 
 func init() {
 	cmdApp.AddCommand(cmdAppAdd)
+	addAppFlags(cmdAppAdd)
+	addIsolatorFlags(cmdAppAdd, false)
+
+	// Disable interspersed flags to stop parsing after the first non flag
+	// argument. All the subsequent parsing will be done by parseApps.
+	// This is needed to correctly handle image args
+	cmdAppAdd.Flags().SetInterspersed(false)
 }
 
 func runAppAdd(cmd *cobra.Command, args []string) (exit int) {
 	if len(args) < 2 {
 		stderr.Print("must provide the pod UUID and an IMAGEID")
+		return 1
+	}
+
+	err := parseApps(&rktApps, args[1:], cmd.Flags(), true)
+	if err != nil {
+		stderr.PrintE("error parsing app image arguments", err)
+		return 1
+	}
+	if rktApps.Count() > 1 {
+		stderr.Print("must give only one app")
 		return 1
 	}
 
@@ -85,7 +106,7 @@ func runAppAdd(cmd *cobra.Command, args []string) (exit int) {
 		return 1
 	}
 
-	cfg := stage0.CommonConfig{
+	ccfg := stage0.CommonConfig{
 		Store:     s,
 		TreeStore: ts,
 		UUID:      p.UUID,
@@ -98,17 +119,53 @@ func runAppAdd(cmd *cobra.Command, args []string) (exit int) {
 		rktgid = -1
 	}
 
-	pcfg := stage0.RunConfig{
-		CommonConfig: &cfg,
+	pcfg := stage0.PrepareConfig{
+		CommonConfig: &ccfg,
+		Apps:         &rktApps,
+	}
+	rcfg := stage0.RunConfig{
+		CommonConfig: &ccfg,
 		UseOverlay:   p.UsesOverlay(),
 		RktGid:       rktgid,
 	}
 
-	err = stage0.AddApp(pcfg, p.Path(), img)
+	err = stage0.AddApp(pcfg, rcfg, p.Path(), img)
 	if err != nil {
 		stderr.PrintE("error adding app to pod", err)
 		return 1
 	}
 
 	return 0
+}
+
+// generateAddConfig converts command line flags into stage0.AddConfig.
+func generateAddConfig(flags *pflag.FlagSet) (*stage0.AddConfig, error) {
+	var addConfig stage0.AddConfig
+
+	flag := flags.Lookup("name")
+	if flag != nil {
+		value := flag.Value.String()
+		if value != "" {
+			name, err := types.NewACName(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid format for app name: %v", err)
+			}
+			addConfig.Name = name
+		}
+	}
+
+	flag = flags.Lookup("set-annotation")
+	if flag != nil {
+		var annotations types.Annotations
+		for k, value := range flag.Value.(*kvMap).mapping {
+			key, err := types.NewACIdentifier(k)
+			if err != nil {
+				return nil, fmt.Errorf("invalid format for annotation key %q: %v", k, err)
+			}
+			annotations.Set(*key, value)
+		}
+		addConfig.Annotations = annotations
+	}
+
+	return &addConfig, nil
 }

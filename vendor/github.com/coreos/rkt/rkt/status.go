@@ -17,8 +17,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"time"
 
+	lib "github.com/coreos/rkt/lib"
 	pkgPod "github.com/coreos/rkt/pkg/pod"
 	"github.com/spf13/cobra"
 )
@@ -43,6 +46,7 @@ const (
 func init() {
 	cmdRkt.AddCommand(cmdStatus)
 	cmdStatus.Flags().BoolVar(&flagWait, "wait", false, "toggle waiting for the pod to exit")
+	cmdStatus.Flags().StringVar(&flagFormat, "format", "", "choose the output format, allowed format includes 'json', 'json-pretty'. If empty, then the result is printed as key value pairs")
 }
 
 func runStatus(cmd *cobra.Command, args []string) (exit int) {
@@ -93,6 +97,28 @@ func getExitStatuses(p *pkgPod.Pod) (map[string]int, error) {
 
 // printStatus prints the pod's pid and per-app status codes
 func printStatus(p *pkgPod.Pod) error {
+	if flagFormat != "" {
+		pod, err := lib.NewPodFromInternalPod(p)
+		if err != nil {
+			return fmt.Errorf("error converting pod: %v", err)
+		}
+		switch flagFormat {
+		case "json":
+			result, err := json.Marshal(pod)
+			if err != nil {
+				return fmt.Errorf("error marshaling the pod: %v", err)
+			}
+			stdout.Print(string(result))
+		case "json-pretty":
+			result, err := json.MarshalIndent(pod, "", "\t")
+			if err != nil {
+				return fmt.Errorf("error marshaling the pod: %v", err)
+			}
+			stdout.Print(string(result))
+		}
+		return nil
+	}
+
 	state := p.State()
 	stdout.Printf("state=%s", state)
 
@@ -119,8 +145,24 @@ func printStatus(p *pkgPod.Pod) error {
 	}
 
 	if state == pkgPod.Running || state == pkgPod.Deleting || state == pkgPod.ExitedDeleting || state == pkgPod.Exited || state == pkgPod.ExitedGarbage {
-		pid, err := p.Pid()
-		if err != nil {
+		var pid int
+		pidCh := make(chan int, 1)
+
+		// Wait slightly because the pid file might not be written yet when the state changes to 'Running'.
+		go func() {
+			for {
+				pid, err := p.Pid()
+				if err == nil {
+					pidCh <- pid
+					return
+				}
+				time.Sleep(time.Millisecond * 100)
+			}
+		}()
+
+		select {
+		case pid = <-pidCh:
+		case <-time.After(time.Second):
 			return fmt.Errorf("unable to get PID for pod %q: %v", p.UUID, err)
 		}
 

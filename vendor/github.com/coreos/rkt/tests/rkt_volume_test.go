@@ -271,7 +271,7 @@ func TestDockerVolumeSemanticsPodManifest(t *testing.T) {
 							{"FILE", fmt.Sprintf("%s/file", tt.dir)},
 						},
 						MountPoints: []types.MountPoint{
-							{"mydir", tt.dir, false},
+							{"mydir", tt.dir, false, nil},
 						},
 					},
 					Image: schema.RuntimeImage{

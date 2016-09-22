@@ -8,7 +8,7 @@ Support for overlay fs will be auto-detected if `--no-overlay` is set to `false`
 
 ```
 # rkt prepare --insecure-options=image docker://busybox --exec=/bin/sh
-image: using image from local store for image name coreos.com/rkt/stage1-coreos:1.14.0
+image: using image from local store for image name coreos.com/rkt/stage1-coreos:1.15.0
 image: remote fetching from URL "docker://busybox"
 Downloading sha256:8ddc19f1652 [===============================] 668 KB / 668 KB
 prepare: disabling overlay support: "unsupported filesystem: missing d_type support"
@@ -32,7 +32,7 @@ Therefore, the supported arguments are mostly the same as in `run` except runtim
 ```
 # rkt prepare coreos.com/etcd:v2.0.10
 rkt prepare coreos.com/etcd:v2.0.10
-rkt: using image from local store for image name coreos.com/rkt/stage1-coreos:1.14.0
+rkt: using image from local store for image name coreos.com/rkt/stage1-coreos:1.15.0
 rkt: searching for app image coreos.com/etcd:v2.0.10
 rkt: remote fetching from url https://github.com/coreos/etcd/releases/download/v2.0.10/etcd-v2.0.10-linux-amd64.aci
 prefix: "coreos.com/etcd"
@@ -52,8 +52,8 @@ c9fad0e6-8236-4fc2-ad17-55d0a4c7d742
 
 | Flag | Default | Options | Description |
 | --- | --- | --- | --- |
-| `--caps-remove` | none | capability to remove (example: '--cap-remove=CAP\_SYS\_CHROOT,CAP\_MKNOD') | Capabilities to remove from the process's capabilities bounding set, all others from the default set will be included |
-| `--caps-retain` | none | capability to retain (example: '--cap-remove=CAP\_SYS\_ADMIN,CAP\_NET\_ADMIN') | Capabilities to retain in the process's capabilities bounding set, all others will be removed |
+| `--caps-remove` | none | capability to remove (example: '--caps-remove=CAP\_SYS\_CHROOT,CAP\_MKNOD') | Capabilities to remove from the process's capabilities bounding set, all others from the default set will be included |
+| `--caps-retain` | none | capability to retain (example: '--caps-remove=CAP\_SYS\_ADMIN,CAP\_NET\_ADMIN') | Capabilities to retain in the process's capabilities bounding set, all others will be removed |
 | `--exec` | none | Path to executable | Override the exec command for the preceding image. |
 | `--group` | root | gid, groupname or file path | Group override for the preceding image (example: '--group=group') |
 | `--inherit-env` | `false` | `true` or `false` | Inherit all environment variables not set by apps. |
