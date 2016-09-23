@@ -98,7 +98,10 @@ func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.Create
 		return nil, fmt.Errorf("failed to get image ID for image %q", imageName)
 	}
 
-	command := generateAppAddCommand(req, imageID)
+	command, err := generateAppAddCommand(req, imageID)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := r.RunCommand(command[0], command[1:]...); err != nil {
 		return nil, err
 	}

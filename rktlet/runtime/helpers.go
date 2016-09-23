@@ -121,10 +121,10 @@ func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, 
 	status.FinishedAt = app.FinishedAt
 	status.ExitCode = app.ExitCode
 	status.ImageRef = &app.ImageID
-	status.Image = &runtimeApi.ImageSpec{Image: getImageName(app.CRIAnnotations)}
+	status.Image = &runtimeApi.ImageSpec{Image: getImageName(app.UserAnnotations)}
 
-	status.Labels = getKubernetesLabels(app.CRILabels)
-	status.Annotations = getKubernetesAnnotations(app.CRIAnnotations)
+	status.Labels = getKubernetesLabels(app.UserLabels)
+	status.Annotations = getKubernetesAnnotations(app.UserAnnotations)
 
 	// TODO: Make sure mount name is unique.
 	for _, mnt := range app.Mounts {
@@ -161,29 +161,135 @@ func getImageName(annotations map[string]string) *string {
 	return &name
 }
 
-func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID string) []string {
+func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID string) ([]string, error) {
+	config := req.Config
+
 	// Generate labels and annotations.
 	var labels, annotations []string
-	for k, v := range req.Config.Labels {
+	for k, v := range config.Labels {
 		labels = append(labels, fmt.Sprintf("%s=%s", k, v))
 	}
-	for k, v := range req.Config.Annotations {
+	for k, v := range config.Annotations {
 		annotations = append(annotations, fmt.Sprintf("%s=%s", k, v))
 	}
-	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoImageNameKey, *req.Config.Image.Image))
+	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoImageNameKey, *config.Image.Image))
 
 	// Generate app name.
-	appName := buildAppName(*req.Config.Metadata.Attempt, *req.Config.Metadata.Name)
+	appName := buildAppName(*config.Metadata.Attempt, *config.Metadata.Name)
 
+	// TODO(yifan): Split the function into sub-functions.
 	// Generate the command and arguments for 'rkt app add'.
-	cmd := []string{"app", "add", *req.PodSandboxId, imageID, "--name=" + appName}
+	cmd := []string{"app", "add", *req.PodSandboxId, imageID}
+
+	// Add app name
+	cmd = append(cmd, "--name="+appName)
+
+	// Add annotations and labels.
 	for _, anno := range annotations {
-		cmd = append(cmd, "--annotation="+anno)
+		cmd = append(cmd, "--user-annotation="+anno)
 	}
 	for _, label := range labels {
-		cmd = append(cmd, "--label="+label)
+		cmd = append(cmd, "--user-label="+label)
 	}
-	return cmd
+
+	// Add environments
+	for _, env := range config.Envs {
+		cmd = append(cmd, fmt.Sprintf("--environment=%s=%s", *env.Key, *env.Value))
+	}
+
+	// Add Linux options. (resources, caps, uid, gid).
+	if linux := config.Linux; linux != nil {
+
+		// Add resources.
+		if resources := linux.Resources; resources != nil {
+			// TODO(yifan): Only implemented cpu quota/period with --cpu now,
+			// rkt needs to support relative cpu share https://github.com/coreos/rkt/issues/3242
+			var cpuMilliCores int64
+			if resources.GetCpuShares() > 0 {
+				cpuMilliCores = cpuSharesToMilliCores(resources.GetCpuShares())
+			}
+			if resources.GetCpuPeriod() > 0 && resources.GetCpuQuota() > 0 {
+				cpuMilliCores = cpuQuotaToMilliCores(resources.GetCpuQuota(), resources.GetCpuPeriod())
+			}
+			if cpuMilliCores > 0 {
+				cmd = append(cmd, fmt.Sprintf("--cpu=%dm", cpuMilliCores))
+			}
+
+			if resources.MemoryLimitInBytes != nil {
+				cmd = append(cmd, fmt.Sprintf("--memory=%d", *resources.MemoryLimitInBytes))
+			}
+			if oomScoreAdj := resources.OomScoreAdj; oomScoreAdj != nil {
+				cmd = append(cmd, fmt.Sprintf("--oom-score-adj=%d", *oomScoreAdj))
+			}
+		}
+
+		// Add capabilities.
+		// TODO(yifan): Update the implementation of the capability
+		// once upstream has adopted the whitelist based interface.
+		// See https://github.com/kubernetes/kubernetes/pull/33614.
+		var caplist []string
+		var err error
+		if config.GetPrivileged() {
+			caplist = getAllCapabilites()
+		} else {
+			capabilities := linux.Capabilities
+			if capabilities != nil {
+				caplist, err = tweakCapabilities(defaultCapabilities, capabilities.AddCapabilities, capabilities.DropCapabilities)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		if len(caplist) > 0 {
+			cmd = append(cmd, "--caps-retain="+strings.Join(caplist, ","))
+		}
+
+		// TODO(yifan): Figure out selinux,
+		// https://github.com/kubernetes/kubernetes/issues/33139
+
+		// Add uid, gid, addtional gids.
+		if user := linux.User; user != nil {
+			cmd = append(cmd, fmt.Sprintf("--user=%d", user.GetUid()))
+			cmd = append(cmd, fmt.Sprintf("--group=%d", user.GetGid()))
+			if len(user.AdditionalGids) > 0 {
+				var gids []string
+				for _, gid := range user.AdditionalGids {
+					gids = append(gids, fmt.Sprintf("%d", gid))
+				}
+				cmd = append(cmd, "--supplementary-gids="+strings.Join(gids, ","))
+			}
+		}
+	}
+
+	// Add working dir
+	if workingDir := config.GetWorkingDir(); len(workingDir) > 0 {
+		cmd = append(cmd, "--working-dir="+workingDir)
+	}
+	// TODO(yifan): logpath
+	// TODO(yifan): privileged
+	// TODO(yifan): mount, volumes
+
+	// Add ReadOnlyRootFs.
+	if config.GetReadonlyRootfs() {
+		cmd = append(cmd, "--readonly-rootfs=true")
+	}
+
+	// Add app commands and args.
+	var args []string
+	if len(config.Command) > 0 {
+		cmd = append(cmd, "--exec="+config.Command[0])
+		args = append(args, config.Command[1:]...)
+	}
+	if len(config.Args) > 0 {
+		args = append(args, config.Args...)
+	}
+	if len(args) > 0 {
+		cmd = append(cmd, "--")
+		cmd = append(cmd, args...)
+		cmd = append(cmd, "---")
+	}
+
+	return cmd, nil
 }
 
 func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile string) []string {
@@ -207,10 +313,10 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 	annotations = append(annotations, fmt.Sprintf("%s=%d", kubernetesReservedAnnoPodAttempt, *req.Config.Metadata.Attempt))
 
 	for _, anno := range annotations {
-		cmd = append(cmd, "--annotation="+anno)
+		cmd = append(cmd, "--user-annotation="+anno)
 	}
 	for _, label := range labels {
-		cmd = append(cmd, "--label="+label)
+		cmd = append(cmd, "--user-label="+label)
 	}
 	return cmd
 }
@@ -236,7 +342,7 @@ func getKubernetesMetadata(annotations map[string]string) (*runtimeApi.PodSandbo
 }
 
 func toPodSandboxStatus(pod *rkt.Pod) (*runtimeApi.PodSandboxStatus, error) {
-	metadata, err := getKubernetesMetadata(pod.CRIAnnotations)
+	metadata, err := getKubernetesMetadata(pod.UserAnnotations)
 	if err != nil {
 		return nil, err
 	}
@@ -260,8 +366,8 @@ func toPodSandboxStatus(pod *rkt.Pod) (*runtimeApi.PodSandboxStatus, error) {
 		CreatedAt:   &startedAt,
 		Network:     &runtimeApi.PodSandboxNetworkStatus{Ip: &ip},
 		Linux:       nil, // TODO
-		Labels:      getKubernetesLabels(pod.CRILabels),
-		Annotations: getKubernetesAnnotations(pod.CRIAnnotations),
+		Labels:      getKubernetesLabels(pod.UserLabels),
+		Annotations: getKubernetesAnnotations(pod.UserAnnotations),
 	}, nil
 }
 
@@ -318,4 +424,12 @@ func passFilter(container *runtimeApi.Container, filter *runtimeApi.ContainerFil
 		}
 	}
 	return true
+}
+
+func cpuSharesToMilliCores(cpushare int64) int64 {
+	return cpushare * 1000 / 1024
+}
+
+func cpuQuotaToMilliCores(cpuQuota, cpuPeriod int64) int64 {
+	return cpuQuota * 1000 / cpuPeriod
 }
