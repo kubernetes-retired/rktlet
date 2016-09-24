@@ -1,8 +1,8 @@
-hash: 99b3baa06178470ed1cc92fe29d8073cb48de8b700457d9993fa218bf2cebd93
-updated: 2016-09-22T14:38:58.541663879-07:00
+hash: 7451e5d38b69e7193e4cc6a14c1d5b387709d722ffa781fa97bd39f31e43dbe7
+updated: 2016-09-23T18:45:43.720302441-07:00
 imports:
 - name: github.com/appc/spec
-  version: 549b066b7c15e0154504a512df02d076d50da460
+  version: a7746b7742eb5c156aa91980a4315e9da1841f95
   subpackages:
   - schema
   - schema/types
@@ -21,7 +21,7 @@ imports:
   subpackages:
   - semver
 - name: github.com/coreos/rkt
-  version: 1cf11b560f16858f3cbc3a076c35ccdeaac0c2c7
+  version: 665d08af70c34cd7452f4c1828f056046099a9b4
   subpackages:
   - lib
   - networking/netinfo
@@ -39,6 +39,12 @@ imports:
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
   subpackages:
   - spew
+- name: github.com/docker/docker
+  version: b9f10c951893f9a00865890a5232e85d770c1087
+  subpackages:
+  - daemon/caps
+  - pkg/stringutils
+  - pkg/random
 - name: github.com/go-openapi/jsonpointer
   version: 46af16f9f7b149af66e5d1bd010e3574dc06de98
 - name: github.com/go-openapi/jsonreference
