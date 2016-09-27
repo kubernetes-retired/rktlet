@@ -46,7 +46,14 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 	command := generateAppSandboxCommand(req, podUUIDFile.Name())
 
 	cmd := r.Command(command[0], command[1:]...)
-	id, err := r.Init.StartProcess(cmd[0], cmd[1:]...)
+
+	var cgroupParent string
+	linux := req.GetConfig().GetLinux()
+	if linux != nil {
+		cgroupParent = linux.GetCgroupParent()
+	}
+
+	id, err := r.Init.StartProcess(cgroupParent, cmd[0], cmd[1:]...)
 	if err != nil {
 		glog.Errorf("failed to run pod %q: %v", formatPod(metaData), err)
 		return nil, err
