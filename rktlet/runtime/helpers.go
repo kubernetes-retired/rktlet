@@ -187,6 +187,10 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 }
 
 func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile string) []string {
+	cmd := []string{"app", "sandbox", "--uuid-file-save=" + uuidfile}
+
+	// TODO(yifan): Namespace options.
+
 	// Generate annotations.
 	var labels, annotations []string
 	for k, v := range req.Config.Labels {
@@ -202,7 +206,6 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodNamespace, *req.Config.Metadata.Namespace))
 	annotations = append(annotations, fmt.Sprintf("%s=%d", kubernetesReservedAnnoPodAttempt, *req.Config.Metadata.Attempt))
 
-	cmd := []string{"app", "sandbox", "--uuid-file-save=" + uuidfile}
 	for _, anno := range annotations {
 		cmd = append(cmd, "--annotation="+anno)
 	}

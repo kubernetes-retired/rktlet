@@ -26,7 +26,7 @@ type CLI interface {
 // Init is an interface for interacting with the init system on the host
 // (e.g. systemd), to run rkt commands.
 type Init interface {
-	StartProcess(command string, args ...string) (id string, err error)
+	StartProcess(cgroupParent, command string, args ...string) (id string, err error)
 	// TODO(yifan): Add StopProcess?
 }
 

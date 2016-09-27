@@ -24,20 +24,20 @@ type Init struct {
 	mock.Mock
 }
 
-// StartProcess provides a mock function with given fields: command, args
-func (_m *Init) StartProcess(command string, args ...string) (string, error) {
-	ret := _m.Called(command, args)
+// StartProcess provides a mock function with given fields: cgroupParent, command, args
+func (_m *Init) StartProcess(cgroupParent string, command string, args ...string) (string, error) {
+	ret := _m.Called(cgroupParent, command, args)
 
 	var r0 string
-	if rf, ok := ret.Get(0).(func(string, ...string) string); ok {
-		r0 = rf(command, args...)
+	if rf, ok := ret.Get(0).(func(string, string, ...string) string); ok {
+		r0 = rf(cgroupParent, command, args...)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(string, ...string) error); ok {
-		r1 = rf(command, args...)
+	if rf, ok := ret.Get(1).(func(string, string, ...string) error); ok {
+		r1 = rf(cgroupParent, command, args...)
 	} else {
 		r1 = ret.Error(1)
 	}
