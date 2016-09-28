@@ -296,3 +296,26 @@ func getIP(networks []netinfo.NetInfo) string {
 	}
 	return foundIP
 }
+
+// passFilter returns whether the target container satisfies the filter.
+func passFilter(container *runtimeApi.Container, filter *runtimeApi.ContainerFilter) bool {
+	if filter == nil {
+		return true
+	}
+	if filter.Id != nil && filter.GetId() != container.GetId() {
+		return false
+	}
+	if filter.State != nil && filter.GetState() != container.GetState() {
+		return false
+	}
+	if filter.PodSandboxId != nil && filter.GetPodSandboxId() != container.GetPodSandboxId() {
+		return false
+	}
+	for key, value := range filter.LabelSelector {
+		v, ok := container.Labels[key]
+		if !ok || value != v {
+			return false
+		}
+	}
+	return true
+}
