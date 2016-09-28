@@ -38,10 +38,7 @@ func TestPullImage(t *testing.T) {
 	mockCli := new(mocks.CLI)
 	testImage := "busybox"
 
-	mockImageStore, err := NewImageStore(ImageStoreConfig{CLI: mockCli, RequestTimeout: 0 * time.Second})
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	mockImageStore := NewImageStore(ImageStoreConfig{CLI: mockCli, RequestTimeout: 0 * time.Second})
 
 	mockCli.On("RunCommand", "image", mock.AnythingOfType("[]string")).Run(func(args mock.Arguments) {
 		cmdArgs, ok := args.Get(1).([]string)
@@ -59,7 +56,7 @@ func TestPullImage(t *testing.T) {
 		}
 	}).Return(strings.Split(mockBusyboxFetchResponse, "\n"), nil)
 
-	_, err = mockImageStore.PullImage(context.Background(), &runtime.PullImageRequest{
+	_, err := mockImageStore.PullImage(context.Background(), &runtime.PullImageRequest{
 		Image: &runtime.ImageSpec{
 			Image: &testImage,
 		},
