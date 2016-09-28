@@ -1,8 +1,8 @@
 hash: 7451e5d38b69e7193e4cc6a14c1d5b387709d722ffa781fa97bd39f31e43dbe7
-updated: 2016-09-23T18:45:43.720302441-07:00
+updated: 2016-09-28T13:09:32.89374586-07:00
 imports:
 - name: github.com/appc/spec
-  version: a7746b7742eb5c156aa91980a4315e9da1841f95
+  version: 7479828fa08d5de41775ed88c0ca479a1e28616b
   subpackages:
   - schema
   - schema/types
@@ -21,7 +21,7 @@ imports:
   subpackages:
   - semver
 - name: github.com/coreos/rkt
-  version: 665d08af70c34cd7452f4c1828f056046099a9b4
+  version: b9ddcc60ad3c64c3de78f739cb1d99a697aa0d90
   subpackages:
   - lib
   - networking/netinfo
@@ -84,7 +84,7 @@ imports:
 - name: github.com/golang/glog
   version: 23def4e6c14b4da8ac2ed8007337bc5eb5007998
 - name: github.com/golang/protobuf
-  version: 1f49d83d9aa00e6ce4fc8258c71cc7786aec968a
+  version: 87c000235d3d852c1628dc9490cd21ab36a7d69f
   subpackages:
   - proto
 - name: github.com/hashicorp/errwrap
