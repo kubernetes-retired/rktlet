@@ -19,6 +19,7 @@ package main
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/coreos/rkt/common/apps"
@@ -440,6 +441,43 @@ func (au *appSeccompFilter) Type() string {
 	return "appSeccompFilter"
 }
 
+// appOOMScoreAdj is to adjust /proc/$pid/oom_score_adj
+type appOOMScoreAdj apps.Apps
+
+func (aml *appOOMScoreAdj) Set(s string) error {
+	app := (*apps.Apps)(aml).Last()
+	if app == nil {
+		return fmt.Errorf("--oom-score-adj must follow an image")
+	}
+	limit, err := strconv.Atoi(s)
+	if err != nil {
+		return err
+	}
+	score, err := types.NewLinuxOOMScoreAdj(limit)
+	if err != nil {
+		return err
+	}
+
+	app.OOMScoreAdj = score
+	return nil
+}
+
+func (aml *appOOMScoreAdj) String() string {
+	app := (*apps.Apps)(aml).Last()
+	if app == nil {
+		return ""
+	}
+	adj := app.OOMScoreAdj
+	if adj == nil {
+		return ""
+	}
+	return strconv.Itoa(int(*adj))
+}
+
+func (aml *appOOMScoreAdj) Type() string {
+	return "appOOMScoreAdj"
+}
+
 // appName is for --name flags in the form of: --name=APPNAME.
 type appName apps.Apps
 
@@ -464,24 +502,24 @@ func (au *appName) Type() string {
 	return "appName"
 }
 
-// appAnnotation is for --annotation flags in the form of: --annotation=NAME=VALUE.
+// appAnnotation is for --user-annotation flags in the form of: --user-annotation=NAME=VALUE.
 type appAnnotation apps.Apps
 
 func (au *appAnnotation) Set(s string) error {
 	app := (*apps.Apps)(au).Last()
 	if app == nil {
-		return fmt.Errorf("--annotation must follow an image")
+		return fmt.Errorf("--user-annotation must follow an image")
 	}
 
 	fields := strings.SplitN(s, "=", 2)
 	if len(fields) != 2 {
-		return fmt.Errorf("invalid format of --annotation flag %q", s)
+		return fmt.Errorf("invalid format of --user-annotation flag %q", s)
 	}
 
-	if app.CRIAnnotations == nil {
-		app.CRIAnnotations = make(map[string]string)
+	if app.UserAnnotations == nil {
+		app.UserAnnotations = make(map[string]string)
 	}
-	app.CRIAnnotations[fields[0]] = fields[1]
+	app.UserAnnotations[fields[0]] = fields[1]
 	return nil
 }
 
@@ -491,7 +529,7 @@ func (au *appAnnotation) String() string {
 		return ""
 	}
 	var annotations []string
-	for name, value := range app.CRIAnnotations {
+	for name, value := range app.UserAnnotations {
 		annotations = append(annotations, fmt.Sprintf("%s=%s", name, value))
 	}
 	return strings.Join(annotations, ",")
@@ -501,24 +539,24 @@ func (au *appAnnotation) Type() string {
 	return "appAnnotation"
 }
 
-// appLabel is for --label flags in the form of: --label=NAME=VALUE.
+// appLabel is for --user-label flags in the form of: --user-label=NAME=VALUE.
 type appLabel apps.Apps
 
 func (au *appLabel) Set(s string) error {
 	app := (*apps.Apps)(au).Last()
 	if app == nil {
-		return fmt.Errorf("--label must follow an image")
+		return fmt.Errorf("--user-label must follow an image")
 	}
 
 	fields := strings.SplitN(s, "=", 2)
 	if len(fields) != 2 {
-		return fmt.Errorf("invalid format of --Label flag %q", s)
+		return fmt.Errorf("invalid format of --user-label flag %q", s)
 	}
 
-	if app.CRILabels == nil {
-		app.CRILabels = make(map[string]string)
+	if app.UserLabels == nil {
+		app.UserLabels = make(map[string]string)
 	}
-	app.CRILabels[fields[0]] = fields[1]
+	app.UserLabels[fields[0]] = fields[1]
 	return nil
 }
 
@@ -528,7 +566,7 @@ func (au *appLabel) String() string {
 		return ""
 	}
 	var labels []string
-	for name, value := range app.CRILabels {
+	for name, value := range app.UserLabels {
 		labels = append(labels, fmt.Sprintf("%s=%s", name, value))
 	}
 	return strings.Join(labels, ",")
@@ -573,4 +611,88 @@ func (au *appEnv) String() string {
 
 func (au *appEnv) Type() string {
 	return "appEnv"
+}
+
+type appWorkingDir apps.Apps
+
+func (au *appWorkingDir) Set(s string) error {
+	app := (*apps.Apps)(au).Last()
+	if app == nil {
+		return fmt.Errorf("--working-dir must follow an image")
+	}
+	app.WorkingDir = s
+	return nil
+}
+
+func (au *appWorkingDir) String() string {
+	app := (*apps.Apps)(au).Last()
+	if app == nil {
+		return ""
+	}
+	return app.WorkingDir
+}
+
+func (au *appWorkingDir) Type() string {
+	return "appWorkingDir"
+}
+
+type appReadOnlyRootFS apps.Apps
+
+func (au *appReadOnlyRootFS) Set(s string) error {
+	app := (*apps.Apps)(au).Last()
+	if app == nil {
+		return fmt.Errorf("--readonly-rootfs must follow an image")
+	}
+	value, err := strconv.ParseBool(s)
+	if err != nil {
+		return fmt.Errorf("--readonly-rootfs must be set with a boolean")
+	}
+	app.ReadOnlyRootFS = value
+	return nil
+}
+
+func (au *appReadOnlyRootFS) String() string {
+	app := (*apps.Apps)(au).Last()
+	if app == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", app.ReadOnlyRootFS)
+}
+
+func (au *appReadOnlyRootFS) Type() string {
+	return "appReadOnlyRootFS"
+}
+
+type appSupplementaryGIDs apps.Apps
+
+func (au *appSupplementaryGIDs) Set(s string) error {
+	app := (*apps.Apps)(au).Last()
+	if app == nil {
+		return fmt.Errorf("--supplementary-gids must follow an image")
+	}
+	values := strings.Split(s, ",")
+	for _, v := range values {
+		gid, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("--supplementary-gids must be integers")
+		}
+		app.SupplementaryGIDs = append(app.SupplementaryGIDs, gid)
+	}
+	return nil
+}
+
+func (au *appSupplementaryGIDs) String() string {
+	app := (*apps.Apps)(au).Last()
+	if app == nil {
+		return ""
+	}
+	var gids []string
+	for _, gid := range app.SupplementaryGIDs {
+		gids = append(gids, strconv.Itoa(gid))
+	}
+	return strings.Join(gids, ",")
+}
+
+func (au *appSupplementaryGIDs) Type() string {
+	return "appSupplementaryGIDs"
 }
