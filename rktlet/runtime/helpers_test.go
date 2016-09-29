@@ -160,3 +160,41 @@ func TestPassFilter(t *testing.T) {
 		assert.Equal(t, tt.result, passFilter(tt.container, tt.filter), testHint)
 	}
 }
+
+func TestGeneratePortArgs(t *testing.T) {
+	protocol := runtimeApi.Protocol_TCP
+	containerPort := int32(80)
+	hostPort := int32(8080)
+	hostIP := "127.0.0.1"
+
+	tests := []struct {
+		port   *runtimeApi.PortMapping
+		result string
+	}{
+		// Case 0.
+		{
+			&runtimeApi.PortMapping{
+				Protocol:      &protocol,
+				ContainerPort: &containerPort,
+				HostPort:      &hostPort,
+				HostIp:        &hostIP,
+			},
+			"--port=tcp-80-8080:tcp:80:127.0.0.1:8080",
+		},
+
+		// Case 1, empty host IP, should default to "0.0.0.0".
+		{
+			&runtimeApi.PortMapping{
+				Protocol:      &protocol,
+				ContainerPort: &containerPort,
+				HostPort:      &hostPort,
+			},
+			"--port=tcp-80-8080:tcp:80:0.0.0.0:8080",
+		},
+	}
+
+	for i, tt := range tests {
+		testHint := fmt.Sprintf("test case #%d", i)
+		assert.Equal(t, tt.result, generatePortArgs(tt.port), testHint)
+	}
+}
