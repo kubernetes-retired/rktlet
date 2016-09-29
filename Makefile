@@ -14,7 +14,7 @@
 
 .PHONY: all glide generate test clean
 
-all: ./bin/
+all:
 	go build -o bin/rktlet ./cmd/server/main.go
 
 glide:
@@ -32,4 +32,3 @@ clean:
 MOCKERY_SOURCES := $(shell find ./vendor/github.com/vektra/mockery/ -name '*.go')
 ./hack/bin/mockery: $(MOCKERY_SOURCES)
 	go build -o ./hack/bin/mockery ./vendor/github.com/vektra/mockery/cmd/mockery
-
