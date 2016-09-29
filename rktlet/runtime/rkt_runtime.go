@@ -79,9 +79,6 @@ func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.Contai
 }
 
 func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.CreateContainerRequest) (*runtimeApi.CreateContainerResponse, error) {
-	// TODO(yifan): For now, let's just assume the podsandbox config is not used.
-	// TODO(yifan): More fields need to be supported by 'rkt app add'.
-
 	var imageID string
 
 	// Get the image hash.
@@ -167,8 +164,8 @@ func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListCon
 				glog.Warningf("rkt: cannot get container status for pod %q, app %q: %v", p.UUID, appName, err)
 				continue
 			}
-			// TODO: filter.
-			containers = append(containers, &runtimeApi.Container{
+
+			container := &runtimeApi.Container{
 				Id:          resp.Status.Id,
 				Metadata:    resp.Status.Metadata,
 				Image:       resp.Status.Image,
@@ -176,7 +173,11 @@ func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListCon
 				State:       resp.Status.State,
 				Labels:      resp.Status.Labels,
 				Annotations: resp.Status.Annotations,
-			})
+			}
+
+			if passFilter(container, req.Filter) {
+				containers = append(containers, container)
+			}
 		}
 	}
 

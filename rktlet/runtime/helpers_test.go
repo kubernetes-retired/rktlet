@@ -1,0 +1,162 @@
+/*
+Copyright 2016 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package runtime
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+)
+
+func TestPassFilter(t *testing.T) {
+	id1 := "id1"
+	id2 := "id2"
+	state1 := runtimeApi.ContainerState_RUNNING
+	state2 := runtimeApi.ContainerState_EXITED
+	podSandboxId1 := "podSanboxId1"
+	podSandboxId2 := "podSanboxId2"
+	labels1 := map[string]string{"hello": "world"}
+	labels2 := map[string]string{"hello": "world", "foo": "bar"}
+
+	tests := []struct {
+		container *runtimeApi.Container
+		filter    *runtimeApi.ContainerFilter
+		result    bool
+	}{
+		// Case 0, no filters.
+		{
+			&runtimeApi.Container{
+				Id:           &id1,
+				State:        &state1,
+				PodSandboxId: &podSandboxId1,
+				Labels:       labels1,
+			},
+			nil,
+			true,
+		},
+
+		// Case 1, matched.
+		{
+			&runtimeApi.Container{
+				Id:           &id1,
+				State:        &state1,
+				PodSandboxId: &podSandboxId1,
+				Labels:       labels1,
+			},
+			&runtimeApi.ContainerFilter{
+				Id:            &id1,
+				State:         &state1,
+				PodSandboxId:  &podSandboxId1,
+				LabelSelector: labels1,
+			},
+			true,
+		},
+
+		// Case 2, ids are not matched.
+		{
+			&runtimeApi.Container{
+				Id:           &id1,
+				State:        &state1,
+				PodSandboxId: &podSandboxId1,
+				Labels:       labels1,
+			},
+			&runtimeApi.ContainerFilter{
+				Id:            &id2,
+				State:         &state1,
+				PodSandboxId:  &podSandboxId1,
+				LabelSelector: labels1,
+			},
+			false,
+		},
+
+		// Case 3, states are not matched.
+		{
+			&runtimeApi.Container{
+				Id:           &id1,
+				State:        &state1,
+				PodSandboxId: &podSandboxId1,
+				Labels:       labels1,
+			},
+			&runtimeApi.ContainerFilter{
+				Id:            &id1,
+				State:         &state2,
+				PodSandboxId:  &podSandboxId1,
+				LabelSelector: labels1,
+			},
+			false,
+		},
+
+		// Case 4, pod sandbox ids are not matched.
+		{
+			&runtimeApi.Container{
+				Id:           &id1,
+				State:        &state1,
+				PodSandboxId: &podSandboxId1,
+				Labels:       labels1,
+			},
+			&runtimeApi.ContainerFilter{
+				Id:            &id1,
+				State:         &state1,
+				PodSandboxId:  &podSandboxId2,
+				LabelSelector: labels1,
+			},
+			false,
+		},
+
+		// Case 5, labels are matched, superset.
+		{
+			&runtimeApi.Container{
+				Id:           &id1,
+				State:        &state1,
+				PodSandboxId: &podSandboxId1,
+				Labels:       labels2,
+			},
+			&runtimeApi.ContainerFilter{
+				Id:            &id1,
+				State:         &state1,
+				PodSandboxId:  &podSandboxId1,
+				LabelSelector: labels1,
+			},
+			true,
+		},
+
+		// Case 6, labels are not matched, subset.
+		{
+			&runtimeApi.Container{
+				Id:           &id1,
+				State:        &state1,
+				PodSandboxId: &podSandboxId1,
+				Labels:       labels1,
+			},
+			&runtimeApi.ContainerFilter{
+				Id:            &id1,
+				State:         &state1,
+				PodSandboxId:  &podSandboxId1,
+				LabelSelector: labels2,
+			},
+			false,
+		},
+	}
+
+	for i, tt := range tests {
+		testHint := fmt.Sprintf("test case #%d", i)
+		assert.Equal(t, tt.result, passFilter(tt.container, tt.filter), testHint)
+	}
+}
