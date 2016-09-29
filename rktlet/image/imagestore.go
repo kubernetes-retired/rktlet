@@ -113,14 +113,18 @@ func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequ
 			return nil, fmt.Errorf("invalid image size format: %v", err)
 		}
 
-		images = append(images, &runtime.Image{
+		image := &runtime.Image{
 			Id: &id,
 			// TODO(yifan): Why not just call it name.
 			RepoTags: []string{name},
 			// TODO(yifan): Rename this field to something more generic?
 			RepoDigests: []string{id},
 			Size_:       &size,
-		})
+		}
+
+		if passFilter(image, req.Filter) {
+			images = append(images, image)
+		}
 	}
 
 	return &runtime.ListImagesResponse{Images: images}, nil
@@ -139,4 +143,23 @@ func (s *ImageStore) PullImage(ctx context.Context, req *runtime.PullImageReques
 	}
 
 	return &runtime.PullImageResponse{}, nil
+}
+
+// passFilter returns whether the target image satisfies the filter.
+func passFilter(image *runtime.Image, filter *runtime.ImageFilter) bool {
+	if filter == nil {
+		return true
+	}
+
+	if filter.Image == nil {
+		return true
+	}
+
+	imageName := filter.Image.GetImage()
+	for _, name := range image.RepoTags {
+		if imageName == name {
+			return true
+		}
+	}
+	return false
 }

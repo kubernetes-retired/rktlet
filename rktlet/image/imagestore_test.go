@@ -17,16 +17,18 @@ limitations under the License.
 package image
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli/mocks"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/net/context"
 
-	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	runtime "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
 
 const mockBusyboxFetchResponse = `
@@ -66,4 +68,55 @@ func TestPullImage(t *testing.T) {
 	}
 
 	mockCli.AssertExpectations(t)
+}
+
+func TestPassFilter(t *testing.T) {
+	name1 := "example-image:latest"
+	name2 := "example-image:old"
+
+	tests := []struct {
+		image  *runtime.Image
+		filter *runtime.ImageFilter
+		result bool
+	}{
+		// Case 0, no filters.
+		{
+			&runtime.Image{RepoTags: []string{name1}},
+			nil,
+			true,
+		},
+
+		// Case 1, empty filter.
+		{
+			&runtime.Image{RepoTags: []string{name1}},
+			&runtime.ImageFilter{},
+			true,
+		},
+
+		// Case 2, matched.
+		{
+			&runtime.Image{RepoTags: []string{name1}},
+			&runtime.ImageFilter{Image: &runtime.ImageSpec{Image: &name1}},
+			true,
+		},
+
+		// Case 3, not matched.
+		{
+			&runtime.Image{RepoTags: []string{name1}},
+			&runtime.ImageFilter{Image: &runtime.ImageSpec{}},
+			false,
+		},
+
+		// Case 4, not matched.
+		{
+			&runtime.Image{RepoTags: []string{name1}},
+			&runtime.ImageFilter{Image: &runtime.ImageSpec{Image: &name2}},
+			false,
+		},
+	}
+
+	for i, tt := range tests {
+		testHint := fmt.Sprintf("test case #%d", i)
+		assert.Equal(t, tt.result, passFilter(tt.image, tt.filter), testHint)
+	}
 }
