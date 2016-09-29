@@ -191,6 +191,23 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 
 	// TODO(yifan): Namespace options.
 
+	// Add hostname.
+	if req.Config.Hostname != nil {
+		cmd = append(cmd, "--hostname="+*req.Config.Hostname)
+	}
+
+	// Add DNS options.
+	if options := req.Config.DnsOptions; options != nil {
+		for _, server := range options.Servers {
+			cmd = append(cmd, "--dns="+server)
+		}
+		for _, search := range options.Searches {
+			cmd = append(cmd, "--dns-search="+search)
+		}
+		// TODO(yifan): Add dns-opt after
+		// https://github.com/kubernetes/kubernetes/pull/33709 is merged.
+	}
+
 	// Generate annotations.
 	var labels, annotations []string
 	for k, v := range req.Config.Labels {
