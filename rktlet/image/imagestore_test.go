@@ -24,7 +24,7 @@ import (
 
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli/mocks"
 	"github.com/stretchr/testify/mock"
-	context "golang.org/x/net/context"
+	"golang.org/x/net/context"
 
 	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
