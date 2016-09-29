@@ -17,16 +17,16 @@ limitations under the License.
 package image
 
 import (
-	"context"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
-
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli/mocks"
 	"github.com/stretchr/testify/mock"
+	context "golang.org/x/net/context"
+
+	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
 
 const mockBusyboxFetchResponse = `

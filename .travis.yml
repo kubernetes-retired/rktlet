@@ -1,7 +1,7 @@
 language: go
 go:
+    - 1.6
     - 1.7
-    - tip
 env:
   - GOPKG_PARENT=$HOME/gopath/src/github.com/kubernetes-incubator GOPKG_PATH=$GOPKG_PARENT/rktlet
 
