@@ -78,14 +78,10 @@ func runAppStart(cmd *cobra.Command, args []string) (exit int) {
 	}
 
 	scfg := stage0.StartConfig{
-		CommonConfig:         &cfg,
-		Dir:                  p.Path(),
-		UsesOverlay:          p.UsesOverlay(),
-		AppName:              appName,
-		PodPID:               podPID,
-		InsecureCapabilities: globalFlags.InsecureFlags.SkipCapabilities(),
-		InsecurePaths:        globalFlags.InsecureFlags.SkipPaths(),
-		InsecureSeccomp:      globalFlags.InsecureFlags.SkipSeccomp(),
+		CommonConfig: &cfg,
+		Dir:          p.Path(),
+		AppName:      appName,
+		PodPID:       podPID,
 	}
 
 	err = stage0.StartApp(scfg)

@@ -17,10 +17,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/appc/spec/schema/types"
-	"github.com/coreos/rkt/common/apps"
-
 	"github.com/coreos/rkt/common"
+	"github.com/coreos/rkt/common/apps"
 	pkgPod "github.com/coreos/rkt/pkg/pod"
 	"github.com/coreos/rkt/rkt/image"
 	"github.com/coreos/rkt/stage0"
@@ -28,7 +26,6 @@ import (
 	"github.com/coreos/rkt/store/treestore"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 var (
@@ -62,6 +59,7 @@ func runAppAdd(cmd *cobra.Command, args []string) (exit int) {
 		stderr.PrintE("error parsing app image arguments", err)
 		return 1
 	}
+
 	if rktApps.Count() > 1 {
 		stderr.Print("must give only one app")
 		return 1
@@ -106,6 +104,12 @@ func runAppAdd(cmd *cobra.Command, args []string) (exit int) {
 		return 1
 	}
 
+	podPID, err := p.ContainerPid1()
+	if err != nil {
+		stderr.PrintE(fmt.Sprintf("unable to determine the pid for pod %q", p.UUID), err)
+		return 1
+	}
+
 	ccfg := stage0.CommonConfig{
 		Store:     s,
 		TreeStore: ts,
@@ -119,53 +123,21 @@ func runAppAdd(cmd *cobra.Command, args []string) (exit int) {
 		rktgid = -1
 	}
 
-	pcfg := stage0.PrepareConfig{
+	cfg := stage0.AddConfig{
 		CommonConfig: &ccfg,
+		Image:        *img,
 		Apps:         &rktApps,
-	}
-	rcfg := stage0.RunConfig{
-		CommonConfig: &ccfg,
-		UseOverlay:   p.UsesOverlay(),
 		RktGid:       rktgid,
+		UsesOverlay:  p.UsesOverlay(),
+		PodPath:      p.Path(),
+		PodPID:       podPID,
 	}
 
-	err = stage0.AddApp(pcfg, rcfg, p.Path(), img)
+	err = stage0.AddApp(cfg)
 	if err != nil {
 		stderr.PrintE("error adding app to pod", err)
 		return 1
 	}
 
 	return 0
-}
-
-// generateAddConfig converts command line flags into stage0.AddConfig.
-func generateAddConfig(flags *pflag.FlagSet) (*stage0.AddConfig, error) {
-	var addConfig stage0.AddConfig
-
-	flag := flags.Lookup("name")
-	if flag != nil {
-		value := flag.Value.String()
-		if value != "" {
-			name, err := types.NewACName(value)
-			if err != nil {
-				return nil, fmt.Errorf("invalid format for app name: %v", err)
-			}
-			addConfig.Name = name
-		}
-	}
-
-	flag = flags.Lookup("set-annotation")
-	if flag != nil {
-		var annotations types.Annotations
-		for k, value := range flag.Value.(*kvMap).mapping {
-			key, err := types.NewACIdentifier(k)
-			if err != nil {
-				return nil, fmt.Errorf("invalid format for annotation key %q: %v", k, err)
-			}
-			annotations.Set(*key, value)
-		}
-		addConfig.Annotations = annotations
-	}
-
-	return &addConfig, nil
 }

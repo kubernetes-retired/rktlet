@@ -70,8 +70,8 @@ type PrepareConfig struct {
 	SkipTreeStoreCheck bool                 // skip checking the treestore before rendering
 	PodManifest        string               // use the pod manifest specified by the user, this will ignore flags such as '--volume', '--port', etc.
 	PrivateUsers       *user.UidRange       // user namespaces
-	CRIAnnotations     types.CRIAnnotations // CRI annotations for the pod.
-	CRILabels          types.CRILabels      // CRI labels for the pod.
+	UserAnnotations    types.CRIAnnotations // user annotations for the pod.
+	UserLabels         types.CRILabels      // user labels for the pod.
 }
 
 // RunConfig defines the configuration parameters needed by Run
@@ -208,13 +208,22 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 		if err != nil {
 			return errwrap.Wrap(errors.New("error getting the manifest"), err)
 		}
-		appName, err := imageNameToAppName(am.Name)
-		if err != nil {
-			return errwrap.Wrap(errors.New("error converting image name to app name"), err)
+
+		var appName *types.ACName
+		if app.Name != "" {
+			appName, err = types.NewACName(app.Name)
+			if err != nil {
+				return errwrap.Wrap(errors.New("invalid app name format"), err)
+			}
+		} else {
+			appName, err = imageNameToAppName(am.Name)
+			if err != nil {
+				return errwrap.Wrap(errors.New("error converting image name to app name"), err)
+			}
 		}
 
-		if err := prepareAppImage(cfg, *appName, img, dir, cfg.UseOverlay); err != nil {
-			return errwrap.Wrap(fmt.Errorf("error setting up image %s", img), err)
+		if _, err := prepareAppImage(cfg, *appName, img, dir, cfg.UseOverlay); err != nil {
+			return errwrap.Wrap(fmt.Errorf("error preparing image %s", img), err)
 		}
 		if pm.Apps.Get(*appName) != nil {
 			return fmt.Errorf("error: multiple apps with name %s", am.Name)
@@ -231,10 +240,11 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 				ID:     img,
 				Labels: am.Labels,
 			},
-			Mounts: MergeMounts(cfg.Apps.Mounts, app.Mounts),
+			Mounts:         MergeMounts(cfg.Apps.Mounts, app.Mounts),
+			ReadOnlyRootFS: app.ReadOnlyRootFS,
 		}
 
-		if execOverride := app.Exec; execOverride != "" {
+		if app.Exec != "" {
 			// Create a minimal App section if not present
 			if am.App == nil {
 				ra.App = &types.App{
@@ -242,23 +252,39 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 					Group: strconv.Itoa(os.Getgid()),
 				}
 			}
-			ra.App.Exec = []string{execOverride}
+			ra.App.Exec = []string{app.Exec}
 		}
 
-		if execAppends := app.Args; execAppends != nil {
-			ra.App.Exec = append(ra.App.Exec, execAppends...)
+		if app.Args != nil {
+			ra.App.Exec = append(ra.App.Exec, app.Args...)
+		}
+
+		if app.WorkingDir != "" {
+			ra.App.WorkingDirectory = app.WorkingDir
 		}
 
 		if err := prepareIsolators(app, ra.App); err != nil {
 			return err
 		}
 
-		if user := app.User; user != "" {
-			ra.App.User = user
+		if app.User != "" {
+			ra.App.User = app.User
 		}
 
-		if group := app.Group; group != "" {
-			ra.App.Group = group
+		if app.Group != "" {
+			ra.App.Group = app.Group
+		}
+
+		if app.SupplementaryGIDs != nil {
+			ra.App.SupplementaryGIDs = app.SupplementaryGIDs
+		}
+
+		if app.UserAnnotations != nil {
+			ra.App.CRIAnnotations = app.UserAnnotations
+		}
+
+		if app.UserLabels != nil {
+			ra.App.CRILabels = app.UserLabels
 		}
 
 		// loading the environment from the lowest priority to highest
@@ -269,6 +295,15 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 
 		mergeEnvs(&ra.App.Environment, cfg.EnvFromFile, true)
 		mergeEnvs(&ra.App.Environment, cfg.ExplicitEnv, true)
+
+		if app.Environments != nil {
+			envs := make([]string, 0, len(app.Environments))
+			for name, value := range app.Environments {
+				envs = append(envs, fmt.Sprintf("%s=%s", name, value))
+			}
+			mergeEnvs(&ra.App.Environment, envs, true)
+		}
+
 		pm.Apps = append(pm.Apps, ra)
 		return nil
 	}); err != nil {
@@ -291,8 +326,8 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 		Value: strconv.FormatBool(cfg.Mutable),
 	})
 
-	pm.CRIAnnotations = cfg.CRIAnnotations
-	pm.CRILabels = cfg.CRILabels
+	pm.CRIAnnotations = cfg.UserAnnotations
+	pm.CRILabels = cfg.UserLabels
 
 	pmb, err := json.Marshal(pm)
 	if err != nil {
@@ -301,6 +336,7 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 	return pmb, nil
 }
 
+// prepareIsolators merges the CLI app parameters with the manifest's app
 func prepareIsolators(setup *apps.App, app *types.App) error {
 	if memoryOverride := setup.MemoryLimit; memoryOverride != nil {
 		isolator := memoryOverride.AsIsolator()
@@ -310,6 +346,10 @@ func prepareIsolators(setup *apps.App, app *types.App) error {
 	if cpuOverride := setup.CPULimit; cpuOverride != nil {
 		isolator := cpuOverride.AsIsolator()
 		app.Isolators = append(app.Isolators, isolator)
+	}
+
+	if oomAdjOverride := setup.OOMScoreAdj; oomAdjOverride != nil {
+		app.Isolators.ReplaceIsolatorsByName(oomAdjOverride.AsIsolator(), []types.ACIdentifier{types.LinuxOOMScoreAdjName})
 	}
 
 	if setup.CapsRetain != nil && setup.CapsRemove != nil {
@@ -399,8 +439,8 @@ func validatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 		if err != nil {
 			return nil, errwrap.Wrap(errors.New("error getting the image manifest from store"), err)
 		}
-		if err := prepareAppImage(cfg, ra.Name, img.ID, dir, cfg.UseOverlay); err != nil {
-			return nil, errwrap.Wrap(fmt.Errorf("error setting up image %s", img), err)
+		if _, err := prepareAppImage(cfg, ra.Name, img.ID, dir, cfg.UseOverlay); err != nil {
+			return nil, errwrap.Wrap(fmt.Errorf("error preparing image %s", img), err)
 		}
 		if _, ok := appNames[ra.Name]; ok {
 			return nil, fmt.Errorf("multiple apps with same name %s", ra.Name)
@@ -656,8 +696,16 @@ func Run(cfg RunConfig, dir string, dataDir string) {
 		}
 	}
 
-	// TODO(sur): spec out a boolean coreos.com/rkt/stage1/mutable, and introspect here
 	if cfg.Mutable {
+		mutable, err := supportsMutableEnvironment(dir)
+
+		switch {
+		case err != nil:
+			log.FatalE("error determining stage1 mutable support", err)
+		case !mutable:
+			log.Fatalln("stage1 does not support mutable pods")
+		}
+
 		args = append(args, "--mutable")
 	}
 
@@ -683,38 +731,42 @@ func Run(cfg RunConfig, dir string, dataDir string) {
 
 // prepareAppImage renders and verifies the tree cache of the app image that
 // corresponds to the given app name.
-// When useOverlay is false, it attempts to render and expand the app image
-func prepareAppImage(cfg PrepareConfig, appName types.ACName, img types.Hash, cdir string, useOverlay bool) error {
+// When useOverlay is false, it attempts to render and expand the app image.
+// It returns the tree store ID if overlay is being used.
+func prepareAppImage(cfg PrepareConfig, appName types.ACName, img types.Hash, cdir string, useOverlay bool) (string, error) {
 	debug("Loading image %s", img.String())
 
 	am, err := cfg.Store.GetImageManifest(img.String())
 	if err != nil {
-		return errwrap.Wrap(errors.New("error getting the manifest"), err)
+		return "", errwrap.Wrap(errors.New("error getting the manifest"), err)
 	}
 
 	if _, hasOS := am.Labels.Get("os"); !hasOS {
-		return fmt.Errorf("missing os label in the image manifest")
+		return "", fmt.Errorf("missing os label in the image manifest")
 	}
+
 	if _, hasArch := am.Labels.Get("arch"); !hasArch {
-		return fmt.Errorf("missing arch label in the image manifest")
+		return "", fmt.Errorf("missing arch label in the image manifest")
 	}
 
 	if err := types.IsValidOSArch(am.Labels.ToMap(), ValidOSArch); err != nil {
-		return err
+		return "", err
 	}
 
 	appInfoDir := common.AppInfoPath(cdir, appName)
 	if err := os.MkdirAll(appInfoDir, common.DefaultRegularDirPerm); err != nil {
-		return errwrap.Wrap(errors.New("error creating apps info directory"), err)
+		return "", errwrap.Wrap(errors.New("error creating apps info directory"), err)
 	}
 
+	var treeStoreID string
 	if useOverlay {
 		if cfg.PrivateUsers.Shift > 0 {
-			return fmt.Errorf("cannot use both overlay and user namespace: not implemented yet. (Try --no-overlay)")
+			return "", fmt.Errorf("cannot use both overlay and user namespace: not implemented yet. (Try --no-overlay)")
 		}
-		treeStoreID, _, err := cfg.TreeStore.Render(img.String(), false)
+
+		treeStoreID, _, err = cfg.TreeStore.Render(img.String(), false)
 		if err != nil {
-			return errwrap.Wrap(errors.New("error rendering tree image"), err)
+			return "", errwrap.Wrap(errors.New("error rendering tree image"), err)
 		}
 
 		if !cfg.SkipTreeStoreCheck {
@@ -724,39 +776,42 @@ func prepareAppImage(cfg PrepareConfig, appName types.ACName, img types.Hash, cd
 				var err error
 				treeStoreID, hash, err = cfg.TreeStore.Render(img.String(), true)
 				if err != nil {
-					return errwrap.Wrap(errors.New("error rendering tree image"), err)
+					return "", errwrap.Wrap(errors.New("error rendering tree image"), err)
 				}
 			}
 			cfg.CommonConfig.RootHash = hash
 		}
 
 		if err := ioutil.WriteFile(common.AppTreeStoreIDPath(cdir, appName), []byte(treeStoreID), common.DefaultRegularFilePerm); err != nil {
-			return errwrap.Wrap(errors.New("error writing app treeStoreID"), err)
+			return "", errwrap.Wrap(errors.New("error writing app treeStoreID"), err)
 		}
 	} else {
 		ad := common.AppPath(cdir, appName)
+
 		err := os.MkdirAll(ad, common.DefaultRegularDirPerm)
 		if err != nil {
-			return errwrap.Wrap(errors.New("error creating image directory"), err)
+			return "", errwrap.Wrap(errors.New("error creating image directory"), err)
 		}
 
 		shiftedUid, shiftedGid, err := cfg.PrivateUsers.ShiftRange(uint32(os.Getuid()), uint32(os.Getgid()))
 		if err != nil {
-			return errwrap.Wrap(errors.New("error getting uid, gid"), err)
+			return "", errwrap.Wrap(errors.New("error getting uid, gid"), err)
 		}
 
 		if err := os.Chown(ad, int(shiftedUid), int(shiftedGid)); err != nil {
-			return errwrap.Wrap(fmt.Errorf("error shifting app %q's stage2 dir", appName), err)
+			return "", errwrap.Wrap(fmt.Errorf("error shifting app %q's stage2 dir", appName), err)
 		}
 
 		if err := aci.RenderACIWithImageID(img, ad, cfg.Store, cfg.PrivateUsers); err != nil {
-			return errwrap.Wrap(errors.New("error rendering ACI"), err)
+			return "", errwrap.Wrap(errors.New("error rendering ACI"), err)
 		}
 	}
+
 	if err := writeManifest(*cfg.CommonConfig, img, appInfoDir); err != nil {
-		return err
+		return "", errwrap.Wrap(errors.New("error writing manifest"), err)
 	}
-	return nil
+
+	return treeStoreID, nil
 }
 
 // setupAppImage mounts the overlay filesystem for the app image that

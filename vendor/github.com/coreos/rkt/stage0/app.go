@@ -28,7 +28,7 @@ import (
 	"syscall"
 
 	"github.com/coreos/rkt/common"
-	"github.com/coreos/rkt/pkg/aci"
+	"github.com/coreos/rkt/common/apps"
 	"github.com/coreos/rkt/pkg/user"
 	// FIXME this should not be in stage1 anymore
 	stage1types "github.com/coreos/rkt/stage1/common/types"
@@ -40,13 +40,10 @@ import (
 
 type StartConfig struct {
 	*CommonConfig
-	Dir                  string
-	UsesOverlay          bool
-	AppName              *types.ACName
-	PodPID               int
-	InsecureCapabilities bool // Do not restrict capabilities
-	InsecurePaths        bool // Do not restrict access to files in sysfs or procfs
-	InsecureSeccomp      bool // Do not add seccomp restrictions
+	Dir         string
+	UsesOverlay bool
+	AppName     *types.ACName
+	PodPID      int
 }
 
 type StopConfig struct {
@@ -57,18 +54,26 @@ type StopConfig struct {
 }
 
 type AddConfig struct {
-	Name        *types.ACName
-	Annotations types.Annotations
+	*CommonConfig
+	Image                types.Hash
+	Apps                 *apps.Apps
+	RktGid               int
+	UsesOverlay          bool
+	PodPath              string
+	PodPID               int
+	InsecureCapabilities bool
+	InsecurePaths        bool
+	InsecureSeccomp      bool
 }
 
-func AddApp(pcfg PrepareConfig, cfg RunConfig, dir string, img *types.Hash) error {
+func AddApp(cfg AddConfig) error {
 	// there should be only one app in the config
-	app := pcfg.Apps.Last()
+	app := cfg.Apps.Last()
 	if app == nil {
 		return errors.New("no image specified")
 	}
 
-	am, err := cfg.Store.GetImageManifest(img.String())
+	am, err := cfg.Store.GetImageManifest(cfg.Image.String())
 	if err != nil {
 		return err
 	}
@@ -86,7 +91,7 @@ func AddApp(pcfg PrepareConfig, cfg RunConfig, dir string, img *types.Hash) erro
 		}
 	}
 
-	p, err := stage1types.LoadPod(dir, cfg.UUID)
+	p, err := stage1types.LoadPod(cfg.PodPath, cfg.UUID)
 	if err != nil {
 		return errwrap.Wrap(errors.New("error loading pod manifest"), err)
 	}
@@ -109,79 +114,49 @@ func AddApp(pcfg PrepareConfig, cfg RunConfig, dir string, img *types.Hash) erro
 	if pm.Apps.Get(*appName) != nil {
 		return fmt.Errorf("error: multiple apps with name %s", *appName)
 	}
+
 	if am.App == nil && app.Exec == "" {
-		return fmt.Errorf("error: image %s has no app section and --exec argument is not provided", img)
+		return fmt.Errorf("error: image %s has no app section and --exec argument is not provided", cfg.Image)
 	}
 
-	appInfoDir := common.AppInfoPath(dir, *appName)
+	appInfoDir := common.AppInfoPath(cfg.PodPath, *appName)
 	if err := os.MkdirAll(appInfoDir, common.DefaultRegularDirPerm); err != nil {
 		return errwrap.Wrap(errors.New("error creating apps info directory"), err)
 	}
 
-	uidRange := user.NewBlankUidRange()
-	// TODO(iaguis): DRY: refactor this
-	var treeStoreID string
-	if cfg.UseOverlay {
-		treeStoreID, _, err := cfg.TreeStore.Render(img.String(), false)
-		if err != nil {
-			return errwrap.Wrap(errors.New("error rendering tree image"), err)
-		}
+	pcfg := PrepareConfig{
+		CommonConfig: cfg.CommonConfig,
+		PrivateUsers: user.NewBlankUidRange(),
+	}
 
-		hash, err := cfg.TreeStore.Check(treeStoreID)
-		if err != nil {
-			log.PrintE("warning: tree cache is in a bad state.  Rebuilding...", err)
-			var err error
-			treeStoreID, hash, err = cfg.TreeStore.Render(img.String(), true)
-			if err != nil {
-				return errwrap.Wrap(errors.New("error rendering tree image"), err)
-			}
-		}
-		cfg.RootHash = hash
-
-		if err := ioutil.WriteFile(common.AppTreeStoreIDPath(dir, *appName), []byte(treeStoreID), common.DefaultRegularFilePerm); err != nil {
-			return errwrap.Wrap(errors.New("error writing app treeStoreID"), err)
-		}
-	} else {
-		ad := common.AppPath(dir, *appName)
-
-		err := os.MkdirAll(ad, common.DefaultRegularDirPerm)
-		if err != nil {
-			return errwrap.Wrap(errors.New("error creating image directory"), err)
-		}
-
-		privateUsers, err := preparedWithPrivateUsers(dir)
+	if cfg.UsesOverlay {
+		privateUsers, err := preparedWithPrivateUsers(cfg.PodPath)
 		if err != nil {
 			log.FatalE("error reading user namespace information", err)
 		}
 
-		if err := uidRange.Deserialize([]byte(privateUsers)); err != nil {
+		if err := pcfg.PrivateUsers.Deserialize([]byte(privateUsers)); err != nil {
 			return err
 		}
-
-		shiftedUid, shiftedGid, err := uidRange.ShiftRange(uint32(os.Getuid()), uint32(os.Getgid()))
-		if err != nil {
-			return errwrap.Wrap(errors.New("error getting uid, gid"), err)
-		}
-
-		if err := os.Chown(ad, int(shiftedUid), int(shiftedGid)); err != nil {
-			return errwrap.Wrap(fmt.Errorf("error shifting app %q's stage2 dir", *appName), err)
-		}
-
-		if err := aci.RenderACIWithImageID(*img, ad, cfg.Store, uidRange); err != nil {
-			return errwrap.Wrap(errors.New("error rendering ACI"), err)
-		}
 	}
 
-	if err := writeManifest(*cfg.CommonConfig, *img, appInfoDir); err != nil {
-		return errwrap.Wrap(errors.New("error writing manifest"), err)
+	treeStoreID, err := prepareAppImage(pcfg, *appName, cfg.Image, cfg.PodPath, cfg.UsesOverlay)
+	if err != nil {
+		return errwrap.Wrap(fmt.Errorf("error preparing image %s", cfg.Image), err)
 	}
 
-	if err := setupAppImage(cfg, *appName, *img, dir, cfg.UseOverlay); err != nil {
+	rcfg := RunConfig{
+		CommonConfig: cfg.CommonConfig,
+		UseOverlay:   cfg.UsesOverlay,
+		RktGid:       cfg.RktGid,
+	}
+
+	if err := setupAppImage(rcfg, *appName, cfg.Image, cfg.PodPath, cfg.UsesOverlay); err != nil {
 		return fmt.Errorf("error setting up app image: %v", err)
 	}
 
-	if cfg.UseOverlay {
-		imgDir := filepath.Join(dir, "overlay", treeStoreID)
+	if cfg.UsesOverlay {
+		imgDir := filepath.Join(cfg.PodPath, "overlay", treeStoreID)
 		if err := os.Chown(imgDir, -1, cfg.RktGid); err != nil {
 			return err
 		}
@@ -192,12 +167,13 @@ func AddApp(pcfg PrepareConfig, cfg RunConfig, dir string, img *types.Hash) erro
 		App:  am.App,
 		Image: schema.RuntimeImage{
 			Name:   &am.Name,
-			ID:     *img,
+			ID:     cfg.Image,
 			Labels: am.Labels,
 		},
+		ReadOnlyRootFS: app.ReadOnlyRootFS,
 	}
 
-	if execOverride := app.Exec; execOverride != "" {
+	if app.Exec != "" {
 		// Create a minimal App section if not present
 		if am.App == nil {
 			ra.App = &types.App{
@@ -205,31 +181,39 @@ func AddApp(pcfg PrepareConfig, cfg RunConfig, dir string, img *types.Hash) erro
 				Group: strconv.Itoa(os.Getgid()),
 			}
 		}
-		ra.App.Exec = []string{execOverride}
+		ra.App.Exec = []string{app.Exec}
 	}
 
-	if execAppends := app.Args; execAppends != nil {
-		ra.App.Exec = append(ra.App.Exec, execAppends...)
+	if app.Args != nil {
+		ra.App.Exec = append(ra.App.Exec, app.Args...)
+	}
+
+	if app.WorkingDir != "" {
+		ra.App.WorkingDirectory = app.WorkingDir
 	}
 
 	if err := prepareIsolators(app, ra.App); err != nil {
 		return err
 	}
 
-	if user := app.User; user != "" {
-		ra.App.User = user
+	if app.User != "" {
+		ra.App.User = app.User
 	}
 
-	if group := app.Group; group != "" {
-		ra.App.Group = group
+	if app.Group != "" {
+		ra.App.Group = app.Group
 	}
 
-	if app.CRIAnnotations != nil {
-		ra.App.CRIAnnotations = app.CRIAnnotations
+	if app.SupplementaryGIDs != nil {
+		ra.App.SupplementaryGIDs = app.SupplementaryGIDs
 	}
 
-	if app.CRILabels != nil {
-		ra.App.CRILabels = app.CRILabels
+	if app.UserAnnotations != nil {
+		ra.App.CRIAnnotations = app.UserAnnotations
+	}
+
+	if app.UserLabels != nil {
+		ra.App.CRILabels = app.UserLabels
 	}
 
 	if app.Environments != nil {
@@ -244,20 +228,57 @@ func AddApp(pcfg PrepareConfig, cfg RunConfig, dir string, img *types.Hash) erro
 	env := ra.App.Environment
 
 	env.Set("AC_APP_NAME", appName.String())
-	envFilePath := filepath.Join(common.Stage1RootfsPath(dir), "rkt", "env", appName.String())
+	envFilePath := filepath.Join(common.Stage1RootfsPath(cfg.PodPath), "rkt", "env", appName.String())
 
-	if err := common.WriteEnvFile(env, uidRange, envFilePath); err != nil {
+	if err := common.WriteEnvFile(env, pcfg.PrivateUsers, envFilePath); err != nil {
 		return err
 	}
 
 	apps := append(p.Manifest.Apps, ra)
 	p.Manifest.Apps = apps
 
-	if err := updatePodManifest(dir, p.Manifest); err != nil {
+	if err := updatePodManifest(cfg.PodPath, p.Manifest); err != nil {
 		return err
 	}
 
+	eep, err := getStage1Entrypoint(cfg.PodPath, enterEntrypoint)
+	if err != nil {
+		return errwrap.Wrap(errors.New("error determining 'enter' entrypoint"), err)
+	}
+
+	args := []string{
+		cfg.UUID.String(),
+		appName.String(),
+		filepath.Join(common.Stage1RootfsPath(cfg.PodPath), eep),
+		strconv.Itoa(cfg.PodPID),
+	}
+
+	if cfg.InsecureCapabilities {
+		args = append(args, "--disable-capabilities-restriction")
+	}
+
+	if cfg.InsecurePaths {
+		args = append(args, "--disable-paths")
+	}
+
+	if cfg.InsecureSeccomp {
+		args = append(args, "--disable-seccomp")
+	}
+
+	privateUsers, err := preparedWithPrivateUsers(cfg.PodPath)
+	if err != nil {
+		log.FatalE("error reading user namespace information", err)
+	}
+
+	if privateUsers != "" {
+		args = append(args, fmt.Sprintf("--private-users=%s", privateUsers))
+	}
+
 	if _, err := os.Create(common.AppCreatedPath(p.Root, appName.String())); err != nil {
+		return err
+	}
+
+	if err := callEntrypoint(cfg.PodPath, appAddEntrypoint, args); err != nil {
 		return err
 	}
 
@@ -328,7 +349,7 @@ func callEntrypoint(dir, entrypoint string, args []string) error {
 	}
 
 	if err := c.Run(); err != nil {
-		return fmt.Errorf("error executing stage1's app rm: %v", err)
+		return fmt.Errorf("error executing stage1's entrypoint %q: %v", entrypoint, err)
 	}
 
 	if err := os.Chdir(previousDir); err != nil {
@@ -387,7 +408,14 @@ func RmApp(dir string, uuid *types.UUID, usesOverlay bool, appName *types.ACName
 		}
 
 		if err := callEntrypoint(dir, appStopEntrypoint, args); err != nil {
-			return err
+			status, err := common.GetExitStatus(err)
+			// ignore nonexistent units failing to stop. Exit status 5
+			// comes from systemctl and means the unit doesn't exist
+			if err != nil {
+				return err
+			} else if status != 5 {
+				return fmt.Errorf("exit status %d", status)
+			}
 		}
 
 		if err := callEntrypoint(dir, appRmEntrypoint, args); err != nil {
@@ -481,25 +509,6 @@ func StartApp(cfg StartConfig) error {
 		strconv.Itoa(cfg.PodPID),
 	}
 
-	if cfg.InsecureCapabilities {
-		args = append(args, "--disable-capabilities-restriction")
-	}
-	if cfg.InsecurePaths {
-		args = append(args, "--disable-paths")
-	}
-	if cfg.InsecureSeccomp {
-		args = append(args, "--disable-seccomp")
-	}
-
-	privateUsers, err := preparedWithPrivateUsers(cfg.Dir)
-	if err != nil {
-		log.FatalE("error reading user namespace information", err)
-	}
-
-	if privateUsers != "" {
-		args = append(args, fmt.Sprintf("--private-users=%s", privateUsers))
-	}
-
 	if _, err := os.Create(common.AppStartedPath(p.Root, cfg.AppName.String())); err != nil {
 		log.FatalE(fmt.Sprintf("error creating %s-started file", cfg.AppName.String()), err)
 	}
@@ -550,6 +559,12 @@ func StopApp(cfg StopConfig) error {
 	}
 
 	if err := callEntrypoint(cfg.Dir, appStopEntrypoint, args); err != nil {
+		status, err := common.GetExitStatus(err)
+		// exit status 5 comes from systemctl and means the unit doesn't exist
+		if status == 5 {
+			return fmt.Errorf("app %q is not running", app.Name)
+		}
+
 		return err
 	}
 

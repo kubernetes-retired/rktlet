@@ -31,3 +31,4 @@ import:
   - lib
 - package: github.com/appc/spec
   version: cri
+- package: github.com/docker/docker/daemon/caps

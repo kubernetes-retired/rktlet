@@ -66,20 +66,20 @@ func printApp(app *rkt.App) {
 		stdout.Println()
 	}
 
-	if len(app.CRIAnnotations) > 0 {
-		stdout.Printf("cri_annotations=")
+	if len(app.UserAnnotations) > 0 {
+		stdout.Printf("user_annotations=")
 		var annos []string
-		for key, value := range app.CRIAnnotations {
+		for key, value := range app.UserAnnotations {
 			annos = append(annos, fmt.Sprintf("%s:%s", key, value))
 		}
 		stdout.Printf(strings.Join(annos, ","))
 		stdout.Println()
 	}
 
-	if len(app.CRILabels) > 0 {
-		stdout.Printf("cri_labels=")
+	if len(app.UserLabels) > 0 {
+		stdout.Printf("user_labels=")
 		var labels []string
-		for key, value := range app.CRILabels {
+		for key, value := range app.UserLabels {
 			labels = append(labels, fmt.Sprintf("%s:%s", key, value))
 		}
 		stdout.Printf(strings.Join(labels, ","))
