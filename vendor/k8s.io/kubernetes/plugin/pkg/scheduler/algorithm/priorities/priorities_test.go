@@ -24,8 +24,8 @@ import (
 	"sort"
 	"testing"
 
-	"k8s.io/kubernetes/cmd/libs/go2idl/parser"
-	"k8s.io/kubernetes/cmd/libs/go2idl/types"
+	"k8s.io/gengo/parser"
+	"k8s.io/gengo/types"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/util/codeinspector"
@@ -61,7 +61,7 @@ func priorityFunction(mapFn algorithm.PriorityMapFunction, reduceFn algorithm.Pr
 			result = append(result, hostResult)
 		}
 		if reduceFn != nil {
-			if err := reduceFn(result); err != nil {
+			if err := reduceFn(pod, result); err != nil {
 				return nil, err
 			}
 		}
@@ -990,7 +990,7 @@ func TestPrioritiesRegistered(t *testing.T) {
 		if err == nil {
 			functions = append(functions, fileFunctions...)
 		} else {
-			t.Errorf("unexpected error when parsing %s", filePath)
+			t.Errorf("unexpected error when parsing %s: %v", filePath, err)
 		}
 	}
 

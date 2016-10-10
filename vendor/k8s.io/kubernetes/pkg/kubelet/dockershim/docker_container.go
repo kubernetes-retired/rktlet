@@ -166,7 +166,11 @@ func (ds *dockerService) CreateContainer(podSandboxID string, config *runtimeApi
 		// Note: ShmSize is handled in kube_docker_client.go
 	}
 
-	hc.SecurityOpt = []string{getSeccompOpts()}
+	var err error
+	hc.SecurityOpt, err = getContainerSecurityOpts(config.Metadata.GetName(), sandboxConfig, ds.seccompProfileRoot)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate container security options for container %q: %v", config.Metadata.GetName(), err)
+	}
 	// TODO: Add or drop capabilities.
 
 	createConfig.HostConfig = hc
@@ -227,10 +231,10 @@ func (ds *dockerService) ContainerStatus(containerID string) (*runtimeApi.Contai
 
 	// Convert the mounts.
 	mounts := []*runtimeApi.Mount{}
-	for _, m := range r.Mounts {
+	for i := range r.Mounts {
+		m := r.Mounts[i]
 		readonly := !m.RW
 		mounts = append(mounts, &runtimeApi.Mount{
-			Name:          &m.Name,
 			HostPath:      &m.Source,
 			ContainerPath: &m.Destination,
 			Readonly:      &readonly,
@@ -239,7 +243,7 @@ func (ds *dockerService) ContainerStatus(containerID string) (*runtimeApi.Contai
 	}
 	// Interpret container states.
 	var state runtimeApi.ContainerState
-	var reason string
+	var reason, message string
 	if r.State.Running {
 		// Container is running.
 		state = runtimeApi.ContainerState_RUNNING
@@ -261,9 +265,9 @@ func (ds *dockerService) ContainerStatus(containerID string) (*runtimeApi.Contai
 			case r.State.ExitCode == 0:
 				reason = "Completed"
 			default:
-				reason = fmt.Sprintf("Error: %s", r.State.Error)
+				reason = "Error"
 			}
-		} else if !finishedAt.IsZero() && r.State.ExitCode != 0 { // Case 2
+		} else if r.State.ExitCode != 0 { // Case 2
 			state = runtimeApi.ContainerState_EXITED
 			// Adjust finshedAt and startedAt time to createdAt time to avoid
 			// the confusion.
@@ -272,6 +276,7 @@ func (ds *dockerService) ContainerStatus(containerID string) (*runtimeApi.Contai
 		} else { // Case 3
 			state = runtimeApi.ContainerState_CREATED
 		}
+		message = r.State.Error
 	}
 
 	// Convert to unix timestamps.
@@ -296,6 +301,7 @@ func (ds *dockerService) ContainerStatus(containerID string) (*runtimeApi.Contai
 		StartedAt:   &st,
 		FinishedAt:  &ft,
 		Reason:      &reason,
+		Message:     &message,
 		Labels:      labels,
 		Annotations: annotations,
 	}, nil

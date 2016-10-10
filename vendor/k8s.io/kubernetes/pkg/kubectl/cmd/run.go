@@ -28,16 +28,19 @@ import (
 	"github.com/docker/distribution/reference"
 
 	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/api/meta"
 	"k8s.io/kubernetes/pkg/api/unversioned"
 	batchv1 "k8s.io/kubernetes/pkg/apis/batch/v1"
 	"k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	coreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/unversioned"
+	conditions "k8s.io/kubernetes/pkg/client/unversioned"
 	"k8s.io/kubernetes/pkg/kubectl"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
 	"k8s.io/kubernetes/pkg/runtime"
 	uexec "k8s.io/kubernetes/pkg/util/exec"
+	"k8s.io/kubernetes/pkg/util/interrupt"
 	"k8s.io/kubernetes/pkg/watch"
 )
 
@@ -112,7 +115,7 @@ func addRunFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("rm", false, "If true, delete resources created in this command for attached containers.")
 	cmd.Flags().String("overrides", "", "An inline JSON override for the generated object. If this is non-empty, it is used to override the generated object. Requires that the object supply a valid apiVersion field.")
 	cmd.Flags().StringSlice("env", []string{}, "Environment variables to set in the container")
-	cmd.Flags().Int("port", -1, "The port that this container exposes.  If --expose is true, this is also the port used by the service that is created.")
+	cmd.Flags().String("port", "", "The port that this container exposes.  If --expose is true, this is also the port used by the service that is created.")
 	cmd.Flags().Int("hostport", -1, "The host port mapping for the container port. To demonstrate a single-machine container.")
 	cmd.Flags().StringP("labels", "l", "", "Labels to apply to the pod(s).")
 	cmd.Flags().BoolP("stdin", "i", false, "Keep stdin open on the container(s) in the pod, even if nothing is attached.")
@@ -305,7 +308,7 @@ func Run(f *cmdutil.Factory, cmdIn io.Reader, cmdOut, cmdErr io.Writer, cmd *cob
 			if err != nil {
 				return err
 			}
-			_, typer := f.Object(cmdutil.GetIncludeThirdPartyAPIs(cmd))
+			_, typer := f.Object()
 			r := resource.NewBuilder(mapper, typer, resource.ClientMapperFunc(f.ClientForMapping), f.Decoder(true)).
 				ContinueOnError().
 				NamespaceParam(namespace).DefaultNamespace().
@@ -349,7 +352,7 @@ func Run(f *cmdutil.Factory, cmdIn io.Reader, cmdOut, cmdErr io.Writer, cmd *cob
 	if outputFormat != "" || cmdutil.GetDryRunFlag(cmd) {
 		return f.PrintObject(cmd, mapper, obj, cmdOut)
 	}
-	cmdutil.PrintSuccess(mapper, false, cmdOut, mapping.Resource, args[0], "created")
+	cmdutil.PrintSuccess(mapper, false, cmdOut, mapping.Resource, args[0], cmdutil.GetDryRunFlag(cmd), "created")
 	return nil
 }
 
@@ -372,90 +375,90 @@ func contains(resourcesList map[string]*unversioned.APIResourceList, resource un
 
 // waitForPod watches the given pod until the exitCondition is true. Each two seconds
 // the tick function is called e.g. for progress output.
-func waitForPod(podClient coreclient.PodsGetter, ns, name string, exitCondition func(*api.Pod) bool, tick func(*api.Pod)) (*api.Pod, error) {
-	pod, err := podClient.Pods(ns).Get(name)
-	if err != nil {
-		return nil, err
-	}
-	if exitCondition(pod) {
-		return pod, nil
-	}
-
-	tick(pod)
-
-	w, err := podClient.Pods(ns).Watch(api.SingleObject(api.ObjectMeta{Name: pod.Name, ResourceVersion: pod.ResourceVersion}))
+func waitForPod(podClient coreclient.PodsGetter, ns, name string, exitCondition watch.ConditionFunc, tick func(*api.Pod)) (*api.Pod, error) {
+	w, err := podClient.Pods(ns).Watch(api.SingleObject(api.ObjectMeta{Name: name}))
 	if err != nil {
 		return nil, err
 	}
 
-	t := time.NewTicker(2 * time.Second)
-	defer t.Stop()
+	pods := make(chan *api.Pod) // observed pods passed to the exitCondition
+	defer close(pods)
+
+	// wait for the first event, then start the 2 sec ticker and loop
 	go func() {
-		for range t.C {
-			tick(pod)
+		pod := <-pods
+		if pod == nil {
+			return
+		}
+		tick(pod)
+
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+
+		for {
+			select {
+			case pod = <-pods:
+				if pod == nil {
+					return
+				}
+			case _, ok := <-t.C:
+				if !ok {
+					return
+				}
+				tick(pod)
+			}
 		}
 	}()
 
-	err = nil
-	result := pod
-	kubectl.WatchLoop(w, func(ev watch.Event) error {
-		switch ev.Type {
-		case watch.Added, watch.Modified:
-			pod = ev.Object.(*api.Pod)
-			if exitCondition(pod) {
-				result = pod
-				w.Stop()
+	intr := interrupt.New(nil, w.Stop)
+	var result *api.Pod
+	err = intr.Run(func() error {
+		ev, err := watch.Until(0, w, func(ev watch.Event) (bool, error) {
+			c, err := exitCondition(ev)
+			if c == false && err == nil {
+				pods <- ev.Object.(*api.Pod) // send to ticker
 			}
-		case watch.Deleted:
-			w.Stop()
-		case watch.Error:
-			result = nil
-			err = fmt.Errorf("failed to watch pod %s/%s", ns, name)
-			w.Stop()
-		}
-		return nil
+			return c, err
+		})
+		result = ev.Object.(*api.Pod)
+		return err
 	})
-
 	return result, err
 }
 
 func waitForPodRunning(podClient coreclient.PodsGetter, ns, name string, out io.Writer, quiet bool) (*api.Pod, error) {
-	exitCondition := func(pod *api.Pod) bool {
-		switch pod.Status.Phase {
-		case api.PodRunning:
-			for _, status := range pod.Status.ContainerStatuses {
-				if !status.Ready {
-					return false
-				}
-			}
-			return true
-		case api.PodSucceeded, api.PodFailed:
-			return true
-		default:
-			return false
-		}
-	}
-	return waitForPod(podClient, ns, name, exitCondition, func(pod *api.Pod) {
+	pod, err := waitForPod(podClient, ns, name, conditions.PodRunningAndReady, func(pod *api.Pod) {
 		if !quiet {
 			fmt.Fprintf(out, "Waiting for pod %s/%s to be running, status is %s, pod ready: false\n", pod.Namespace, pod.Name, pod.Status.Phase)
 		}
 	})
+
+	// fix generic not found error with empty name in PodRunningAndReady
+	if err != nil && errors.IsNotFound(err) {
+		return nil, errors.NewNotFound(api.Resource("pods"), name)
+	}
+
+	return pod, err
 }
 
 func waitForPodTerminated(podClient coreclient.PodsGetter, ns, name string, out io.Writer, quiet bool) (*api.Pod, error) {
-	exitCondition := func(pod *api.Pod) bool {
-		return pod.Status.Phase == api.PodSucceeded || pod.Status.Phase == api.PodFailed
-	}
-	return waitForPod(podClient, ns, name, exitCondition, func(pod *api.Pod) {
+	pod, err := waitForPod(podClient, ns, name, conditions.PodCompleted, func(pod *api.Pod) {
 		if !quiet {
 			fmt.Fprintf(out, "Waiting for pod %s/%s to terminate, status is %s\n", pod.Namespace, pod.Name, pod.Status.Phase)
 		}
 	})
+
+	// fix generic not found error with empty name in PodCompleted
+	if err != nil && errors.IsNotFound(err) {
+		return nil, errors.NewNotFound(api.Resource("pods"), name)
+	}
+
+	return pod, err
 }
 
 func handleAttachPod(f *cmdutil.Factory, podClient coreclient.PodsGetter, ns, name string, opts *AttachOptions, quiet bool) error {
 	pod, err := waitForPodRunning(podClient, ns, name, opts.Out, quiet)
-	if err != nil {
+	if err != nil && err != conditions.ErrPodCompleted {
 		return err
 	}
 	ctrName, err := opts.GetContainerName(pod)
@@ -540,9 +543,9 @@ func generateService(f *cmdutil.Factory, cmd *cobra.Command, args []string, serv
 	}
 	names := generator.ParamNames()
 
-	port := cmdutil.GetFlagInt(cmd, "port")
-	if port < 1 {
-		return fmt.Errorf("--port must be a positive integer when exposing a service")
+	port := cmdutil.GetFlagString(cmd, "port")
+	if len(port) == 0 {
+		return fmt.Errorf("--port must be set when exposing a service")
 	}
 
 	params := map[string]interface{}{}
@@ -575,7 +578,7 @@ func generateService(f *cmdutil.Factory, cmd *cobra.Command, args []string, serv
 	if cmdutil.GetFlagString(cmd, "output") != "" || cmdutil.GetDryRunFlag(cmd) {
 		return f.PrintObject(cmd, mapper, obj, out)
 	}
-	cmdutil.PrintSuccess(mapper, false, out, mapping.Resource, args[0], "created")
+	cmdutil.PrintSuccess(mapper, false, out, mapping.Resource, args[0], cmdutil.GetDryRunFlag(cmd), "created")
 
 	return nil
 }
@@ -592,7 +595,7 @@ func createGeneratedObject(f *cmdutil.Factory, cmd *cobra.Command, generator kub
 		return nil, "", nil, nil, err
 	}
 
-	mapper, typer := f.Object(cmdutil.GetIncludeThirdPartyAPIs(cmd))
+	mapper, typer := f.Object()
 	groupVersionKinds, _, err := typer.ObjectKinds(obj)
 	if err != nil {
 		return nil, "", nil, nil, err

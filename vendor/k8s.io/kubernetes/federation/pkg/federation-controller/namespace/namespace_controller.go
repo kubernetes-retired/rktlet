@@ -22,14 +22,14 @@ import (
 	"time"
 
 	federation_api "k8s.io/kubernetes/federation/apis/federation/v1beta1"
-	federation_release_1_4 "k8s.io/kubernetes/federation/client/clientset_generated/federation_release_1_4"
+	federationclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_release_1_5"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util/eventsink"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/errors"
 	api_v1 "k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/client/cache"
-	kube_release_1_4 "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_4"
+	kubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/controller"
 	pkg_runtime "k8s.io/kubernetes/pkg/runtime"
@@ -64,7 +64,7 @@ type NamespaceController struct {
 	namespaceInformerController cache.ControllerInterface
 
 	// Client to federated api server.
-	federatedApiClient federation_release_1_4.Interface
+	federatedApiClient federationclientset.Interface
 
 	// Backoff manager for namespaces
 	namespaceBackoff *flowcontrol.Backoff
@@ -79,7 +79,7 @@ type NamespaceController struct {
 }
 
 // NewNamespaceController returns a new namespace controller
-func NewNamespaceController(client federation_release_1_4.Interface) *NamespaceController {
+func NewNamespaceController(client federationclientset.Interface) *NamespaceController {
 	broadcaster := record.NewBroadcaster()
 	broadcaster.StartRecordingToSink(eventsink.NewFederatedEventSink(client))
 	recorder := broadcaster.NewRecorder(api.EventSource{Component: "federated-namespace-controller"})
@@ -102,10 +102,12 @@ func NewNamespaceController(client federation_release_1_4.Interface) *NamespaceC
 	nc.namespaceInformerStore, nc.namespaceInformerController = cache.NewInformer(
 		&cache.ListWatch{
 			ListFunc: func(options api.ListOptions) (pkg_runtime.Object, error) {
-				return client.Core().Namespaces().List(options)
+				versionedOptions := util.VersionizeV1ListOptions(options)
+				return client.Core().Namespaces().List(versionedOptions)
 			},
 			WatchFunc: func(options api.ListOptions) (watch.Interface, error) {
-				return client.Core().Namespaces().Watch(options)
+				versionedOptions := util.VersionizeV1ListOptions(options)
+				return client.Core().Namespaces().Watch(versionedOptions)
 			},
 		},
 		&api_v1.Namespace{},
@@ -115,14 +117,16 @@ func NewNamespaceController(client federation_release_1_4.Interface) *NamespaceC
 	// Federated informer on namespaces in members of federation.
 	nc.namespaceFederatedInformer = util.NewFederatedInformer(
 		client,
-		func(cluster *federation_api.Cluster, targetClient kube_release_1_4.Interface) (cache.Store, cache.ControllerInterface) {
+		func(cluster *federation_api.Cluster, targetClient kubeclientset.Interface) (cache.Store, cache.ControllerInterface) {
 			return cache.NewInformer(
 				&cache.ListWatch{
 					ListFunc: func(options api.ListOptions) (pkg_runtime.Object, error) {
-						return targetClient.Core().Namespaces().List(options)
+						versionedOptions := util.VersionizeV1ListOptions(options)
+						return targetClient.Core().Namespaces().List(versionedOptions)
 					},
 					WatchFunc: func(options api.ListOptions) (watch.Interface, error) {
-						return targetClient.Core().Namespaces().Watch(options)
+						versionedOptions := util.VersionizeV1ListOptions(options)
+						return targetClient.Core().Namespaces().Watch(versionedOptions)
 					},
 				},
 				&api_v1.Namespace{},
@@ -144,19 +148,19 @@ func NewNamespaceController(client federation_release_1_4.Interface) *NamespaceC
 
 	// Federated updeater along with Create/Update/Delete operations.
 	nc.federatedUpdater = util.NewFederatedUpdater(nc.namespaceFederatedInformer,
-		func(client kube_release_1_4.Interface, obj pkg_runtime.Object) error {
+		func(client kubeclientset.Interface, obj pkg_runtime.Object) error {
 			namespace := obj.(*api_v1.Namespace)
 			_, err := client.Core().Namespaces().Create(namespace)
 			return err
 		},
-		func(client kube_release_1_4.Interface, obj pkg_runtime.Object) error {
+		func(client kubeclientset.Interface, obj pkg_runtime.Object) error {
 			namespace := obj.(*api_v1.Namespace)
 			_, err := client.Core().Namespaces().Update(namespace)
 			return err
 		},
-		func(client kube_release_1_4.Interface, obj pkg_runtime.Object) error {
+		func(client kubeclientset.Interface, obj pkg_runtime.Object) error {
 			namespace := obj.(*api_v1.Namespace)
-			err := client.Core().Namespaces().Delete(namespace.Name, &api.DeleteOptions{})
+			err := client.Core().Namespaces().Delete(namespace.Name, &api_v1.DeleteOptions{})
 			return err
 		})
 	return nc
@@ -345,23 +349,23 @@ func (nc *NamespaceController) delete(namespace *api_v1.Namespace) error {
 	// Right now there is just 5 types of objects: ReplicaSet, Secret, Ingress, Events and Service.
 	// Temporarly these items are simply deleted one by one to squeeze this code into 1.4.
 	// TODO: Make it generic (like in the regular namespace controller) and parallel.
-	err := nc.federatedApiClient.Core().Services(namespace.Name).DeleteCollection(&api.DeleteOptions{}, api.ListOptions{})
+	err := nc.federatedApiClient.Core().Services(namespace.Name).DeleteCollection(&api_v1.DeleteOptions{}, api_v1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to delete service list: %v", err)
 	}
-	err = nc.federatedApiClient.Extensions().ReplicaSets(namespace.Name).DeleteCollection(&api.DeleteOptions{}, api.ListOptions{})
+	err = nc.federatedApiClient.Extensions().ReplicaSets(namespace.Name).DeleteCollection(&api_v1.DeleteOptions{}, api_v1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to delete replicaset list from namespace: %v", err)
 	}
-	err = nc.federatedApiClient.Core().Secrets(namespace.Name).DeleteCollection(&api.DeleteOptions{}, api.ListOptions{})
+	err = nc.federatedApiClient.Core().Secrets(namespace.Name).DeleteCollection(&api_v1.DeleteOptions{}, api_v1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to delete secret list from namespace: %v", err)
 	}
-	err = nc.federatedApiClient.Extensions().Ingresses(namespace.Name).DeleteCollection(&api.DeleteOptions{}, api.ListOptions{})
+	err = nc.federatedApiClient.Extensions().Ingresses(namespace.Name).DeleteCollection(&api_v1.DeleteOptions{}, api_v1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to delete ingresses list from namespace: %v", err)
 	}
-	err = nc.federatedApiClient.Core().Events(namespace.Name).DeleteCollection(&api.DeleteOptions{}, api.ListOptions{})
+	err = nc.federatedApiClient.Core().Events(namespace.Name).DeleteCollection(&api_v1.DeleteOptions{}, api_v1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to delete events list from namespace: %v", err)
 	}
@@ -385,7 +389,7 @@ func (nc *NamespaceController) delete(namespace *api_v1.Namespace) error {
 	}
 
 	// TODO: What about namespaces in subclusters ???
-	err = nc.federatedApiClient.Core().Namespaces().Delete(updatedNamespace.Name, &api.DeleteOptions{})
+	err = nc.federatedApiClient.Core().Namespaces().Delete(updatedNamespace.Name, &api_v1.DeleteOptions{})
 	if err != nil {
 		// Its all good if the error is not found error. That means it is deleted already and we do not have to do anything.
 		// This is expected when we are processing an update as a result of namespace finalizer deletion.

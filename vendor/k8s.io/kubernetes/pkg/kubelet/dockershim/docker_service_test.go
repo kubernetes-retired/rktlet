@@ -23,8 +23,8 @@ import (
 	"k8s.io/kubernetes/pkg/util/clock"
 )
 
-func newTestDockerSevice() (*dockerService, *dockertools.FakeDockerClient, *clock.FakeClock) {
-	c := dockertools.NewFakeDockerClient()
+func newTestDockerService() (*dockerService, *dockertools.FakeDockerClient, *clock.FakeClock) {
 	fakeClock := clock.NewFakeClock(time.Time{})
+	c := dockertools.NewFakeDockerClientWithClock(fakeClock)
 	return &dockerService{client: c}, c, fakeClock
 }

@@ -60,7 +60,7 @@ type nodeStatusUpdater struct {
 func (nsu *nodeStatusUpdater) UpdateNodeStatuses() error {
 	nodesToUpdate := nsu.actualStateOfWorld.GetVolumesToReportAttached()
 	for nodeName, attachedVolumes := range nodesToUpdate {
-		nodeObj, exists, err := nsu.nodeInformer.GetStore().GetByKey(nodeName)
+		nodeObj, exists, err := nsu.nodeInformer.GetStore().GetByKey(string(nodeName))
 		if nodeObj == nil || !exists || err != nil {
 			// If node does not exist, its status cannot be updated, log error and move on.
 			glog.V(5).Infof(
@@ -105,18 +105,13 @@ func (nsu *nodeStatusUpdater) UpdateNodeStatuses() error {
 				err)
 		}
 
-		_, err = nsu.kubeClient.Core().Nodes().PatchStatus(nodeName, patchBytes)
+		_, err = nsu.kubeClient.Core().Nodes().PatchStatus(string(nodeName), patchBytes)
 		if err != nil {
+			// If update node status fails, reset flag statusUpdateNeeded back to true
+			// to indicate this node status needs to be udpated again
+			nsu.actualStateOfWorld.SetNodeStatusUpdateNeeded(nodeName)
 			return fmt.Errorf(
 				"failed to kubeClient.Core().Nodes().Patch for node %q. %v",
-				nodeName,
-				err)
-		}
-
-		err = nsu.actualStateOfWorld.ResetNodeStatusUpdateNeeded(nodeName)
-		if err != nil {
-			return fmt.Errorf(
-				"failed to ResetNodeStatusUpdateNeeded for node %q. %v",
 				nodeName,
 				err)
 		}

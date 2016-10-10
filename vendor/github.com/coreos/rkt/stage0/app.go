@@ -29,6 +29,7 @@ import (
 
 	"github.com/coreos/rkt/common"
 	"github.com/coreos/rkt/common/apps"
+	"github.com/coreos/rkt/pkg/lock"
 	"github.com/coreos/rkt/pkg/user"
 	// FIXME this should not be in stage1 anymore
 	stage1types "github.com/coreos/rkt/stage1/common/types"
@@ -66,6 +67,14 @@ type AddConfig struct {
 	InsecureSeccomp      bool
 }
 
+type RmConfig struct {
+	*CommonConfig
+	PodPath     string
+	UsesOverlay bool
+	AppName     *types.ACName
+	PodPID      int
+}
+
 func AddApp(cfg AddConfig) error {
 	// there should be only one app in the config
 	app := cfg.Apps.Last()
@@ -90,6 +99,13 @@ func AddApp(cfg AddConfig) error {
 			return err
 		}
 	}
+
+	debug("locking pod")
+	l, err := lock.ExclusiveLock(common.PodManifestLockPath(cfg.PodPath), lock.RegFile)
+	if err != nil {
+		return errwrap.Wrap(errors.New("failed to lock pod"), err)
+	}
+	defer l.Close()
 
 	p, err := stage1types.LoadPod(cfg.PodPath, cfg.UUID)
 	if err != nil {
@@ -359,9 +375,15 @@ func callEntrypoint(dir, entrypoint string, args []string) error {
 	return nil
 }
 
-// TODO(iaguis): RmConfig?
-func RmApp(dir string, uuid *types.UUID, usesOverlay bool, appName *types.ACName, podPID int) error {
-	p, err := stage1types.LoadPod(dir, uuid)
+func RmApp(cfg RmConfig) error {
+	debug("locking pod")
+	l, err := lock.ExclusiveLock(common.PodManifestLockPath(cfg.PodPath), lock.RegFile)
+	if err != nil {
+		return errwrap.Wrap(errors.New("failed to lock pod"), err)
+	}
+	defer l.Close()
+
+	p, err := stage1types.LoadPod(cfg.PodPath, cfg.UUID)
 	if err != nil {
 		return errwrap.Wrap(errors.New("error loading pod manifest"), err)
 	}
@@ -381,33 +403,33 @@ func RmApp(dir string, uuid *types.UUID, usesOverlay bool, appName *types.ACName
 		return errors.New("immutable pod: cannot remove application")
 	}
 
-	app := pm.Apps.Get(*appName)
+	app := pm.Apps.Get(*cfg.AppName)
 	if app == nil {
-		return fmt.Errorf("error: nonexistent app %q", *appName)
+		return fmt.Errorf("error: nonexistent app %q", *cfg.AppName)
 	}
 
-	treeStoreID, err := ioutil.ReadFile(common.AppTreeStoreIDPath(dir, *appName))
+	treeStoreID, err := ioutil.ReadFile(common.AppTreeStoreIDPath(cfg.PodPath, *cfg.AppName))
 	if err != nil {
 		return err
 	}
 
-	eep, err := getStage1Entrypoint(dir, enterEntrypoint)
+	eep, err := getStage1Entrypoint(cfg.PodPath, enterEntrypoint)
 	if err != nil {
 		return errwrap.Wrap(errors.New("error determining 'enter' entrypoint"), err)
 	}
 
-	if podPID > 0 {
+	if cfg.PodPID > 0 {
 		// Call app-stop and app-rm entrypoint only if the pod is still running.
 		// Otherwise, there's not much we can do about it except unmounting/removing
 		// the file system.
 		args := []string{
-			uuid.String(),
-			appName.String(),
-			filepath.Join(common.Stage1RootfsPath(dir), eep),
-			strconv.Itoa(podPID),
+			cfg.UUID.String(),
+			cfg.AppName.String(),
+			filepath.Join(common.Stage1RootfsPath(cfg.PodPath), eep),
+			strconv.Itoa(cfg.PodPID),
 		}
 
-		if err := callEntrypoint(dir, appStopEntrypoint, args); err != nil {
+		if err := callEntrypoint(cfg.PodPath, appStopEntrypoint, args); err != nil {
 			status, err := common.GetExitStatus(err)
 			// ignore nonexistent units failing to stop. Exit status 5
 			// comes from systemctl and means the unit doesn't exist
@@ -418,45 +440,45 @@ func RmApp(dir string, uuid *types.UUID, usesOverlay bool, appName *types.ACName
 			}
 		}
 
-		if err := callEntrypoint(dir, appRmEntrypoint, args); err != nil {
+		if err := callEntrypoint(cfg.PodPath, appRmEntrypoint, args); err != nil {
 			return err
 		}
 	}
 
-	appInfoDir := common.AppInfoPath(dir, *appName)
+	appInfoDir := common.AppInfoPath(cfg.PodPath, *cfg.AppName)
 	if err := os.RemoveAll(appInfoDir); err != nil {
 		return errwrap.Wrap(errors.New("error removing app info directory"), err)
 	}
 
-	if usesOverlay {
-		appRootfs := common.AppRootfsPath(dir, *appName)
+	if cfg.UsesOverlay {
+		appRootfs := common.AppRootfsPath(cfg.PodPath, *cfg.AppName)
 		if err := syscall.Unmount(appRootfs, 0); err != nil {
 			return err
 		}
 
-		ts := filepath.Join(dir, "overlay", string(treeStoreID))
+		ts := filepath.Join(cfg.PodPath, "overlay", string(treeStoreID))
 		if err := os.RemoveAll(ts); err != nil {
 			return errwrap.Wrap(errors.New("error removing app info directory"), err)
 		}
 	}
 
-	if err := os.RemoveAll(common.AppPath(dir, *appName)); err != nil {
+	if err := os.RemoveAll(common.AppPath(cfg.PodPath, *cfg.AppName)); err != nil {
 		return err
 	}
 
-	appStatusPath := filepath.Join(common.Stage1RootfsPath(dir), "rkt", "status", appName.String())
+	appStatusPath := filepath.Join(common.Stage1RootfsPath(cfg.PodPath), "rkt", "status", cfg.AppName.String())
 	if err := os.Remove(appStatusPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	envPath := filepath.Join(common.Stage1RootfsPath(dir), "rkt", "env", appName.String())
+	envPath := filepath.Join(common.Stage1RootfsPath(cfg.PodPath), "rkt", "env", cfg.AppName.String())
 	if err := os.Remove(envPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	removeAppFromPodManifest(pm, appName)
+	removeAppFromPodManifest(pm, cfg.AppName)
 
-	if err := updatePodManifest(dir, pm); err != nil {
+	if err := updatePodManifest(cfg.PodPath, pm); err != nil {
 		return err
 	}
 

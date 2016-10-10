@@ -20,9 +20,8 @@ import (
 	"strconv"
 	"time"
 
-	clientapi "k8s.io/client-go/1.4/pkg/api"
-	clientv1 "k8s.io/client-go/1.4/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/api"
+	clientapi "k8s.io/client-go/1.5/pkg/api"
+	clientv1 "k8s.io/client-go/1.5/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/runtime"
@@ -122,21 +121,21 @@ func observeObjectDeletion(w watch.Interface) (obj runtime.Object) {
 var _ = framework.KubeDescribe("Generated release_1_5 clientset", func() {
 	f := framework.NewDefaultFramework("clientset")
 	It("should create pods, delete pods, watch pods", func() {
-		podClient := f.Clientset_1_5.Core().Pods(f.Namespace.Name)
+		podClient := f.ClientSet_1_5.Core().Pods(f.Namespace.Name)
 		By("constructing the pod")
 		name := "pod" + string(uuid.NewUUID())
 		value := strconv.Itoa(time.Now().Nanosecond())
 		podCopy := testingPod(name, value)
 		pod := &podCopy
 		By("setting up watch")
-		selector := labels.SelectorFromSet(labels.Set(map[string]string{"time": value}))
-		options := api.ListOptions{LabelSelector: selector}
+		selector := labels.SelectorFromSet(labels.Set(map[string]string{"time": value})).String()
+		options := v1.ListOptions{LabelSelector: selector}
 		pods, err := podClient.List(options)
 		if err != nil {
 			framework.Failf("Failed to query for pods: %v", err)
 		}
 		Expect(len(pods.Items)).To(Equal(0))
-		options = api.ListOptions{
+		options = v1.ListOptions{
 			LabelSelector:   selector,
 			ResourceVersion: pods.ListMeta.ResourceVersion,
 		}
@@ -153,10 +152,10 @@ var _ = framework.KubeDescribe("Generated release_1_5 clientset", func() {
 		// We call defer here in case there is a problem with
 		// the test so we can ensure that we clean up after
 		// ourselves
-		defer podClient.Delete(pod.Name, api.NewDeleteOptions(0))
+		defer podClient.Delete(pod.Name, v1.NewDeleteOptions(0))
 
 		By("verifying the pod is in kubernetes")
-		options = api.ListOptions{
+		options = v1.ListOptions{
 			LabelSelector:   selector,
 			ResourceVersion: pod.ResourceVersion,
 		}
@@ -174,7 +173,7 @@ var _ = framework.KubeDescribe("Generated release_1_5 clientset", func() {
 		framework.ExpectNoError(f.WaitForPodRunning(pod.Name))
 
 		By("deleting the pod gracefully")
-		if err := podClient.Delete(pod.Name, api.NewDeleteOptions(30)); err != nil {
+		if err := podClient.Delete(pod.Name, v1.NewDeleteOptions(30)); err != nil {
 			framework.Failf("Failed to delete pod: %v", err)
 		}
 
@@ -184,7 +183,7 @@ var _ = framework.KubeDescribe("Generated release_1_5 clientset", func() {
 		Expect(lastPod.DeletionTimestamp).ToNot(BeNil())
 		Expect(lastPod.Spec.TerminationGracePeriodSeconds).ToNot(BeZero())
 
-		options = api.ListOptions{LabelSelector: selector}
+		options = v1.ListOptions{LabelSelector: selector}
 		pods, err = podClient.List(options)
 		if err != nil {
 			framework.Failf("Failed to list pods to verify deletion: %v", err)

@@ -70,7 +70,20 @@ func runAppRm(cmd *cobra.Command, args []string) (exit int) {
 		}
 	}
 
-	err = stage0.RmApp(p.Path(), p.UUID, p.UsesOverlay(), appName, podPID)
+	ccfg := stage0.CommonConfig{
+		UUID:  p.UUID,
+		Debug: globalFlags.Debug,
+	}
+
+	cfg := stage0.RmConfig{
+		CommonConfig: &ccfg,
+		UsesOverlay:  p.UsesOverlay(),
+		AppName:      appName,
+		PodPath:      p.Path(),
+		PodPID:       podPID,
+	}
+
+	err = stage0.RmApp(cfg)
 	if err != nil {
 		stderr.PrintE("error removing app", err)
 		return 1

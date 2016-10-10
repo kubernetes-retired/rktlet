@@ -21,6 +21,7 @@ import (
 	"os"
 	"strconv"
 
+	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/cloudprovider/providers/aws"
 	"k8s.io/kubernetes/pkg/util/sets"
 	"k8s.io/kubernetes/plugin/pkg/scheduler"
@@ -36,6 +37,7 @@ const (
 	// GCE instances can have up to 16 PD volumes attached.
 	DefaultMaxGCEPDVolumes    = 16
 	ClusterAutoscalerProvider = "ClusterAutoscalerProvider"
+	PetSetKind                = "PetSet"
 )
 
 // getMaxVols checks the max PD volumes environment variable, otherwise returning a default value
@@ -58,10 +60,16 @@ func init() {
 	// Cluster autoscaler friendly scheduling algorithm.
 	factory.RegisterAlgorithmProvider(ClusterAutoscalerProvider, defaultPredicates(),
 		replace(defaultPriorities(), "LeastRequestedPriority", "MostRequestedPriority"))
+
+	factory.RegisterPriorityMetadataProducerFactory(
+		func(args factory.PluginFactoryArgs) algorithm.MetadataProducer {
+			return priorities.PriorityMetadata
+		})
+
 	// EqualPriority is a prioritizer function that gives an equal weight of one to all nodes
 	// Register the priority function so that its available
 	// but do not include it as part of the default priorities
-	factory.RegisterPriorityFunction("EqualPriority", scheduler.EqualPriority, 1)
+	factory.RegisterPriorityFunction2("EqualPriority", scheduler.EqualPriorityMap, nil, 1)
 
 	// ServiceSpreadingPriority is a priority config factory that spreads pods by minimizing
 	// the number of pods (belonging to the same service) on the same node.
@@ -71,7 +79,7 @@ func init() {
 		"ServiceSpreadingPriority",
 		factory.PriorityConfigFactory{
 			Function: func(args factory.PluginFactoryArgs) algorithm.PriorityFunction {
-				return priorities.NewSelectorSpreadPriority(args.PodLister, args.ServiceLister, algorithm.EmptyControllerLister{}, algorithm.EmptyReplicaSetLister{})
+				return priorities.NewSelectorSpreadPriority(args.ServiceLister, algorithm.EmptyControllerLister{}, algorithm.EmptyReplicaSetLister{})
 			},
 			Weight: 1,
 		},
@@ -99,6 +107,8 @@ func init() {
 	factory.RegisterFitPredicate("MatchNodeSelector", predicates.PodSelectorMatches)
 	// Optional, cluster-autoscaler friendly priority function - give used nodes higher priority.
 	factory.RegisterPriorityFunction2("MostRequestedPriority", priorities.MostRequestedPriorityMap, nil, 1)
+	// Use equivalence class to speed up predicates & priorities
+	factory.RegisterGetEquivalencePodFunction(GetEquivalencePod)
 }
 
 func replace(set sets.String, replaceWhat, replaceWith string) sets.String {
@@ -152,6 +162,9 @@ func defaultPredicates() sets.String {
 		// Fit is determined by node disk pressure condition.
 		factory.RegisterFitPredicate("CheckNodeDiskPressure", predicates.CheckNodeDiskPressurePredicate),
 
+		// Fit is determined by node inode pressure condition.
+		factory.RegisterFitPredicate("CheckNodeInodePressure", predicates.CheckNodeInodePressurePredicate),
+
 		// Fit is determined by inter-pod affinity.
 		factory.RegisterFitPredicateFactory(
 			"MatchInterPodAffinity",
@@ -173,7 +186,7 @@ func defaultPriorities() sets.String {
 			"SelectorSpreadPriority",
 			factory.PriorityConfigFactory{
 				Function: func(args factory.PluginFactoryArgs) algorithm.PriorityFunction {
-					return priorities.NewSelectorSpreadPriority(args.PodLister, args.ServiceLister, args.ControllerLister, args.ReplicaSetLister)
+					return priorities.NewSelectorSpreadPriority(args.ServiceLister, args.ControllerLister, args.ReplicaSetLister)
 				},
 				Weight: 1,
 			},
@@ -181,8 +194,8 @@ func defaultPriorities() sets.String {
 		// Set this weight large enough to override all other priority functions.
 		// TODO: Figure out a better way to do this, maybe at same time as fixing #24720.
 		factory.RegisterPriorityFunction2("NodePreferAvoidPodsPriority", priorities.CalculateNodePreferAvoidPodsPriorityMap, nil, 10000),
-		factory.RegisterPriorityFunction("NodeAffinityPriority", priorities.CalculateNodeAffinityPriority, 1),
-		factory.RegisterPriorityFunction("TaintTolerationPriority", priorities.ComputeTaintTolerationPriority, 1),
+		factory.RegisterPriorityFunction2("NodeAffinityPriority", priorities.CalculateNodeAffinityPriorityMap, priorities.CalculateNodeAffinityPriorityReduce, 1),
+		factory.RegisterPriorityFunction2("TaintTolerationPriority", priorities.ComputeTaintTolerationPriorityMap, priorities.ComputeTaintTolerationPriorityReduce, 1),
 		// pods should be placed in the same topological domain (e.g. same node, same rack, same zone, same power domain, etc.)
 		// as some other pods, or, conversely, should not be placed in the same topological domain as some other pods.
 		factory.RegisterPriorityConfigFactory(
@@ -195,4 +208,40 @@ func defaultPriorities() sets.String {
 			},
 		),
 	)
+}
+
+// GetEquivalencePod returns a EquivalencePod which contains a group of pod attributes which can be reused.
+func GetEquivalencePod(pod *api.Pod) interface{} {
+	equivalencePod := EquivalencePod{}
+	// For now we only consider pods:
+	// 1. OwnerReferences is Controller
+	// 2. OwnerReferences kind is in valid controller kinds
+	// 3. with same OwnerReferences
+	// to be equivalent
+	if len(pod.OwnerReferences) != 0 {
+		for _, ref := range pod.OwnerReferences {
+			if *ref.Controller && isValidControllerKind(ref.Kind) {
+				equivalencePod.ControllerRef = ref
+				// a pod can only belongs to one controller
+				break
+			}
+		}
+	}
+	return &equivalencePod
+}
+
+// isValidControllerKind checks if a given controller's kind can be applied to equivalence pod algorithm.
+func isValidControllerKind(kind string) bool {
+	switch kind {
+	// list of kinds that we cannot handle
+	case PetSetKind:
+		return false
+	default:
+		return true
+	}
+}
+
+// EquivalencePod is a group of pod attributes which can be reused as equivalence to schedule other pods.
+type EquivalencePod struct {
+	ControllerRef api.OwnerReference
 }

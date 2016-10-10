@@ -17,6 +17,7 @@ limitations under the License.
 package options
 
 import (
+	"errors"
 	"net"
 	"strconv"
 	"strings"
@@ -36,8 +37,6 @@ import (
 )
 
 const (
-	DefaultDeserializationCacheSize = 50000
-
 	// TODO: This can be tightened up. It still matches objects named watch or proxy.
 	defaultLongRunningRequestRE = "(/|^)((watch|proxy)(/|$)|(logs?|portforward|exec|attach)/?$)"
 )
@@ -70,6 +69,7 @@ type ServerRunOptions struct {
 	AuthorizationWebhookCacheUnauthorizedTTL time.Duration
 	AuthorizationRBACSuperUser               string
 
+	AnonymousAuth             bool
 	BasicAuthFile             string
 	BindAddress               net.IP
 	CertDirectory             string
@@ -114,9 +114,11 @@ type ServerRunOptions struct {
 	// for testing). This is not actually exposed as a flag.
 	DefaultStorageVersions string
 	TargetRAMMB            int
+	TLSCAFile              string
 	TLSCertFile            string
 	TLSPrivateKeyFile      string
 	TokenAuthFile          string
+	EnableAnyToken         bool
 	WatchCacheSizes        []string
 }
 
@@ -125,6 +127,7 @@ func NewServerRunOptions() *ServerRunOptions {
 		APIGroupPrefix:                           "/apis",
 		APIPrefix:                                "/api",
 		AdmissionControl:                         "AlwaysAdmit",
+		AnonymousAuth:                            true,
 		AuthorizationMode:                        "AlwaysAllow",
 		AuthorizationWebhookCacheAuthorizedTTL:   5 * time.Minute,
 		AuthorizationWebhookCacheUnauthorizedTTL: 30 * time.Second,
@@ -153,7 +156,9 @@ func NewServerRunOptions() *ServerRunOptions {
 func (o *ServerRunOptions) WithEtcdOptions() *ServerRunOptions {
 	o.StorageConfig = storagebackend.Config{
 		Prefix: DefaultEtcdPathPrefix,
-		DeserializationCacheSize: DefaultDeserializationCacheSize,
+		// Default cache size to 0 - if unset, its size will be set based on target
+		// memory usage.
+		DeserializationCacheSize: 0,
 	}
 	return o
 }
@@ -205,16 +210,34 @@ func mergeGroupVersionIntoMap(gvList string, dest map[string]unversioned.GroupVe
 }
 
 // Returns a clientset which can be used to talk to this apiserver.
-func (s *ServerRunOptions) NewSelfClient() (clientset.Interface, error) {
+func (s *ServerRunOptions) NewSelfClient(token string) (clientset.Interface, error) {
+	clientConfig, err := s.NewSelfClientConfig(token)
+	if err != nil {
+		return nil, err
+	}
+	return clientset.NewForConfig(clientConfig)
+}
+
+// Returns a clientconfig which can be used to talk to this apiserver.
+func (s *ServerRunOptions) NewSelfClientConfig(token string) (*restclient.Config, error) {
 	clientConfig := &restclient.Config{
-		Host: net.JoinHostPort(s.InsecureBindAddress.String(), strconv.Itoa(s.InsecurePort)),
 		// Increase QPS limits. The client is currently passed to all admission plugins,
 		// and those can be throttled in case of higher load on apiserver - see #22340 and #22422
 		// for more details. Once #22422 is fixed, we may want to remove it.
 		QPS:   50,
 		Burst: 100,
 	}
-	return clientset.NewForConfig(clientConfig)
+	if s.SecurePort > 0 && len(s.TLSCAFile) > 0 {
+		clientConfig.Host = "https://" + net.JoinHostPort(s.BindAddress.String(), strconv.Itoa(s.SecurePort))
+		clientConfig.CAFile = s.TLSCAFile
+		clientConfig.BearerToken = token
+	} else if s.InsecurePort > 0 {
+		clientConfig.Host = net.JoinHostPort(s.InsecureBindAddress.String(), strconv.Itoa(s.InsecurePort))
+	} else {
+		return nil, errors.New("Unable to set url for apiserver local client")
+	}
+
+	return clientConfig, nil
 }
 
 // AddFlags adds flags for a specific APIServer to the specified FlagSet
@@ -257,6 +280,11 @@ func (s *ServerRunOptions) AddUniversalFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&s.AuthorizationRBACSuperUser, "authorization-rbac-super-user", s.AuthorizationRBACSuperUser, ""+
 		"If specified, a username which avoids RBAC authorization checks and role binding "+
 		"privilege escalation checks, to be used with --authorization-mode=RBAC.")
+
+	fs.BoolVar(&s.AnonymousAuth, "anonymous-auth", s.AnonymousAuth, ""+
+		"Enables anonymous requests to the secure port of the API server. "+
+		"Requests that are not rejected by another authentication method are treated as anonymous requests. "+
+		"Anonymous requests have a username of system:anonymous, and a group name of system:unauthenticated.")
 
 	fs.StringVar(&s.BasicAuthFile, "basic-auth-file", s.BasicAuthFile, ""+
 		"If set, the file that will be used to admit requests to the secure port of the API server "+
@@ -390,7 +418,7 @@ func (s *ServerRunOptions) AddUniversalFlags(fs *pflag.FlagSet) {
 
 	fs.StringVar(&s.OIDCGroupsClaim, "oidc-groups-claim", "", ""+
 		"If provided, the name of a custom OpenID Connect claim for specifying user groups. "+
-		"The claim value is expected to be an array of strings. This flag is experimental, "+
+		"The claim value is expected to be a string or array of strings. This flag is experimental, "+
 		"please see the authentication documentation for further details.")
 
 	fs.Var(&s.RuntimeConfig, "runtime-config", ""+
@@ -438,6 +466,10 @@ func (s *ServerRunOptions) AddUniversalFlags(fs *pflag.FlagSet) {
 		"It defaults to a list of preferred versions of all registered groups, "+
 		"which is derived from the KUBE_API_VERSIONS environment variable.")
 
+	fs.StringVar(&s.TLSCAFile, "tls-ca-file", s.TLSCAFile, "If set, this "+
+		"certificate authority will used for secure access from Admission "+
+		"Controllers. This must be a valid PEM-encoded CA bundle.")
+
 	fs.StringVar(&s.TLSCertFile, "tls-cert-file", s.TLSCertFile, ""+
 		"File containing x509 Certificate for HTTPS. (CA cert, if any, concatenated "+
 		"after server cert). If HTTPS serving is enabled, and --tls-cert-file and "+
@@ -450,6 +482,10 @@ func (s *ServerRunOptions) AddUniversalFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&s.TokenAuthFile, "token-auth-file", s.TokenAuthFile, ""+
 		"If set, the file that will be used to secure the secure port of the API server "+
 		"via token authentication.")
+
+	fs.BoolVar(&s.EnableAnyToken, "insecure-allow-any-token", s.EnableAnyToken, ""+
+		"If set, your server will be INSECURE.  Any token will be allowed and user information will be parsed "+
+		"from the token as `username/group1,group2`")
 
 	fs.StringSliceVar(&s.WatchCacheSizes, "watch-cache-sizes", s.WatchCacheSizes, ""+
 		"List of watch cache sizes for every resource (pods, nodes, etc.), comma separated. "+

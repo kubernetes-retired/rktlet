@@ -22,13 +22,15 @@ import (
 	"github.com/emicklei/go-restful"
 
 	"k8s.io/kubernetes/pkg/apiserver"
+	"k8s.io/kubernetes/pkg/genericapiserver/mux"
 	"k8s.io/kubernetes/pkg/version"
 )
 
+// Version provides a webservice with version information.
 type Version struct{}
 
-// InstallVersionHandler registers the APIServer's `/version` handler
-func (v Version) Install(mux *apiserver.PathRecorderMux, c *restful.Container) {
+// Install registers the APIServer's `/version` handler.
+func (v Version) Install(c *mux.APIContainer) {
 	// Set up a service to return the git code version.
 	versionWS := new(restful.WebService)
 	versionWS.Path("/version")

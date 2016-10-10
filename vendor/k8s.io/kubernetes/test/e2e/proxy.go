@@ -26,7 +26,7 @@ import (
 
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/errors"
-	"k8s.io/kubernetes/pkg/api/testapi"
+	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	client "k8s.io/kubernetes/pkg/client/unversioned"
 	"k8s.io/kubernetes/pkg/util/intstr"
 	"k8s.io/kubernetes/pkg/util/net"
@@ -37,7 +37,7 @@ import (
 )
 
 var _ = framework.KubeDescribe("Proxy", func() {
-	version := testapi.Default.GroupVersion().Version
+	version := registered.GroupOrDie(api.GroupName).GroupVersion.Version
 	Context("version "+version, func() { proxyContext(version) })
 })
 
@@ -154,7 +154,7 @@ func proxyContext(version string) {
 			CreatedPods: &pods,
 		}
 		Expect(framework.RunRC(cfg)).NotTo(HaveOccurred())
-		defer framework.DeleteRCAndPods(f.Client, f.Namespace.Name, cfg.Name)
+		defer framework.DeleteRCAndPods(f.Client, f.ClientSet, f.Namespace.Name, cfg.Name)
 
 		Expect(f.WaitForAnEndpoint(service.Name)).NotTo(HaveOccurred())
 

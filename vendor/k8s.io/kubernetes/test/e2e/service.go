@@ -33,6 +33,7 @@ import (
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/api/service"
+	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	client "k8s.io/kubernetes/pkg/client/unversioned"
 	"k8s.io/kubernetes/pkg/controller/endpoint"
 	"k8s.io/kubernetes/pkg/labels"
@@ -266,7 +267,7 @@ var _ = framework.KubeDescribe("Services", func() {
 			Expect(err).NotTo(HaveOccurred())
 		}()
 
-		// Waiting for service to expose endpoint
+		// Waiting for service to expose endpoint.
 		validateEndpointsOrFail(c, ns, serviceName, PortsByPodName{serverPodName: {servicePort}})
 
 		By("Retrieve sourceip from a pod on the same node")
@@ -309,7 +310,7 @@ var _ = framework.KubeDescribe("Services", func() {
 
 		// Stop service 1 and make sure it is gone.
 		By("stopping service1")
-		framework.ExpectNoError(stopServeHostnameService(c, ns, "service1"))
+		framework.ExpectNoError(stopServeHostnameService(c, f.ClientSet, ns, "service1"))
 
 		By("verifying service1 is not up")
 		framework.ExpectNoError(verifyServeHostnameServiceDown(c, host, svc1IP, servicePort))
@@ -342,11 +343,11 @@ var _ = framework.KubeDescribe("Services", func() {
 		svc1 := "service1"
 		svc2 := "service2"
 
-		defer func() { framework.ExpectNoError(stopServeHostnameService(c, ns, svc1)) }()
+		defer func() { framework.ExpectNoError(stopServeHostnameService(c, f.ClientSet, ns, svc1)) }()
 		podNames1, svc1IP, err := startServeHostnameService(c, ns, svc1, servicePort, numPods)
 		Expect(err).NotTo(HaveOccurred())
 
-		defer func() { framework.ExpectNoError(stopServeHostnameService(c, ns, svc2)) }()
+		defer func() { framework.ExpectNoError(stopServeHostnameService(c, f.ClientSet, ns, svc2)) }()
 		podNames2, svc2IP, err := startServeHostnameService(c, ns, svc2, servicePort, numPods)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -391,7 +392,7 @@ var _ = framework.KubeDescribe("Services", func() {
 		ns := f.Namespace.Name
 		numPods, servicePort := 3, 80
 
-		defer func() { framework.ExpectNoError(stopServeHostnameService(c, ns, "service1")) }()
+		defer func() { framework.ExpectNoError(stopServeHostnameService(c, f.ClientSet, ns, "service1")) }()
 		podNames1, svc1IP, err := startServeHostnameService(c, ns, "service1", servicePort, numPods)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -416,7 +417,7 @@ var _ = framework.KubeDescribe("Services", func() {
 		framework.ExpectNoError(verifyServeHostnameServiceUp(c, ns, host, podNames1, svc1IP, servicePort))
 
 		// Create a new service and check if it's not reusing IP.
-		defer func() { framework.ExpectNoError(stopServeHostnameService(c, ns, "service2")) }()
+		defer func() { framework.ExpectNoError(stopServeHostnameService(c, f.ClientSet, ns, "service2")) }()
 		podNames2, svc2IP, err := startServeHostnameService(c, ns, "service2", servicePort, numPods)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -1647,8 +1648,8 @@ func startServeHostnameService(c *client.Client, ns, name string, port, replicas
 	return podNames, serviceIP, nil
 }
 
-func stopServeHostnameService(c *client.Client, ns, name string) error {
-	if err := framework.DeleteRCAndPods(c, ns, name); err != nil {
+func stopServeHostnameService(c *client.Client, clientset internalclientset.Interface, ns, name string) error {
+	if err := framework.DeleteRCAndPods(c, clientset, ns, name); err != nil {
 		return err
 	}
 	if err := c.Services(ns).Delete(name); err != nil {
@@ -2072,7 +2073,7 @@ func (j *ServiceTestJig) newRCTemplate(namespace string) *api.ReplicationControl
 					Containers: []api.Container{
 						{
 							Name:  "netexec",
-							Image: "gcr.io/google_containers/netexec:1.6",
+							Image: "gcr.io/google_containers/netexec:1.7",
 							Args:  []string{"--http-port=80", "--udp-port=80"},
 							ReadinessProbe: &api.Probe{
 								PeriodSeconds: 3,
@@ -2331,11 +2332,16 @@ func execSourceipTest(f *framework.Framework, c *client.Client, ns, nodeName, se
 	timeout := 2 * time.Minute
 	framework.Logf("Waiting up to %v for sourceIp test to be executed", timeout)
 	cmd := fmt.Sprintf(`wget -T 30 -qO- %s:%d | grep client_address`, serviceIp, servicePort)
-	// need timeout mechanism because it may takes more times for iptables to be populated
+	// Need timeout mechanism because it may takes more times for iptables to be populated.
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(2) {
 		stdout, err = framework.RunHostCmd(execPod.Namespace, execPod.Name, cmd)
 		if err != nil {
 			framework.Logf("got err: %v, retry until timeout", err)
+			continue
+		}
+		// Need to check output because wget -q might omit the error.
+		if strings.TrimSpace(stdout) == "" {
+			framework.Logf("got empty stdout, retry until timeout")
 			continue
 		}
 		break
@@ -2343,10 +2349,15 @@ func execSourceipTest(f *framework.Framework, c *client.Client, ns, nodeName, se
 
 	ExpectNoError(err)
 
-	// the stdout return from RunHostCmd seems to come with "\n", so TrimSpace is needed
-	// desired stdout in this format: client_address=x.x.x.x
+	// The stdout return from RunHostCmd seems to come with "\n", so TrimSpace is needed.
+	// Desired stdout in this format: client_address=x.x.x.x
 	outputs := strings.Split(strings.TrimSpace(stdout), "=")
-	sourceIp := outputs[1]
-
+	sourceIp := ""
+	if len(outputs) != 2 {
+		// Fail the test if output format is unexpected.
+		framework.Failf("exec pod returned unexpected stdout format: [%v]\n", stdout)
+	} else {
+		sourceIp = outputs[1]
+	}
 	return execPodIp, sourceIp
 }

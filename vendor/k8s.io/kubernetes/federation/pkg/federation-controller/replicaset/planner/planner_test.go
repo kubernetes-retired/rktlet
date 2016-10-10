@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package planer
+package planner
 
 import (
 	"testing"
@@ -108,6 +108,42 @@ func TestEqualWithExisting(t *testing.T) {
 		50, []string{"A", "B"},
 		map[string]int64{"A": 30},
 		map[string]int64{"A": 30, "B": 20})
+
+	doCheckWithExisting(t, map[string]fed_api.ClusterReplicaSetPreferences{
+		"*": {Weight: 1}},
+		15, []string{"A", "B"},
+		map[string]int64{"A": 0, "B": 8},
+		map[string]int64{"A": 7, "B": 8})
+
+	doCheckWithExisting(t, map[string]fed_api.ClusterReplicaSetPreferences{
+		"*": {Weight: 1}},
+		15, []string{"A", "B"},
+		map[string]int64{"A": 1, "B": 8},
+		map[string]int64{"A": 7, "B": 8})
+
+	doCheckWithExisting(t, map[string]fed_api.ClusterReplicaSetPreferences{
+		"*": {Weight: 1}},
+		15, []string{"A", "B"},
+		map[string]int64{"A": 4, "B": 8},
+		map[string]int64{"A": 7, "B": 8})
+
+	doCheckWithExisting(t, map[string]fed_api.ClusterReplicaSetPreferences{
+		"*": {Weight: 1}},
+		15, []string{"A", "B"},
+		map[string]int64{"A": 5, "B": 8},
+		map[string]int64{"A": 7, "B": 8})
+
+	doCheckWithExisting(t, map[string]fed_api.ClusterReplicaSetPreferences{
+		"*": {Weight: 1}},
+		15, []string{"A", "B"},
+		map[string]int64{"A": 6, "B": 8},
+		map[string]int64{"A": 7, "B": 8})
+
+	doCheckWithExisting(t, map[string]fed_api.ClusterReplicaSetPreferences{
+		"*": {Weight: 1}},
+		15, []string{"A", "B"},
+		map[string]int64{"A": 7, "B": 8},
+		map[string]int64{"A": 7, "B": 8})
 
 	doCheckWithExisting(t, map[string]fed_api.ClusterReplicaSetPreferences{
 		"*": {Weight: 1}},

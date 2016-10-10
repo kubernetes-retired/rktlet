@@ -27,7 +27,6 @@ import (
 	"path"
 	rt "runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	"k8s.io/kubernetes/pkg/admission"
@@ -67,10 +66,6 @@ type APIGroupVersion struct {
 
 	// GroupVersion is the external group version
 	GroupVersion unversioned.GroupVersion
-
-	// RequestInfoResolver is used to parse URLs for the legacy proxy handler.  Don't use this for anything else
-	// TODO: refactor proxy handler to use sub resources
-	RequestInfoResolver *RequestInfoResolver
 
 	// OptionsExternalVersion controls the Kubernetes APIVersion used for common objects in the apiserver
 	// schema like api.Status, api.DeleteOptions, and api.ListOptions. Other implementors may
@@ -176,7 +171,6 @@ func (g *APIGroupVersion) newInstaller() *APIInstaller {
 	prefix := path.Join(g.Root, g.GroupVersion.Group, g.GroupVersion.Version)
 	installer := &APIInstaller{
 		group:             g,
-		info:              g.RequestInfoResolver,
 		prefix:            prefix,
 		minRequestTimeout: g.MinRequestTimeout,
 	}
@@ -208,22 +202,6 @@ func logStackOnRecover(s runtime.NegotiatedSerializer, panicReason interface{}, 
 		headers.Set("Accept", ct)
 	}
 	errorNegotiated(apierrors.NewGenericServerResponse(http.StatusInternalServerError, "", api.Resource(""), "", "", 0, false), s, unversioned.GroupVersion{}, w, &http.Request{Header: headers})
-}
-
-func InstallServiceErrorHandler(s runtime.NegotiatedSerializer, container *restful.Container, requestResolver *RequestInfoResolver, apiVersions []string) {
-	container.ServiceErrorHandler(func(serviceErr restful.ServiceError, request *restful.Request, response *restful.Response) {
-		serviceErrorHandler(s, requestResolver, apiVersions, serviceErr, request, response)
-	})
-}
-
-func serviceErrorHandler(s runtime.NegotiatedSerializer, requestResolver *RequestInfoResolver, apiVersions []string, serviceErr restful.ServiceError, request *restful.Request, response *restful.Response) {
-	errorNegotiated(
-		apierrors.NewGenericServerResponse(serviceErr.Code, "", api.Resource(""), "", serviceErr.Message, 0, false),
-		s,
-		unversioned.GroupVersion{},
-		response.ResponseWriter,
-		request.Request,
-	)
 }
 
 // Adds a service to return the supported api versions at the legacy /api.
@@ -293,8 +271,8 @@ func keepUnversioned(group string) bool {
 	return group == "" || group == "extensions"
 }
 
-// Adds a service to return the supported api versions at /apis.
-func AddApisWebService(s runtime.NegotiatedSerializer, container *restful.Container, apiPrefix string, f func(req *restful.Request) []unversioned.APIGroup) {
+// NewApisWebService returns a webservice serving the available api version under /apis.
+func NewApisWebService(s runtime.NegotiatedSerializer, apiPrefix string, f func(req *restful.Request) []unversioned.APIGroup) *restful.WebService {
 	// Because in release 1.1, /apis returns response with empty APIVersion, we
 	// use StripVersionNegotiatedSerializer to keep the response backwards
 	// compatible.
@@ -309,12 +287,12 @@ func AddApisWebService(s runtime.NegotiatedSerializer, container *restful.Contai
 		Produces(s.SupportedMediaTypes()...).
 		Consumes(s.SupportedMediaTypes()...).
 		Writes(unversioned.APIGroupList{}))
-	container.Add(ws)
+	return ws
 }
 
-// Adds a service to return the supported versions, preferred version, and name
-// of a group. E.g., a such web service will be registered at /apis/extensions.
-func AddGroupWebService(s runtime.NegotiatedSerializer, container *restful.Container, path string, group unversioned.APIGroup) {
+// NewGroupWebService returns a webservice serving the supported versions, preferred version, and name
+// of a group. E.g., such a web service will be registered at /apis/extensions.
+func NewGroupWebService(s runtime.NegotiatedSerializer, path string, group unversioned.APIGroup) *restful.WebService {
 	ss := s
 	if keepUnversioned(group.Name) {
 		// Because in release 1.1, /apis/extensions returns response with empty
@@ -332,7 +310,7 @@ func AddGroupWebService(s runtime.NegotiatedSerializer, container *restful.Conta
 		Produces(s.SupportedMediaTypes()...).
 		Consumes(s.SupportedMediaTypes()...).
 		Writes(unversioned.APIGroup{}))
-	container.Add(ws)
+	return ws
 }
 
 // Adds a service to return the supported resources, E.g., a such web service
@@ -500,13 +478,4 @@ func parseTimeout(str string) time.Duration {
 func readBody(req *http.Request) ([]byte, error) {
 	defer req.Body.Close()
 	return ioutil.ReadAll(req.Body)
-}
-
-// splitPath returns the segments for a URL path.
-func splitPath(path string) []string {
-	path = strings.Trim(path, "/")
-	if path == "" {
-		return []string{}
-	}
-	return strings.Split(path, "/")
 }

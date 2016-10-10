@@ -24,10 +24,11 @@ import (
 
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/errors"
-	"k8s.io/kubernetes/pkg/api/testapi"
 	"k8s.io/kubernetes/pkg/api/unversioned"
+	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	"k8s.io/kubernetes/pkg/client/restclient"
 	"k8s.io/kubernetes/pkg/client/unversioned/fake"
+	"k8s.io/kubernetes/pkg/kubectl/resource"
 )
 
 func TestDeleteObjectByTuple(t *testing.T) {
@@ -145,9 +146,8 @@ func TestDeleteObjectNotFound(t *testing.T) {
 	buf := bytes.NewBuffer([]byte{})
 
 	cmd := NewCmdDelete(f, buf)
-	options := &DeleteOptions{
-		Filenames: []string{"../../../examples/guestbook/legacy/redis-master-controller.yaml"},
-	}
+	options := &resource.FilenameOptions{}
+	options.Filenames = []string{"../../../examples/guestbook/legacy/redis-master-controller.yaml"}
 	cmd.Flags().Set("cascade", "false")
 	cmd.Flags().Set("output", "name")
 	err := RunDelete(f, buf, cmd, []string{}, options)
@@ -222,7 +222,7 @@ func TestDeleteAllNotFound(t *testing.T) {
 	cmd.Flags().Set("ignore-not-found", "false")
 	cmd.Flags().Set("output", "name")
 
-	err := RunDelete(f, buf, cmd, []string{"services"}, &DeleteOptions{})
+	err := RunDelete(f, buf, cmd, []string{"services"}, &resource.FilenameOptions{})
 	if err == nil || !errors.IsNotFound(err) {
 		t.Errorf("unexpected error: expected NotFound, got %v", err)
 	}
@@ -325,9 +325,8 @@ func TestDeleteMultipleObjectContinueOnMissing(t *testing.T) {
 	buf := bytes.NewBuffer([]byte{})
 
 	cmd := NewCmdDelete(f, buf)
-	options := &DeleteOptions{
-		Filenames: []string{"../../../examples/guestbook/legacy/redis-master-controller.yaml", "../../../examples/guestbook/frontend-service.yaml"},
-	}
+	options := &resource.FilenameOptions{}
+	options.Filenames = []string{"../../../examples/guestbook/legacy/redis-master-controller.yaml", "../../../examples/guestbook/frontend-service.yaml"}
 	cmd.Flags().Set("cascade", "false")
 	cmd.Flags().Set("output", "name")
 	err := RunDelete(f, buf, cmd, []string{}, options)
@@ -416,12 +415,12 @@ func TestDeleteMultipleSelector(t *testing.T) {
 		Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			switch p, m := req.URL.Path, req.Method; {
 			case p == "/namespaces/test/pods" && m == "GET":
-				if req.URL.Query().Get(unversioned.LabelSelectorQueryParam(testapi.Default.GroupVersion().String())) != "a=b" {
+				if req.URL.Query().Get(unversioned.LabelSelectorQueryParam(registered.GroupOrDie(api.GroupName).GroupVersion.String())) != "a=b" {
 					t.Fatalf("unexpected request: %#v\n%#v", req.URL, req)
 				}
 				return &http.Response{StatusCode: 200, Header: defaultHeader(), Body: objBody(codec, pods)}, nil
 			case p == "/namespaces/test/services" && m == "GET":
-				if req.URL.Query().Get(unversioned.LabelSelectorQueryParam(testapi.Default.GroupVersion().String())) != "a=b" {
+				if req.URL.Query().Get(unversioned.LabelSelectorQueryParam(registered.GroupOrDie(api.GroupName).GroupVersion.String())) != "a=b" {
 					t.Fatalf("unexpected request: %#v\n%#v", req.URL, req)
 				}
 				return &http.Response{StatusCode: 200, Header: defaultHeader(), Body: objBody(codec, svc)}, nil
@@ -477,7 +476,7 @@ func TestResourceErrors(t *testing.T) {
 		f, tf, _, _ := NewAPIFactory()
 		tf.Printer = &testPrinter{}
 		tf.Namespace = "test"
-		tf.ClientConfig = &restclient.Config{ContentConfig: restclient.ContentConfig{GroupVersion: testapi.Default.GroupVersion()}}
+		tf.ClientConfig = &restclient.Config{ContentConfig: restclient.ContentConfig{GroupVersion: &registered.GroupOrDie(api.GroupName).GroupVersion}}
 
 		buf := bytes.NewBuffer([]byte{})
 		cmd := NewCmdDelete(f, buf)
@@ -486,7 +485,7 @@ func TestResourceErrors(t *testing.T) {
 		for k, v := range testCase.flags {
 			cmd.Flags().Set(k, v)
 		}
-		err := RunDelete(f, buf, cmd, testCase.args, &DeleteOptions{})
+		err := RunDelete(f, buf, cmd, testCase.args, &resource.FilenameOptions{})
 		if !testCase.errFn(err) {
 			t.Errorf("%s: unexpected error: %v", k, err)
 			continue

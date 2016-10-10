@@ -44,6 +44,10 @@ import (
 	"k8s.io/kubernetes/pkg/volume/util/volumehelper"
 )
 
+const (
+	maxImageTagsForTest = 20
+)
+
 // generateTestingImageList generate randomly generated image list and corresponding expectedImageList.
 func generateTestingImageList(count int) ([]kubecontainer.Image, []api.ContainerImage) {
 	// imageList is randomly generated image list
@@ -64,7 +68,7 @@ func generateTestingImageList(count int) ([]kubecontainer.Image, []api.Container
 	var expectedImageList []api.ContainerImage
 	for _, kubeImage := range imageList {
 		apiImage := api.ContainerImage{
-			Names:     kubeImage.RepoTags,
+			Names:     kubeImage.RepoTags[0:maxNamesPerImageInNodeStatus],
 			SizeBytes: kubeImage.Size,
 		}
 
@@ -76,7 +80,9 @@ func generateTestingImageList(count int) ([]kubecontainer.Image, []api.Container
 
 func generateImageTags() []string {
 	var tagList []string
-	count := rand.IntnRange(1, maxImageTagsForTest+1)
+	// Generate > maxNamesPerImageInNodeStatus tags so that the test can verify
+	// that kubelet report up to maxNamesPerImageInNodeStatus tags.
+	count := rand.IntnRange(maxNamesPerImageInNodeStatus+1, maxImageTagsForTest+1)
 	for ; count > 0; count-- {
 		tagList = append(tagList, "gcr.io/google_containers:v"+strconv.Itoa(count))
 	}
@@ -140,6 +146,14 @@ func TestUpdateNewNodeStatus(t *testing.T) {
 					Status:             api.ConditionFalse,
 					Reason:             "KubeletHasNoDiskPressure",
 					Message:            fmt.Sprintf("kubelet has no disk pressure"),
+					LastHeartbeatTime:  unversioned.Time{},
+					LastTransitionTime: unversioned.Time{},
+				},
+				{
+					Type:               api.NodeInodePressure,
+					Status:             api.ConditionFalse,
+					Reason:             "KubeletHasNoInodePressure",
+					Message:            fmt.Sprintf("kubelet has no inode pressure"),
 					LastHeartbeatTime:  unversioned.Time{},
 					LastTransitionTime: unversioned.Time{},
 				},
@@ -335,6 +349,14 @@ func TestUpdateExistingNodeStatus(t *testing.T) {
 						LastTransitionTime: unversioned.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
 					},
 					{
+						Type:               api.NodeInodePressure,
+						Status:             api.ConditionFalse,
+						Reason:             "KubeletHasSufficientInode",
+						Message:            fmt.Sprintf("kubelet has sufficient inodes available"),
+						LastHeartbeatTime:  unversioned.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+						LastTransitionTime: unversioned.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
+					},
+					{
 						Type:               api.NodeReady,
 						Status:             api.ConditionTrue,
 						Reason:             "KubeletReady",
@@ -403,6 +425,14 @@ func TestUpdateExistingNodeStatus(t *testing.T) {
 					Status:             api.ConditionFalse,
 					Reason:             "KubeletHasSufficientDisk",
 					Message:            fmt.Sprintf("kubelet has sufficient disk space available"),
+					LastHeartbeatTime:  unversioned.Time{},
+					LastTransitionTime: unversioned.Time{},
+				},
+				{
+					Type:               api.NodeInodePressure,
+					Status:             api.ConditionFalse,
+					Reason:             "KubeletHasSufficientInode",
+					Message:            fmt.Sprintf("kubelet has sufficient inodes available"),
 					LastHeartbeatTime:  unversioned.Time{},
 					LastTransitionTime: unversioned.Time{},
 				},
@@ -707,6 +737,14 @@ func TestUpdateNodeStatusWithRuntimeStateError(t *testing.T) {
 					Status:             api.ConditionFalse,
 					Reason:             "KubeletHasNoDiskPressure",
 					Message:            fmt.Sprintf("kubelet has no disk pressure"),
+					LastHeartbeatTime:  unversioned.Time{},
+					LastTransitionTime: unversioned.Time{},
+				},
+				{
+					Type:               api.NodeInodePressure,
+					Status:             api.ConditionFalse,
+					Reason:             "KubeletHasNoInodePressure",
+					Message:            fmt.Sprintf("kubelet has no inode pressure"),
 					LastHeartbeatTime:  unversioned.Time{},
 					LastTransitionTime: unversioned.Time{},
 				},
