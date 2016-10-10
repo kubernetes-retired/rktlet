@@ -1,15 +1,15 @@
-hash: 7451e5d38b69e7193e4cc6a14c1d5b387709d722ffa781fa97bd39f31e43dbe7
-updated: 2016-09-28T13:09:32.89374586-07:00
+hash: f733e61ca8440029a5b4d999fb5fc4ce108fd9702abe6396b6bc397a26e2dab8
+updated: 2016-10-10T10:27:05.495548376-07:00
 imports:
 - name: github.com/appc/spec
-  version: 7479828fa08d5de41775ed88c0ca479a1e28616b
+  version: c204336cefe58b802e2df7f93fd0e145a43946ec
   subpackages:
-  - schema
-  - schema/types
   - aci
-  - schema/common
-  - pkg/tarheader
   - pkg/device
+  - pkg/tarheader
+  - schema
+  - schema/common
+  - schema/types
 - name: github.com/containernetworking/cni
   version: 9d5e6e60e79491207834ae8439e80c943db65a69
   subpackages:
@@ -21,20 +21,20 @@ imports:
   subpackages:
   - semver
 - name: github.com/coreos/rkt
-  version: b9ddcc60ad3c64c3de78f739cb1d99a697aa0d90
+  version: aa1954caf048481c556c42de70346c9f524dd013
   subpackages:
+  - common
   - lib
   - networking/netinfo
-  - common
-  - pkg/pod
   - pkg/fileutil
   - pkg/group
-  - pkg/user
   - pkg/label
   - pkg/lock
-  - pkg/sys
   - pkg/passwd
+  - pkg/pod
   - pkg/selinux
+  - pkg/sys
+  - pkg/user
 - name: github.com/davecgh/go-spew
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
   subpackages:
@@ -43,8 +43,8 @@ imports:
   version: b9f10c951893f9a00865890a5232e85d770c1087
   subpackages:
   - daemon/caps
-  - pkg/stringutils
   - pkg/random
+  - pkg/stringutils
 - name: github.com/go-openapi/jsonpointer
   version: 46af16f9f7b149af66e5d1bd010e3574dc06de98
 - name: github.com/go-openapi/jsonreference
@@ -84,7 +84,7 @@ imports:
 - name: github.com/golang/glog
   version: 23def4e6c14b4da8ac2ed8007337bc5eb5007998
 - name: github.com/golang/protobuf
-  version: 87c000235d3d852c1628dc9490cd21ab36a7d69f
+  version: df1d3ca07d2d07bba352d5b73c4313b4e2a6203e
   subpackages:
   - proto
 - name: github.com/hashicorp/errwrap
@@ -106,7 +106,7 @@ imports:
 - name: github.com/PuerkitoBio/urlesc
   version: 5bd2802263f21d8788851d5305584c82a5c75d7e
 - name: github.com/spf13/pflag
-  version: 1560c1005499d61b80f865c04d39ca7505bf7f0b
+  version: c7e63cf4530bcd3ba943729cee0efeff2ebea63f
 - name: github.com/stretchr/objx
   version: 1a9d0bb9f541897e62256577b352fdbc1fb4fd94
 - name: github.com/stretchr/testify
@@ -134,11 +134,11 @@ imports:
   subpackages:
   - context
   - http2
-  - trace
   - http2/hpack
-  - lex/httplex
-  - internal/timeseries
   - idna
+  - internal/timeseries
+  - lex/httplex
+  - trace
 - name: golang.org/x/text
   version: 2910a502d2bf9e43193af9d68ca516529614eed3
   subpackages:
@@ -155,12 +155,12 @@ imports:
 - name: golang.org/x/tools
   version: 86ad1193da6aba71355e71191641b9cfb26daa67
   subpackages:
-  - go/loader
-  - imports
   - go/ast/astutil
   - go/buildutil
+  - go/loader
+  - imports
 - name: google.golang.org/grpc
-  version: 0032a855ba5c8a3c8e0d71c2deef354b70af1584
+  version: 231b4cfea0e79843053a33f5fe90bd4d84b23cd3
   subpackages:
   - codes
   - credentials
@@ -168,16 +168,16 @@ imports:
   - internal
   - metadata
   - naming
-  - transport
   - peer
+  - transport
 - name: gopkg.in/inf.v0
   version: 3887ee99ecf07df5b447e9b00d9c0b2adaa9f3e4
 - name: k8s.io/kubernetes
-  version: af3050dd15e2a6ad34c4475cec4220029625e2d0
+  version: e72f26a3fff4f521d1da9f52b3ce82d4d0d5a401
   subpackages:
+  - pkg/api/resource
+  - pkg/genericapiserver/openapi/common
   - pkg/kubelet/api/v1alpha1/runtime
   - pkg/kubelet/container
   - pkg/util/exec
-  - pkg/api/resource
-  - cmd/libs/go2idl/openapi-gen/generators/common
 testImports: []

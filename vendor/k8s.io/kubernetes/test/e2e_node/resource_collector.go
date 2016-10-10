@@ -24,7 +24,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,6 +37,7 @@ import (
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/stats"
 	"k8s.io/kubernetes/pkg/labels"
+	"k8s.io/kubernetes/pkg/util/procfs"
 	"k8s.io/kubernetes/pkg/util/runtime"
 	"k8s.io/kubernetes/pkg/util/uuid"
 	"k8s.io/kubernetes/pkg/util/wait"
@@ -237,7 +237,7 @@ func (r *ResourceCollector) GetBasicCPUStats(containerName string) map[float64]f
 func formatResourceUsageStats(containerStats framework.ResourceUsagePerContainer) string {
 	// Example output:
 	//
-	// Resource usage for node "e2e-test-foo-minion-abcde":
+	// Resource usage for node "e2e-test-foo-node-abcde":
 	// container        cpu(cores)  memory(MB)
 	// "/"              0.363       2942.09
 	// "/docker-daemon" 0.088       521.80
@@ -255,7 +255,7 @@ func formatResourceUsageStats(containerStats framework.ResourceUsagePerContainer
 
 func formatCPUSummary(summary framework.ContainersCPUSummary) string {
 	// Example output for a node (the percentiles may differ):
-	// CPU usage of containers on node "e2e-test-foo-minion-0vj7":
+	// CPU usage of containers on node "e2e-test-foo-node-0vj7":
 	// container        5th%  50th% 90th% 95th%
 	// "/"              0.051 0.159 0.387 0.455
 	// "/runtime        0.000 0.000 0.146 0.166
@@ -450,19 +450,16 @@ const (
 	containerdPidFile     = "/run/docker/libcontainerd/docker-containerd.pid"
 )
 
-func getContainerNameForProcess(name, pidFile string) (string, error) {
-	pids, err := getPidsForProcess(name, pidFile)
-	if err != nil {
-		return "", fmt.Errorf("failed to detect process id for %q - %v", name, err)
+func getPidsForProcess(name, pidFile string) ([]int, error) {
+	if len(pidFile) > 0 {
+		if pid, err := getPidFromPidFile(pidFile); err == nil {
+			return []int{pid}, nil
+		} else {
+			// log the error and fall back to pidof
+			runtime.HandleError(err)
+		}
 	}
-	if len(pids) == 0 {
-		return "", nil
-	}
-	cont, err := getContainer(pids[0])
-	if err != nil {
-		return "", err
-	}
-	return cont, nil
+	return procfs.PidOf(name)
 }
 
 func getPidFromPidFile(pidFile string) (int, error) {
@@ -485,31 +482,19 @@ func getPidFromPidFile(pidFile string) (int, error) {
 	return pid, nil
 }
 
-func getPidsForProcess(name, pidFile string) ([]int, error) {
-	if len(pidFile) > 0 {
-		if pid, err := getPidFromPidFile(pidFile); err == nil {
-			return []int{pid}, nil
-		} else {
-			// log the error and fall back to pidof
-			runtime.HandleError(err)
-		}
-	}
-
-	out, err := exec.Command("pidof", name).Output()
+func getContainerNameForProcess(name, pidFile string) (string, error) {
+	pids, err := getPidsForProcess(name, pidFile)
 	if err != nil {
-		return []int{}, fmt.Errorf("failed to find pid of %q: %v", name, err)
+		return "", fmt.Errorf("failed to detect process id for %q - %v", name, err)
 	}
-
-	// The output of pidof is a list of pids.
-	pids := []int{}
-	for _, pidStr := range strings.Split(strings.TrimSpace(string(out)), " ") {
-		pid, err := strconv.Atoi(pidStr)
-		if err != nil {
-			continue
-		}
-		pids = append(pids, pid)
+	if len(pids) == 0 {
+		return "", nil
 	}
-	return pids, nil
+	cont, err := getContainer(pids[0])
+	if err != nil {
+		return "", err
+	}
+	return cont, nil
 }
 
 // getContainer returns the cgroup associated with the specified pid.

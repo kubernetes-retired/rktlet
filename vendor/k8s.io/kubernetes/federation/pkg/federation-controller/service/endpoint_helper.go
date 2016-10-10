@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	federation_release_1_4 "k8s.io/kubernetes/federation/client/clientset_generated/federation_release_1_4"
+	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_release_1_5"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
 	cache "k8s.io/kubernetes/pkg/client/cache"
 	"k8s.io/kubernetes/pkg/controller"
@@ -31,14 +31,34 @@ import (
 // worker runs a worker thread that just dequeues items, processes them, and marks them done.
 // It enforces that the syncHandler is never invoked concurrently with the same key.
 func (sc *ServiceController) clusterEndpointWorker() {
-	fedClient := sc.federationClient
+	// process all pending events in endpointWorkerDoneChan
+ForLoop:
+	for {
+		select {
+		case clusterName := <-sc.endpointWorkerDoneChan:
+			sc.endpointWorkerMap[clusterName] = false
+		default:
+			// non-blocking, comes here if all existing events are processed
+			break ForLoop
+		}
+	}
+
 	for clusterName, cache := range sc.clusterCache.clientMap {
+		workerExist, found := sc.endpointWorkerMap[clusterName]
+		if found && workerExist {
+			continue
+		}
+
+		// create a worker only if the previous worker has finished and gone out of scope
 		go func(cache *clusterCache, clusterName string) {
+			fedClient := sc.federationClient
 			for {
 				func() {
 					key, quit := cache.endpointQueue.Get()
 					// update endpoint cache
 					if quit {
+						// send signal that current worker has finished tasks and is going out of scope
+						sc.endpointWorkerDoneChan <- clusterName
 						return
 					}
 					defer cache.endpointQueue.Done(key)
@@ -49,12 +69,13 @@ func (sc *ServiceController) clusterEndpointWorker() {
 				}()
 			}
 		}(cache, clusterName)
+		sc.endpointWorkerMap[clusterName] = true
 	}
 }
 
 // Whenever there is change on endpoint, the federation service should be updated
 // key is the namespaced name of endpoint
-func (cc *clusterClientCache) syncEndpoint(key, clusterName string, clusterCache *clusterCache, serviceCache *serviceCache, fedClient federation_release_1_4.Interface, serviceController *ServiceController) error {
+func (cc *clusterClientCache) syncEndpoint(key, clusterName string, clusterCache *clusterCache, serviceCache *serviceCache, fedClient fedclientset.Interface, serviceController *ServiceController) error {
 	cachedService, ok := serviceCache.get(key)
 	if !ok {
 		// here we filtered all non-federation services

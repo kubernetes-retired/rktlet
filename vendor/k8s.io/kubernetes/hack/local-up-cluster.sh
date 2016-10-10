@@ -18,7 +18,6 @@
 # local-up.sh, but this one launches the three separate binaries.
 # You may need to run this as root to allow kubelet to open docker's socket.
 DOCKER_OPTS=${DOCKER_OPTS:-""}
-DOCKER_NATIVE=${DOCKER_NATIVE:-""}
 DOCKER=(docker ${DOCKER_OPTS})
 DOCKERIZE_KUBELET=${DOCKERIZE_KUBELET:-""}
 ALLOW_PRIVILEGED=${ALLOW_PRIVILEGED:-""}
@@ -27,6 +26,7 @@ RUNTIME_CONFIG=${RUNTIME_CONFIG:-""}
 NET_PLUGIN=${NET_PLUGIN:-""}
 NET_PLUGIN_DIR=${NET_PLUGIN_DIR:-""}
 KUBE_ROOT=$(dirname "${BASH_SOURCE}")/..
+SERVICE_CLUSTER_IP_RANGE=${SERVICE_CLUSTER_IP_RANGE:-"10.0.0.0/24"}
 # We disable cluster DNS by default because this script uses docker0 (or whatever
 # container bridge docker is currently using) and we don't know the IP of the
 # DNS pod to pass in as --cluster-dns. To set this up by hand, set this flag
@@ -41,6 +41,8 @@ ENABLE_DAEMON=${ENABLE_DAEMON:-false}
 HOSTNAME_OVERRIDE=${HOSTNAME_OVERRIDE:-"127.0.0.1"}
 CLOUD_PROVIDER=${CLOUD_PROVIDER:-""}
 CLOUD_CONFIG=${CLOUD_CONFIG:-""}
+FEATURE_GATES=${FEATURE_GATES:-"AllAlpha=true"}
+
 
 # START_MODE can be 'all', 'kubeletonly', or 'nokubelet'
 START_MODE=${START_MODE:-"all"}
@@ -121,7 +123,7 @@ set +e
 API_PORT=${API_PORT:-8080}
 API_HOST=${API_HOST:-127.0.0.1}
 API_HOST_IP=${API_HOST_IP:-${API_HOST}}
-API_BIND_ADDR=${API_HOST_IP:-"0.0.0.0"}
+API_BIND_ADDR=${API_BIND_ADDR:-"0.0.0.0"}
 KUBELET_HOST=${KUBELET_HOST:-"127.0.0.1"}
 # By default only allow CORS for requests on localhost
 API_CORS_ALLOWED_ORIGINS=${API_CORS_ALLOWED_ORIGINS:-"/127.0.0.1(:[0-9]+)?$,/localhost(:[0-9]+)?$"}
@@ -133,7 +135,7 @@ IMAGE_SERVICE_ENDPOINT=${IMAGE_SERVICE_ENDPOINT:-""}
 RKT_PATH=${RKT_PATH:-""}
 RKT_STAGE1_IMAGE=${RKT_STAGE1_IMAGE:-""}
 CHAOS_CHANCE=${CHAOS_CHANCE:-0.0}
-CPU_CFS_QUOTA=${CPU_CFS_QUOTA:-false}
+CPU_CFS_QUOTA=${CPU_CFS_QUOTA:-true}
 ENABLE_HOSTPATH_PROVISIONER=${ENABLE_HOSTPATH_PROVISIONER:-"false"}
 CLAIM_BINDER_SYNC_PERIOD=${CLAIM_BINDER_SYNC_PERIOD:-"15s"} # current k8s default
 ENABLE_CONTROLLER_ATTACH_DETACH=${ENABLE_CONTROLLER_ATTACH_DETACH:-"true"} # current default
@@ -279,6 +281,10 @@ function start_apiserver {
     CERT_DIR=/var/run/kubernetes
     ROOT_CA_FILE=$CERT_DIR/apiserver.crt
 
+    anytoken_arg=""
+    if [[ -n "${ALLOW_ANY_TOKEN:-}" ]]; then
+      anytoken_arg="--insecure-allow-any-token "
+    fi
     priv_arg=""
     if [[ -n "${ALLOW_PRIVILEGED}" ]]; then
       priv_arg="--allow-privileged "
@@ -292,11 +298,11 @@ function start_apiserver {
     # is set to 127.0.0.1
     advertise_address=""
     if [[ "${API_HOST}" != "127.0.0.1" ]]; then
-        advertise_address="--advertise_address=${API_HOST}"
+        advertise_address="--advertise_address=${API_HOST_IP}"
     fi
 
     APISERVER_LOG=/tmp/kube-apiserver.log
-    sudo -E "${GO_OUT}/hyperkube" apiserver ${priv_arg} ${runtime_config}\
+    sudo -E "${GO_OUT}/hyperkube" apiserver ${anytoken_arg} ${priv_arg} ${runtime_config}\
       ${advertise_address} \
       --v=${LOG_LEVEL} \
       --cert-dir="${CERT_DIR}" \
@@ -307,7 +313,8 @@ function start_apiserver {
       --insecure-bind-address="${API_HOST_IP}" \
       --insecure-port="${API_PORT}" \
       --etcd-servers="http://${ETCD_HOST}:${ETCD_PORT}" \
-      --service-cluster-ip-range="10.0.0.0/24" \
+      --service-cluster-ip-range="${SERVICE_CLUSTER_IP_RANGE}" \
+      --feature-gates="${FEATURE_GATES}" \
       --cloud-provider="${CLOUD_PROVIDER}" \
       --cloud-config="${CLOUD_CONFIG}" \
       --cors-allowed-origins="${API_CORS_ALLOWED_ORIGINS}" >"${APISERVER_LOG}" 2>&1 &
@@ -332,6 +339,7 @@ function start_controller_manager {
       --enable-hostpath-provisioner="${ENABLE_HOSTPATH_PROVISIONER}" \
       ${node_cidr_args} \
       --pvclaimbinder-sync-period="${CLAIM_BINDER_SYNC_PERIOD}" \
+      --feature-gates="${FEATURE_GATES}" \
       --cloud-provider="${CLOUD_PROVIDER}" \
       --cloud-config="${CLOUD_CONFIG}" \
       --master="${API_HOST}:${API_PORT}" >"${CTLRMGR_LOG}" 2>&1 &
@@ -374,7 +382,7 @@ function start_kubelet {
       if [[ -n "${NET_PLUGIN}" ]]; then
         net_plugin_args="--network-plugin=${NET_PLUGIN}"
       fi
-      
+
       net_plugin_dir_args=""
       if [[ -n "${NET_PLUGIN_DIR}" ]]; then
         net_plugin_dir_args="--network-plugin-dir=${NET_PLUGIN_DIR}"
@@ -406,6 +414,7 @@ function start_kubelet {
         --cloud-config="${CLOUD_CONFIG}" \
         --address="${KUBELET_HOST}" \
         --api-servers="${API_HOST}:${API_PORT}" \
+        --feature-gates="${FEATURE_GATES}" \
         --cpu-cfs-quota=${CPU_CFS_QUOTA} \
         --enable-controller-attach-detach="${ENABLE_CONTROLLER_ATTACH_DETACH}" \
         ${dns_args} \
@@ -422,7 +431,7 @@ function start_kubelet {
       # dockerized kubelet that might be running.
       cleanup_dockerized_kubelet
       cred_bind=""
-      # path to cloud credentails. 
+      # path to cloud credentails.
       cloud_cred=""
       if [ "${CLOUD_PROVIDER}" == "aws" ]; then
           cloud_cred="${HOME}/.aws/credentials"
@@ -459,6 +468,7 @@ function start_kubeproxy {
     sudo -E "${GO_OUT}/hyperkube" proxy \
       --v=${LOG_LEVEL} \
       --hostname-override="${HOSTNAME_OVERRIDE}" \
+      --feature-gates="${FEATURE_GATES}" \
       --master="http://${API_HOST}:${API_PORT}" >"${PROXY_LOG}" 2>&1 &
     PROXY_PID=$!
 
@@ -540,7 +550,7 @@ To start using your cluster, open up another terminal/tab and run:
   cluster/kubectl.sh config use-context local
   cluster/kubectl.sh
 EOF
-else 
+else
   cat <<EOF
 The kubelet was started.
 
@@ -581,7 +591,7 @@ fi
 
 if [[ "${START_MODE}" != "nokubelet" ]]; then
   start_kubelet
-fi  
+fi
 
 print_success
 

@@ -273,7 +273,7 @@ func (plugin *FakeVolumePlugin) GetNewDetacherCallCount() int {
 	return plugin.NewDetacherCallCount
 }
 
-func (plugin *FakeVolumePlugin) NewRecycler(pvName string, spec *Spec) (Recycler, error) {
+func (plugin *FakeVolumePlugin) NewRecycler(pvName string, spec *Spec, eventRecorder RecycleEventRecorder) (Recycler, error) {
 	return &fakeRecycler{"/attributesTransferredFromSpec", MetricsNil{}}, nil
 }
 
@@ -370,7 +370,7 @@ func (fv *FakeVolume) TearDownAt(dir string) error {
 	return os.RemoveAll(dir)
 }
 
-func (fv *FakeVolume) Attach(spec *Spec, hostName string) (string, error) {
+func (fv *FakeVolume) Attach(spec *Spec, nodeName types.NodeName) (string, error) {
 	fv.Lock()
 	defer fv.Unlock()
 	fv.AttachCallCount++
@@ -416,7 +416,7 @@ func (fv *FakeVolume) GetMountDeviceCallCount() int {
 	return fv.MountDeviceCallCount
 }
 
-func (fv *FakeVolume) Detach(deviceMountPath string, hostName string) error {
+func (fv *FakeVolume) Detach(deviceMountPath string, nodeName types.NodeName) error {
 	fv.Lock()
 	defer fv.Unlock()
 	fv.DetachCallCount++
@@ -457,7 +457,7 @@ func (fr *fakeRecycler) GetPath() string {
 	return fr.path
 }
 
-func NewFakeRecycler(pvName string, spec *Spec, host VolumeHost, config VolumeConfig) (Recycler, error) {
+func NewFakeRecycler(pvName string, spec *Spec, eventRecorder RecycleEventRecorder, host VolumeHost, config VolumeConfig) (Recycler, error) {
 	if spec.PersistentVolume == nil || spec.PersistentVolume.Spec.HostPath == nil {
 		return nil, fmt.Errorf("fakeRecycler only supports spec.PersistentVolume.Spec.HostPath")
 	}

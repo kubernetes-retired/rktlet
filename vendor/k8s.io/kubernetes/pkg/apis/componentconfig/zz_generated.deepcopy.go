@@ -163,6 +163,7 @@ func DeepCopy_componentconfig_KubeProxyConfiguration(in interface{}, out interfa
 		out.UDPIdleTimeout = in.UDPIdleTimeout
 		out.ConntrackMax = in.ConntrackMax
 		out.ConntrackMaxPerCore = in.ConntrackMaxPerCore
+		out.ConntrackMin = in.ConntrackMin
 		out.ConntrackTCPEstablishedTimeout = in.ConntrackTCPEstablishedTimeout
 		return nil
 	}
@@ -267,6 +268,7 @@ func DeepCopy_componentconfig_KubeletConfiguration(in interface{}, out interface
 		out.CloudConfigFile = in.CloudConfigFile
 		out.KubeletCgroups = in.KubeletCgroups
 		out.CgroupsPerQOS = in.CgroupsPerQOS
+		out.CgroupDriver = in.CgroupDriver
 		out.RuntimeCgroups = in.RuntimeCgroups
 		out.SystemCgroups = in.SystemCgroups
 		out.CgroupRoot = in.CgroupRoot
@@ -296,7 +298,6 @@ func DeepCopy_componentconfig_KubeletConfiguration(in interface{}, out interface
 		out.KubeAPIQPS = in.KubeAPIQPS
 		out.KubeAPIBurst = in.KubeAPIBurst
 		out.SerializeImagePulls = in.SerializeImagePulls
-		out.ExperimentalFlannelOverlay = in.ExperimentalFlannelOverlay
 		out.OutOfDiskTransitionFrequency = in.OutOfDiskTransitionFrequency
 		out.NodeIP = in.NodeIP
 		if in.NodeLabels != nil {
@@ -347,6 +348,7 @@ func DeepCopy_componentconfig_KubeletConfiguration(in interface{}, out interface
 		} else {
 			out.AllowedUnsafeSysctls = nil
 		}
+		out.ExperimentalRuntimeIntegrationType = in.ExperimentalRuntimeIntegrationType
 		return nil
 	}
 }

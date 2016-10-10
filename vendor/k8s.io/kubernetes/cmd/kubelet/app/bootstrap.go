@@ -30,8 +30,8 @@ import (
 	"k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
 	clientcmdapi "k8s.io/kubernetes/pkg/client/unversioned/clientcmd/api"
 	"k8s.io/kubernetes/pkg/kubelet/util/csr"
-	utilcertificates "k8s.io/kubernetes/pkg/util/certificates"
-	"k8s.io/kubernetes/pkg/util/crypto"
+	"k8s.io/kubernetes/pkg/types"
+	certutil "k8s.io/kubernetes/pkg/util/cert"
 )
 
 const (
@@ -43,7 +43,7 @@ const (
 // The kubeconfig at bootstrapPath is used to request a client certificate from the API server.
 // On success, a kubeconfig file referencing the generated key and obtained certificate is written to kubeconfigPath.
 // The certificate and key file are stored in certDir.
-func bootstrapClientCert(kubeconfigPath string, bootstrapPath string, certDir string, nodeName string) error {
+func bootstrapClientCert(kubeconfigPath string, bootstrapPath string, certDir string, nodeName types.NodeName) error {
 	// Short-circuit if the kubeconfig file already exists.
 	// TODO: inspect the kubeconfig, ensure a rest client can be built from it, verify client cert expiration, etc.
 	_, err := os.Stat(kubeconfigPath)
@@ -97,7 +97,7 @@ func bootstrapClientCert(kubeconfigPath string, bootstrapPath string, certDir st
 	if err != nil {
 		return err
 	}
-	if err := crypto.WriteCertToPath(certPath, certData); err != nil {
+	if err := certutil.WriteCert(certPath, certData); err != nil {
 		return err
 	}
 	defer func() {
@@ -171,11 +171,11 @@ func loadOrGenerateKeyFile(keyPath string) (data []byte, wasGenerated bool, err 
 		return nil, false, fmt.Errorf("error loading key from %s: %v", keyPath, err)
 	}
 
-	generatedData, err := utilcertificates.GeneratePrivateKey()
+	generatedData, err := certutil.MakeEllipticPrivateKeyPEM()
 	if err != nil {
 		return nil, false, fmt.Errorf("error generating key: %v", err)
 	}
-	if err := crypto.WriteKeyToPath(keyPath, generatedData); err != nil {
+	if err := certutil.WriteKey(keyPath, generatedData); err != nil {
 		return nil, false, fmt.Errorf("error writing key to %s: %v", keyPath, err)
 	}
 	return generatedData, true, nil

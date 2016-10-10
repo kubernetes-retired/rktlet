@@ -287,7 +287,7 @@ Find more information at https://github.com/kubernetes/kubernetes.`,
 				NewCmdDescribe(f, out, err),
 				NewCmdLogs(f, out),
 				NewCmdAttach(f, in, out, err),
-				NewCmdExec("kubectl", f, in, out, err),
+				NewCmdExec(f, in, out, err),
 				NewCmdPortForward(f, out, err),
 				NewCmdProxy(f, out),
 			},
@@ -315,7 +315,6 @@ Find more information at https://github.com/kubernetes/kubernetes.`,
 	filters := []string{
 		"options",
 		Deprecated("kubectl", "delete", cmds, NewCmdStop(f, out)),
-		Deprecated("kubectl", "config set-context", cmds, NewCmdNamespace(out)),
 	}
 	templates.ActsAsRootCommand(cmds, filters, groups...)
 

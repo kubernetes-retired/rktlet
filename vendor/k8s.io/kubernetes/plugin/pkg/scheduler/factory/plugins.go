@@ -46,6 +46,9 @@ type PluginFactoryArgs struct {
 	FailureDomains                 []string
 }
 
+// MetadataProducerFactory produces MetadataProducer from the given args.
+type MetadataProducerFactory func(PluginFactoryArgs) algorithm.MetadataProducer
+
 // A FitPredicateFactory produces a FitPredicate from the given args.
 type FitPredicateFactory func(PluginFactoryArgs) algorithm.FitPredicate
 
@@ -73,6 +76,12 @@ var (
 	fitPredicateMap      = make(map[string]FitPredicateFactory)
 	priorityFunctionMap  = make(map[string]PriorityConfigFactory)
 	algorithmProviderMap = make(map[string]AlgorithmProviderConfig)
+
+	// Registered metadata producers
+	priorityMetadataProducer MetadataProducerFactory
+
+	// get equivalence pod function
+	getEquivalencePodFunc algorithm.GetEquivalencePodFunc = nil
 )
 
 const (
@@ -146,6 +155,12 @@ func IsFitPredicateRegistered(name string) bool {
 	defer schedulerFactoryMutex.Unlock()
 	_, ok := fitPredicateMap[name]
 	return ok
+}
+
+func RegisterPriorityMetadataProducerFactory(factory MetadataProducerFactory) {
+	schedulerFactoryMutex.Lock()
+	defer schedulerFactoryMutex.Unlock()
+	priorityMetadataProducer = factory
 }
 
 // DEPRECATED
@@ -233,6 +248,10 @@ func RegisterCustomPriorityFunction(policy schedulerapi.PriorityPolicy) string {
 	return RegisterPriorityConfigFactory(policy.Name, *pcf)
 }
 
+func RegisterGetEquivalencePodFunction(equivalenceFunc algorithm.GetEquivalencePodFunc) {
+	getEquivalencePodFunc = equivalenceFunc
+}
+
 // This check is useful for testing providers.
 func IsPriorityFunctionRegistered(name string) bool {
 	schedulerFactoryMutex.Lock()
@@ -281,6 +300,16 @@ func getFitPredicateFunctions(names sets.String, args PluginFactoryArgs) (map[st
 		predicates[name] = factory(args)
 	}
 	return predicates, nil
+}
+
+func getPriorityMetadataProducer(args PluginFactoryArgs) (algorithm.MetadataProducer, error) {
+	schedulerFactoryMutex.Lock()
+	defer schedulerFactoryMutex.Unlock()
+
+	if priorityMetadataProducer == nil {
+		return algorithm.EmptyMetadataProducer, nil
+	}
+	return priorityMetadataProducer(args), nil
 }
 
 func getPriorityFunctionConfigs(names sets.String, args PluginFactoryArgs) ([]algorithm.PriorityConfig, error) {

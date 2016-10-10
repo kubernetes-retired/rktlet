@@ -26,8 +26,8 @@ import (
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/api/service"
-	"k8s.io/kubernetes/pkg/api/testapi"
 	"k8s.io/kubernetes/pkg/api/unversioned"
+	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	"k8s.io/kubernetes/pkg/capabilities"
 	"k8s.io/kubernetes/pkg/security/apparmor"
 	"k8s.io/kubernetes/pkg/util/intstr"
@@ -1520,7 +1520,18 @@ func TestValidateVolumes(t *testing.T) {
 		},
 		// Flocker
 		{
-			name: "valid Flocker",
+			name: "valid Flocker -- datasetUUID",
+			vol: api.Volume{
+				Name: "flocker",
+				VolumeSource: api.VolumeSource{
+					Flocker: &api.FlockerVolumeSource{
+						DatasetUUID: "d846b09d-223d-43df-ab5b-d6db2206a0e4",
+					},
+				},
+			},
+		},
+		{
+			name: "valid Flocker -- datasetName",
 			vol: api.Volume{
 				Name: "flocker",
 				VolumeSource: api.VolumeSource{
@@ -1531,7 +1542,7 @@ func TestValidateVolumes(t *testing.T) {
 			},
 		},
 		{
-			name: "empty flocker datasetName",
+			name: "both empty",
 			vol: api.Volume{
 				Name: "flocker",
 				VolumeSource: api.VolumeSource{
@@ -1541,7 +1552,21 @@ func TestValidateVolumes(t *testing.T) {
 				},
 			},
 			errtype:  field.ErrorTypeRequired,
-			errfield: "flocker.datasetName",
+			errfield: "flocker",
+		},
+		{
+			name: "both specified",
+			vol: api.Volume{
+				Name: "flocker",
+				VolumeSource: api.VolumeSource{
+					Flocker: &api.FlockerVolumeSource{
+						DatasetName: "datasetName",
+						DatasetUUID: "d846b09d-223d-43df-ab5b-d6db2206a0e4",
+					},
+				},
+			},
+			errtype:  field.ErrorTypeInvalid,
+			errfield: "flocker",
 		},
 		{
 			name: "slash in flocker datasetName",
@@ -2316,7 +2341,7 @@ func TestValidateEnv(t *testing.T) {
 			Name: "abc",
 			ValueFrom: &api.EnvVarSource{
 				FieldRef: &api.ObjectFieldSelector{
-					APIVersion: testapi.Default.GroupVersion().String(),
+					APIVersion: registered.GroupOrDie(api.GroupName).GroupVersion.String(),
 					FieldPath:  "metadata.name",
 				},
 			},
@@ -2325,7 +2350,7 @@ func TestValidateEnv(t *testing.T) {
 			Name: "abc",
 			ValueFrom: &api.EnvVarSource{
 				FieldRef: &api.ObjectFieldSelector{
-					APIVersion: testapi.Default.GroupVersion().String(),
+					APIVersion: registered.GroupOrDie(api.GroupName).GroupVersion.String(),
 					FieldPath:  "spec.nodeName",
 				},
 			},
@@ -2334,7 +2359,7 @@ func TestValidateEnv(t *testing.T) {
 			Name: "abc",
 			ValueFrom: &api.EnvVarSource{
 				FieldRef: &api.ObjectFieldSelector{
-					APIVersion: testapi.Default.GroupVersion().String(),
+					APIVersion: registered.GroupOrDie(api.GroupName).GroupVersion.String(),
 					FieldPath:  "spec.serviceAccountName",
 				},
 			},
@@ -2388,7 +2413,7 @@ func TestValidateEnv(t *testing.T) {
 				Value: "foo",
 				ValueFrom: &api.EnvVarSource{
 					FieldRef: &api.ObjectFieldSelector{
-						APIVersion: testapi.Default.GroupVersion().String(),
+						APIVersion: registered.GroupOrDie(api.GroupName).GroupVersion.String(),
 						FieldPath:  "metadata.name",
 					},
 				},
@@ -2401,7 +2426,7 @@ func TestValidateEnv(t *testing.T) {
 				Name: "abc",
 				ValueFrom: &api.EnvVarSource{
 					FieldRef: &api.ObjectFieldSelector{
-						APIVersion: testapi.Default.GroupVersion().String(),
+						APIVersion: registered.GroupOrDie(api.GroupName).GroupVersion.String(),
 						FieldPath:  "metadata.name",
 					},
 					SecretKeyRef: &api.SecretKeySelector{
@@ -2420,7 +2445,7 @@ func TestValidateEnv(t *testing.T) {
 				Name: "some_var_name",
 				ValueFrom: &api.EnvVarSource{
 					FieldRef: &api.ObjectFieldSelector{
-						APIVersion: testapi.Default.GroupVersion().String(),
+						APIVersion: registered.GroupOrDie(api.GroupName).GroupVersion.String(),
 						FieldPath:  "metadata.name",
 					},
 					ConfigMapKeyRef: &api.ConfigMapKeySelector{
@@ -2439,7 +2464,7 @@ func TestValidateEnv(t *testing.T) {
 				Name: "abc",
 				ValueFrom: &api.EnvVarSource{
 					FieldRef: &api.ObjectFieldSelector{
-						APIVersion: testapi.Default.GroupVersion().String(),
+						APIVersion: registered.GroupOrDie(api.GroupName).GroupVersion.String(),
 						FieldPath:  "metadata.name",
 					},
 					SecretKeyRef: &api.SecretKeySelector{
@@ -2464,7 +2489,7 @@ func TestValidateEnv(t *testing.T) {
 				Name: "abc",
 				ValueFrom: &api.EnvVarSource{
 					FieldRef: &api.ObjectFieldSelector{
-						APIVersion: testapi.Default.GroupVersion().String(),
+						APIVersion: registered.GroupOrDie(api.GroupName).GroupVersion.String(),
 					},
 				},
 			}},
@@ -2489,7 +2514,7 @@ func TestValidateEnv(t *testing.T) {
 				ValueFrom: &api.EnvVarSource{
 					FieldRef: &api.ObjectFieldSelector{
 						FieldPath:  "metadata.whoops",
-						APIVersion: testapi.Default.GroupVersion().String(),
+						APIVersion: registered.GroupOrDie(api.GroupName).GroupVersion.String(),
 					},
 				},
 			}},
@@ -2528,7 +2553,7 @@ func TestValidateEnv(t *testing.T) {
 				ValueFrom: &api.EnvVarSource{
 					FieldRef: &api.ObjectFieldSelector{
 						FieldPath:  "status.phase",
-						APIVersion: testapi.Default.GroupVersion().String(),
+						APIVersion: registered.GroupOrDie(api.GroupName).GroupVersion.String(),
 					},
 				},
 			}},
@@ -5148,6 +5173,14 @@ func TestValidateService(t *testing.T) {
 			},
 			numErrs: 1,
 		},
+		{
+			name: "LoadBalancer type cannot have None ClusterIP",
+			tweakSvc: func(s *api.Service) {
+				s.Spec.ClusterIP = "None"
+				s.Spec.Type = api.ServiceTypeLoadBalancer
+			},
+			numErrs: 1,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -6387,6 +6420,33 @@ func TestValidateServiceUpdate(t *testing.T) {
 				newSvc.Spec.Type = api.ServiceTypeNodePort
 			},
 			numErrs: 0,
+		},
+		{
+			name: "add loadBalancerSourceRanges",
+			tweakSvc: func(oldSvc, newSvc *api.Service) {
+				oldSvc.Spec.Type = api.ServiceTypeLoadBalancer
+				newSvc.Spec.Type = api.ServiceTypeLoadBalancer
+				newSvc.Spec.LoadBalancerSourceRanges = []string{"10.0.0.0/8"}
+			},
+			numErrs: 1,
+		},
+		{
+			name: "update loadBalancerSourceRanges",
+			tweakSvc: func(oldSvc, newSvc *api.Service) {
+				oldSvc.Spec.Type = api.ServiceTypeLoadBalancer
+				oldSvc.Spec.LoadBalancerSourceRanges = []string{"10.0.0.0/8"}
+				newSvc.Spec.Type = api.ServiceTypeLoadBalancer
+				newSvc.Spec.LoadBalancerSourceRanges = []string{"10.180.0.0/16"}
+			},
+			numErrs: 1,
+		},
+		{
+			name: "LoadBalancer type cannot have None ClusterIP",
+			tweakSvc: func(oldSvc, newSvc *api.Service) {
+				newSvc.Spec.ClusterIP = "None"
+				newSvc.Spec.Type = api.ServiceTypeLoadBalancer
+			},
+			numErrs: 1,
 		},
 	}
 

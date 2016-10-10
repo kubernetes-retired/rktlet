@@ -30,6 +30,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/testapi"
 	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/api/v1"
+	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	"k8s.io/kubernetes/pkg/apis/batch"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	kubectltesting "k8s.io/kubernetes/pkg/kubectl/testing"
@@ -44,7 +45,7 @@ import (
 
 func init() {
 	api.Scheme.AddKnownTypes(testapi.Default.InternalGroupVersion(), &kubectltesting.TestStruct{})
-	api.Scheme.AddKnownTypes(*testapi.Default.GroupVersion(), &kubectltesting.TestStruct{})
+	api.Scheme.AddKnownTypes(registered.GroupOrDie(api.GroupName).GroupVersion, &kubectltesting.TestStruct{})
 }
 
 var testData = kubectltesting.TestStruct{
@@ -67,7 +68,7 @@ func TestVersionedPrinter(t *testing.T) {
 			return nil
 		}),
 		api.Scheme,
-		*testapi.Default.GroupVersion(),
+		registered.GroupOrDie(api.GroupName).GroupVersion,
 	)
 	if err := p.PrintObj(original, nil); err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -105,7 +106,7 @@ func TestPrinter(t *testing.T) {
 		},
 	}
 	emptyListTest := &api.PodList{}
-	testapi, err := api.Scheme.ConvertToVersion(podTest, *testapi.Default.GroupVersion())
+	testapi, err := api.Scheme.ConvertToVersion(podTest, registered.GroupOrDie(api.GroupName).GroupVersion)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -472,7 +473,7 @@ func TestTemplateStrings(t *testing.T) {
 		t.Fatalf("tmpl fail: %v", err)
 	}
 
-	printer := NewVersionedPrinter(p, api.Scheme, *testapi.Default.GroupVersion())
+	printer := NewVersionedPrinter(p, api.Scheme, registered.GroupOrDie(api.GroupName).GroupVersion)
 
 	for name, item := range table {
 		buffer := &bytes.Buffer{}
@@ -687,6 +688,55 @@ func TestPrintNodeStatus(t *testing.T) {
 		}
 		if !contains(strings.Fields(buffer.String()), test.status) {
 			t.Fatalf("Expect printing node %s with status %#v, got: %#v", test.node.Name, test.status, buffer.String())
+		}
+	}
+}
+
+func TestPrintNodeExternalIP(t *testing.T) {
+	printer := NewHumanReadablePrinter(PrintOptions{
+		ColumnLabels: []string{},
+		Wide:         true,
+	})
+	table := []struct {
+		node       api.Node
+		externalIP string
+	}{
+		{
+			node: api.Node{
+				ObjectMeta: api.ObjectMeta{Name: "foo1"},
+				Status:     api.NodeStatus{Addresses: []api.NodeAddress{{Type: api.NodeExternalIP, Address: "1.1.1.1"}}},
+			},
+			externalIP: "1.1.1.1",
+		},
+		{
+			node: api.Node{
+				ObjectMeta: api.ObjectMeta{Name: "foo2"},
+				Status:     api.NodeStatus{Addresses: []api.NodeAddress{{Type: api.NodeInternalIP, Address: "1.1.1.1"}}},
+			},
+			externalIP: "<none>",
+		},
+		{
+			node: api.Node{
+				ObjectMeta: api.ObjectMeta{Name: "foo3"},
+				Status: api.NodeStatus{Addresses: []api.NodeAddress{
+					{Type: api.NodeLegacyHostIP, Address: "1.1.1.1"},
+					{Type: api.NodeExternalIP, Address: "2.2.2.2"},
+					{Type: api.NodeInternalIP, Address: "3.3.3.3"},
+					{Type: api.NodeExternalIP, Address: "4.4.4.4"},
+				}},
+			},
+			externalIP: "2.2.2.2",
+		},
+	}
+
+	for _, test := range table {
+		buffer := &bytes.Buffer{}
+		err := printer.PrintObj(&test.node, buffer)
+		if err != nil {
+			t.Fatalf("An error occurred printing Node: %#v", err)
+		}
+		if !contains(strings.Fields(buffer.String()), test.externalIP) {
+			t.Fatalf("Expect printing node %s with external ip %#v, got: %#v", test.node.Name, test.externalIP, buffer.String())
 		}
 	}
 }
@@ -1148,7 +1198,7 @@ func TestPrintPod(t *testing.T) {
 	}
 
 	buf := bytes.NewBuffer([]byte{})
-	printer := HumanReadablePrinter{hiddenObjNum: 0}
+	printer := HumanReadablePrinter{}
 	for _, test := range tests {
 		printer.printPod(&test.pod, buf, PrintOptions{false, false, false, false, true, false, false, "", []string{}})
 		// We ignore time
@@ -1156,9 +1206,6 @@ func TestPrintPod(t *testing.T) {
 			t.Fatalf("Expected: %s, got: %s", test.expect, buf.String())
 		}
 		buf.Reset()
-	}
-	if printer.hiddenObjNum > 0 {
-		t.Fatalf("Expected hidden pods: 0, got: %d", printer.hiddenObjNum)
 	}
 }
 
@@ -1245,7 +1292,7 @@ func TestPrintNonTerminatedPod(t *testing.T) {
 	}
 
 	buf := bytes.NewBuffer([]byte{})
-	printer := HumanReadablePrinter{hiddenObjNum: 0}
+	printer := HumanReadablePrinter{}
 	for _, test := range tests {
 		printer.printPod(&test.pod, buf, PrintOptions{false, false, false, false, false, false, false, "", []string{}})
 		// We ignore time
@@ -1253,9 +1300,6 @@ func TestPrintNonTerminatedPod(t *testing.T) {
 			t.Fatalf("Expected: %s, got: %s", test.expect, buf.String())
 		}
 		buf.Reset()
-	}
-	if printer.hiddenObjNum != 2 {
-		t.Fatalf("Expected hidden pods: 2, got: %d", printer.hiddenObjNum)
 	}
 }
 
@@ -1309,7 +1353,7 @@ func TestPrintPodWithLabels(t *testing.T) {
 	}
 
 	buf := bytes.NewBuffer([]byte{})
-	printer := HumanReadablePrinter{hiddenObjNum: 0}
+	printer := HumanReadablePrinter{}
 	for _, test := range tests {
 		printer.printPod(&test.pod, buf, PrintOptions{false, false, false, false, false, false, false, "", test.labelColumns})
 		// We ignore time
@@ -1317,9 +1361,6 @@ func TestPrintPodWithLabels(t *testing.T) {
 			t.Fatalf("Expected to start with: %s and end with: %s, but got: %s", test.startsWith, test.endsWith, buf.String())
 		}
 		buf.Reset()
-	}
-	if printer.hiddenObjNum > 0 {
-		t.Fatalf("Expected hidden pods: 0, got: %d", printer.hiddenObjNum)
 	}
 }
 
@@ -1519,7 +1560,7 @@ func TestPrintPodShowLabels(t *testing.T) {
 	}
 
 	buf := bytes.NewBuffer([]byte{})
-	printer := HumanReadablePrinter{hiddenObjNum: 0}
+	printer := HumanReadablePrinter{}
 
 	for _, test := range tests {
 		printer.printPod(&test.pod, buf, PrintOptions{false, false, false, false, false, test.showLabels, false, "", []string{}})
@@ -1528,8 +1569,5 @@ func TestPrintPodShowLabels(t *testing.T) {
 			t.Fatalf("Expected to start with: %s and end with: %s, but got: %s", test.startsWith, test.endsWith, buf.String())
 		}
 		buf.Reset()
-	}
-	if printer.hiddenObjNum > 0 {
-		t.Fatalf("Expected hidden pods: 0, got: %d", printer.hiddenObjNum)
 	}
 }

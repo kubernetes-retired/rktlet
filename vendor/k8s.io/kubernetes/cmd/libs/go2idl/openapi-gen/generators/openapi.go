@@ -25,12 +25,11 @@ import (
 	"sort"
 	"strings"
 
-	"k8s.io/kubernetes/cmd/libs/go2idl/args"
-	"k8s.io/kubernetes/cmd/libs/go2idl/generator"
-	"k8s.io/kubernetes/cmd/libs/go2idl/namer"
-	"k8s.io/kubernetes/cmd/libs/go2idl/openapi-gen/generators/common"
-	"k8s.io/kubernetes/cmd/libs/go2idl/types"
-	"k8s.io/kubernetes/pkg/util/sets"
+	"k8s.io/gengo/args"
+	"k8s.io/gengo/generator"
+	"k8s.io/gengo/namer"
+	"k8s.io/gengo/types"
+	"k8s.io/kubernetes/pkg/genericapiserver/openapi/common"
 
 	"github.com/golang/glog"
 )
@@ -42,8 +41,6 @@ const tagName = "k8s:openapi-gen"
 const (
 	tagValueTrue  = "true"
 	tagValueFalse = "false"
-	// Should only be used only for test
-	tagTargetType = "target"
 )
 
 func hasOpenAPITagValue(comments []string, value string) bool {
@@ -77,7 +74,6 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 	if err != nil {
 		glog.Fatalf("Failed loading boilerplate: %v", err)
 	}
-	inputs := sets.NewString(context.Inputs...)
 	header := append([]byte(fmt.Sprintf("// +build !%s\n\n", arguments.GeneratedBuildTag)), boilerplate...)
 	header = append(header, []byte(
 		`
@@ -85,34 +81,20 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 
 `)...)
 
-	targets := []*types.Type{}
-	for i := range inputs {
-		glog.V(5).Infof("considering pkg %q", i)
-		pkg, ok := context.Universe[i]
-		if !ok {
-			// If the input had no Go files, for example.
-			continue
-		}
-		for _, t := range pkg.Types {
-			if hasOpenAPITagValue(t.CommentLines, tagTargetType) {
-				glog.V(5).Infof("target type : %q", t)
-				targets = append(targets, t)
-			}
-		}
+	if err := context.AddDir(arguments.OutputPackagePath); err != nil {
+		glog.Fatalf("Failed to load output package: %v", err)
 	}
-	switch len(targets) {
-	case 0:
-		// If no target package found, that means the generated file in target package is up to date
-		// and build excluded the target package.
-		return generator.Packages{}
-	case 1:
-		pkg := context.Universe[targets[0].Name.Package]
-		return generator.Packages{&generator.DefaultPackage{
+	pkg := context.Universe[arguments.OutputPackagePath]
+	if pkg == nil {
+		glog.Fatalf("Got nil output package: %v", err)
+	}
+	return generator.Packages{
+		&generator.DefaultPackage{
 			PackageName: strings.Split(filepath.Base(pkg.Path), ".")[0],
 			PackagePath: pkg.Path,
 			HeaderText:  header,
 			GeneratorFunc: func(c *generator.Context) (generators []generator.Generator) {
-				return []generator.Generator{NewOpenAPIGen(arguments.OutputFileBaseName, targets[0], context)}
+				return []generator.Generator{NewOpenAPIGen(arguments.OutputFileBaseName, pkg, context)}
 			},
 			FilterFunc: func(c *generator.Context, t *types.Type) bool {
 				// There is a conflict between this codegen and codecgen, we should avoid types generated for codecgen
@@ -129,42 +111,38 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 				return false
 			},
 		},
-		}
-	default:
-		glog.Fatalf("Duplicate target type found: %v", targets)
 	}
-	return generator.Packages{}
 }
 
 const (
 	specPackagePath          = "github.com/go-openapi/spec"
-	openAPICommonPackagePath = "k8s.io/kubernetes/cmd/libs/go2idl/openapi-gen/generators/common"
+	openAPICommonPackagePath = "k8s.io/kubernetes/pkg/genericapiserver/openapi/common"
 )
 
 // openApiGen produces a file with auto-generated OpenAPI functions.
 type openAPIGen struct {
 	generator.DefaultGen
-	// TargetType is the type that will get OpenAPIDefinitions method returning all definitions.
-	targetType *types.Type
-	imports    namer.ImportTracker
-	context    *generator.Context
+	// TargetPackage is the package that will get OpenAPIDefinitions variable contains all open API definitions.
+	targetPackage *types.Package
+	imports       namer.ImportTracker
+	context       *generator.Context
 }
 
-func NewOpenAPIGen(sanitizedName string, targetType *types.Type, context *generator.Context) generator.Generator {
+func NewOpenAPIGen(sanitizedName string, targetPackage *types.Package, context *generator.Context) generator.Generator {
 	return &openAPIGen{
 		DefaultGen: generator.DefaultGen{
 			OptionalName: sanitizedName,
 		},
-		imports:    generator.NewImportTracker(),
-		targetType: targetType,
-		context:    context,
+		imports:       generator.NewImportTracker(),
+		targetPackage: targetPackage,
+		context:       context,
 	}
 }
 
 func (g *openAPIGen) Namers(c *generator.Context) namer.NameSystems {
 	// Have the raw namer for this file track what it imports.
 	return namer.NameSystems{
-		"raw": namer.NewRawNamer(g.targetType.Name.Package, g.imports),
+		"raw": namer.NewRawNamer(g.targetPackage.Path, g.imports),
 	}
 }
 
@@ -177,10 +155,10 @@ func (g *openAPIGen) Filter(c *generator.Context, t *types.Type) bool {
 }
 
 func (g *openAPIGen) isOtherPackage(pkg string) bool {
-	if pkg == g.targetType.Name.Package {
+	if pkg == g.targetPackage.Path {
 		return false
 	}
-	if strings.HasSuffix(pkg, "\""+g.targetType.Name.Package+"\"") {
+	if strings.HasSuffix(pkg, "\""+g.targetPackage.Path+"\"") {
 		return false
 	}
 	return true
@@ -205,14 +183,14 @@ func argsFromType(t *types.Type) generator.Args {
 
 func (g *openAPIGen) Init(c *generator.Context, w io.Writer) error {
 	sw := generator.NewSnippetWriter(w, c, "$", "$")
-	sw.Do("func (_ $.type|raw$) OpenAPIDefinitions() *$.OpenAPIDefinitions|raw$ {\n", argsFromType(g.targetType))
-	sw.Do("return &$.OpenAPIDefinitions|raw${\n", argsFromType(nil))
+	sw.Do("var OpenAPIDefinitions *$.OpenAPIDefinitions|raw$ = ", argsFromType(nil))
+	sw.Do("&$.OpenAPIDefinitions|raw${\n", argsFromType(nil))
 	return sw.Error()
 }
 
 func (g *openAPIGen) Finalize(c *generator.Context, w io.Writer) error {
 	sw := generator.NewSnippetWriter(w, c, "$", "$")
-	sw.Do("}\n}\n", nil)
+	sw.Do("}\n", nil)
 	return sw.Error()
 }
 

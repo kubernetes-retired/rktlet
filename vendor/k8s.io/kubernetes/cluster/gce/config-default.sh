@@ -34,11 +34,16 @@ NODE_DISK_SIZE=${NODE_DISK_SIZE:-100GB}
 REGISTER_MASTER_KUBELET=${REGISTER_MASTER:-true}
 PREEMPTIBLE_NODE=${PREEMPTIBLE_NODE:-false}
 PREEMPTIBLE_MASTER=${PREEMPTIBLE_MASTER:-false}
+KUBE_DELETE_NODES=${KUBE_DELETE_NODES:-true}
 
 MASTER_OS_DISTRIBUTION=${KUBE_MASTER_OS_DISTRIBUTION:-${KUBE_OS_DISTRIBUTION:-gci}}
 NODE_OS_DISTRIBUTION=${KUBE_NODE_OS_DISTRIBUTION:-${KUBE_OS_DISTRIBUTION:-gci}}
+# By default a cluster will be started with the master on GCI and nodes on
+# containervm. If you are updating the containervm version, update this
+# variable. Also please update corresponding image for node e2e at:
+# https://github.com/kubernetes/kubernetes/blob/master/test/e2e_node/jenkins/image-config.yaml
 CVM_VERSION=container-v1-3-v20160604
-GCI_VERSION="gci-dev-54-8743-3-0"
+GCI_VERSION="gci-dev-55-8866-0-0"
 MASTER_IMAGE=${KUBE_GCE_MASTER_IMAGE:-}
 MASTER_IMAGE_PROJECT=${KUBE_GCE_MASTER_PROJECT:-google-containers}
 NODE_IMAGE=${KUBE_GCE_NODE_IMAGE:-${CVM_VERSION}}
@@ -133,7 +138,7 @@ fi
 ENABLE_RESCHEDULER="${KUBE_ENABLE_RESCHEDULER:-true}"
 
 # Admission Controllers to invoke prior to persisting objects in cluster
-# If we included ResourceQuota, we should keep it at the end of the list to prevent incremeting quota usage prematurely.
+# If we included ResourceQuota, we should keep it at the end of the list to prevent incrementing quota usage prematurely.
 ADMISSION_CONTROL=NamespaceLifecycle,LimitRanger,ServiceAccount,PersistentVolumeLabel,DefaultStorageClass,ResourceQuota
 
 # Optional: if set to true kube-up will automatically check for existing resources and clean them up.
@@ -143,7 +148,7 @@ KUBE_UP_AUTOMATIC_CLEANUP=${KUBE_UP_AUTOMATIC_CLEANUP:-false}
 STORAGE_BACKEND=${STORAGE_BACKEND:-etcd2}
 
 # Networking plugin specific settings.
-NETWORK_PROVIDER="${NETWORK_PROVIDER:-kubenet}" # none, opencontrail, flannel, kubenet
+NETWORK_PROVIDER="${NETWORK_PROVIDER:-kubenet}" # none, opencontrail, kubenet
 OPENCONTRAIL_TAG="${OPENCONTRAIL_TAG:-R2.20}"
 OPENCONTRAIL_KUBERNETES_TAG="${OPENCONTRAIL_KUBERNETES_TAG:-master}"
 OPENCONTRAIL_PUBLIC_SUBNET="${OPENCONTRAIL_PUBLIC_SUBNET:-10.1.0.0/16}"
@@ -157,7 +162,12 @@ HAIRPIN_MODE="${HAIRPIN_MODE:-promiscuous-bridge}" # promiscuous-bridge, hairpin
 E2E_STORAGE_TEST_ENVIRONMENT=${KUBE_E2E_STORAGE_TEST_ENVIRONMENT:-false}
 
 # Evict pods whenever compute resource availability on the nodes gets below a threshold.
-EVICTION_HARD="${EVICTION_HARD:-memory.available<100Mi,nodefs.available<10%,nodefs.inodesFree<5%}"
+# TODO: Get rid of the conditionals once https://github.com/kubernetes/kubernetes/issues/33444 is resolved.
+if [[ "${NODE_OS_DISTRIBUTION}" == "debian" ]]; then
+    EVICTION_HARD="${EVICTION_HARD:-memory.available<100Mi,nodefs.available<10%,nodefs.inodesFree<5%}"
+else
+    EVICTION_HARD="${EVICTION_HARD:-memory.available<100Mi,imagefs.available<10%,imagefs.inodesFree<5%}"
+fi
 
 # Optional: custom scheduling algorithm
 SCHEDULING_ALGORITHM_PROVIDER="${SCHEDULING_ALGORITHM_PROVIDER:-}"

@@ -19,15 +19,16 @@ package genericapiserver
 import (
 	"crypto/tls"
 	"fmt"
-	"mime"
+	"io"
 	"net"
 	"net/http"
 	"os"
+	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/emicklei/go-restful"
 	"github.com/go-openapi/spec"
 	"github.com/golang/glog"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -36,30 +37,29 @@ import (
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/apiserver"
-	"k8s.io/kubernetes/pkg/apiserver/audit"
+	apiserverfilters "k8s.io/kubernetes/pkg/apiserver/filters"
+	"k8s.io/kubernetes/pkg/apiserver/request"
 	"k8s.io/kubernetes/pkg/auth/authenticator"
 	"k8s.io/kubernetes/pkg/auth/authorizer"
-	"k8s.io/kubernetes/pkg/auth/handlers"
+	authhandlers "k8s.io/kubernetes/pkg/auth/handlers"
+	"k8s.io/kubernetes/pkg/client/restclient"
 	"k8s.io/kubernetes/pkg/cloudprovider"
+	genericfilters "k8s.io/kubernetes/pkg/genericapiserver/filters"
+	"k8s.io/kubernetes/pkg/genericapiserver/mux"
+	"k8s.io/kubernetes/pkg/genericapiserver/openapi/common"
 	"k8s.io/kubernetes/pkg/genericapiserver/options"
 	"k8s.io/kubernetes/pkg/genericapiserver/routes"
 	genericvalidation "k8s.io/kubernetes/pkg/genericapiserver/validation"
-	"k8s.io/kubernetes/pkg/registry/generic"
-	"k8s.io/kubernetes/pkg/registry/generic/registry"
-	ipallocator "k8s.io/kubernetes/pkg/registry/service/ipallocator"
+	ipallocator "k8s.io/kubernetes/pkg/registry/core/service/ipallocator"
 	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/util"
 	utilnet "k8s.io/kubernetes/pkg/util/net"
+	"k8s.io/kubernetes/pkg/util/sets"
 )
 
 // Config is a structure used to configure a GenericAPIServer.
 type Config struct {
-	// The storage factory for other objects
-	StorageFactory     StorageFactory
-	AuditLogPath       string
-	AuditLogMaxAge     int
-	AuditLogMaxBackups int
-	AuditLogMaxSize    int
+	// Destination for audit logs
+	AuditWriter io.Writer
 	// Allow downstream consumers to disable swagger.
 	// This includes returning the generated swagger spec at /swaggerapi and swagger ui at /swagger-ui.
 	EnableSwaggerSupport bool
@@ -72,7 +72,6 @@ type Config struct {
 	EnableIndex             bool
 	EnableProfiling         bool
 	EnableVersion           bool
-	EnableWatchCache        bool
 	EnableGarbageCollection bool
 	APIPrefix               string
 	APIGroupPrefix          string
@@ -86,14 +85,14 @@ type Config struct {
 	// TODO(ericchiang): Determine if policy escalation checks should be an admission controller.
 	AuthorizerRBACSuperUser string
 
+	// LoopbackClientConfig is a config for a privileged loopback connection to the API server
+	LoopbackClientConfig *restclient.Config
+
 	// Map requests to contexts. Exported so downstream consumers can provider their own mappers
 	RequestContextMapper api.RequestContextMapper
 
 	// Required, the interface for serializing and converting objects to and from the wire
 	Serializer runtime.NegotiatedSerializer
-
-	// If specified, all web services will be registered into this container
-	RestfulContainer *restful.Container
 
 	// If specified, requests will be allocated a random timeout between this value, and twice this value.
 	// Note that it is up to the request handlers to ignore or honor this timeout. In seconds.
@@ -102,6 +101,9 @@ type Config struct {
 	// Number of masters running; all masters must be started with the
 	// same value for this field. (Numbers > 1 currently untested.)
 	MasterCount int
+
+	SecureServingInfo   *ServingInfo
+	InsecureServingInfo *ServingInfo
 
 	// The port on PublicAddress where a read-write server will be installed.
 	// Defaults to 6443 if not set.
@@ -147,6 +149,8 @@ type Config struct {
 	// Port names should align with ports defined in ExtraServicePorts
 	ExtraEndpointPorts []api.EndpointPort
 
+	// If non-zero, the "kubernetes" services uses this port as NodePort.
+	// TODO(sttts): move into master
 	KubernetesServiceNodePort int
 
 	// EnableOpenAPISupport enables OpenAPI support. Allow downstream customers to disable OpenAPI spec.
@@ -157,33 +161,98 @@ type Config struct {
 
 	// OpenAPIDefaultResponse will be used if an web service operation does not have any responses listed.
 	OpenAPIDefaultResponse spec.Response
+
+	// OpenAPIDefinitions is a map of type to OpenAPI spec for all types used in this API server. Failure to provide
+	// this map or any of the models used by the server APIs will result in spec generation failure.
+	OpenAPIDefinitions *common.OpenAPIDefinitions
+
+	// MaxRequestsInFlight is the maximum number of parallel non-long-running requests. Every further
+	// request has to wait.
+	MaxRequestsInFlight int
+
+	// Predicate which is true for paths of long-running http requests
+	LongRunningFunc genericfilters.LongRunningRequestCheck
+
+	// Build the handler chains by decorating the apiHandler.
+	BuildHandlerChainsFunc func(apiHandler http.Handler, c *Config) (secure, insecure http.Handler)
+}
+
+type ServingInfo struct {
+	// BindAddress is the ip:port to serve on
+	BindAddress string
+	// ServerCert is the TLS cert info for serving secure traffic
+	ServerCert CertInfo
+	// ClientCA is the certificate bundle for all the signers that you'll recognize for incoming client certificates
+	ClientCA string
+}
+
+type CertInfo struct {
+	// CertFile is a file containing a PEM-encoded certificate
+	CertFile string
+	// KeyFile is a file containing a PEM-encoded private key for the certificate specified by CertFile
+	KeyFile string
+	// Generate indicates that the cert/key pair should be generated if its not present.
+	Generate bool
 }
 
 func NewConfig(options *options.ServerRunOptions) *Config {
+	longRunningRE := regexp.MustCompile(options.LongRunningRequestRE)
+
+	var auditWriter io.Writer
+	if len(options.AuditLogPath) != 0 {
+		auditWriter = &lumberjack.Logger{
+			Filename:   options.AuditLogPath,
+			MaxAge:     options.AuditLogMaxAge,
+			MaxBackups: options.AuditLogMaxBackups,
+			MaxSize:    options.AuditLogMaxSize,
+		}
+	}
+
+	var secureServingInfo *ServingInfo
+	if options.SecurePort > 0 {
+		secureServingInfo = &ServingInfo{
+			BindAddress: net.JoinHostPort(options.BindAddress.String(), strconv.Itoa(options.SecurePort)),
+			ServerCert: CertInfo{
+				CertFile: options.TLSCertFile,
+				KeyFile:  options.TLSPrivateKeyFile,
+			},
+			ClientCA: options.ClientCAFile,
+		}
+		if options.TLSCertFile == "" && options.TLSPrivateKeyFile == "" {
+			secureServingInfo.ServerCert.Generate = true
+			secureServingInfo.ServerCert.CertFile = path.Join(options.CertDirectory, "apiserver.crt")
+			secureServingInfo.ServerCert.KeyFile = path.Join(options.CertDirectory, "apiserver.key")
+		}
+	}
+
+	var insecureServingInfo *ServingInfo
+	if options.InsecurePort > 0 {
+		insecureServingInfo = &ServingInfo{
+			BindAddress: net.JoinHostPort(options.InsecureBindAddress.String(), strconv.Itoa(options.InsecurePort)),
+		}
+	}
+
 	return &Config{
 		APIGroupPrefix:            options.APIGroupPrefix,
 		APIPrefix:                 options.APIPrefix,
 		CorsAllowedOriginList:     options.CorsAllowedOriginList,
-		AuditLogPath:              options.AuditLogPath,
-		AuditLogMaxAge:            options.AuditLogMaxAge,
-		AuditLogMaxBackups:        options.AuditLogMaxBackups,
-		AuditLogMaxSize:           options.AuditLogMaxSize,
+		AuditWriter:               auditWriter,
 		EnableGarbageCollection:   options.EnableGarbageCollection,
 		EnableIndex:               true,
 		EnableProfiling:           options.EnableProfiling,
 		EnableSwaggerSupport:      true,
 		EnableSwaggerUI:           options.EnableSwaggerUI,
 		EnableVersion:             true,
-		EnableWatchCache:          options.EnableWatchCache,
 		ExternalHost:              options.ExternalHost,
 		KubernetesServiceNodePort: options.KubernetesServiceNodePort,
 		MasterCount:               options.MasterCount,
 		MinRequestTimeout:         options.MinRequestTimeout,
+		SecureServingInfo:         secureServingInfo,
+		InsecureServingInfo:       insecureServingInfo,
 		PublicAddress:             options.AdvertiseAddress,
 		ReadWritePort:             options.SecurePort,
 		ServiceClusterIPRange:     &options.ServiceClusterIPRange,
 		ServiceNodePortRange:      options.ServiceNodePortRange,
-		EnableOpenAPISupport:      true,
 		OpenAPIDefaultResponse: spec.Response{
 			ResponseProps: spec.ResponseProps{
 				Description: "Default Response."}},
@@ -193,11 +262,17 @@ func NewConfig(options *options.ServerRunOptions) *Config {
 				Version: "unversioned",
 			},
 		},
+		MaxRequestsInFlight: options.MaxRequestsInFlight,
+		LongRunningFunc:     genericfilters.BasicLongRunningRequestCheck(longRunningRE, map[string]string{"watch": "true"}),
 	}
 }
 
-// setDefaults fills in any fields not set that are required to have valid data.
-func (c *Config) setDefaults() {
+type completedConfig struct {
+	*Config
+}
+
+// Complete fills in any fields not set that are required to have valid data. It's mutating the receiver.
+func (c *Config) Complete() completedConfig {
 	if c.ServiceClusterIPRange == nil {
 		defaultNet := "10.0.0.0/24"
 		glog.Warningf("Network range for service cluster IPs is unspecified. Defaulting to %v.", defaultNet)
@@ -250,6 +325,15 @@ func (c *Config) setDefaults() {
 		}
 		c.ExternalHost = hostAndPort
 	}
+	if c.BuildHandlerChainsFunc == nil {
+		c.BuildHandlerChainsFunc = DefaultBuildHandlerChain
+	}
+	return completedConfig{c}
+}
+
+// SkipComplete provides a way to construct a server instance without config completion.
+func (c *Config) SkipComplete() completedConfig {
+	return completedConfig{c}
 }
 
 // New returns a new instance of GenericAPIServer from the given config.
@@ -274,16 +358,15 @@ func (c *Config) setDefaults() {
 //   If the caller wants to add additional endpoints not using the GenericAPIServer's
 //   auth, then the caller should create a handler for those endpoints, which delegates the
 //   any unhandled paths to "Handler".
-func (c Config) New() (*GenericAPIServer, error) {
+func (c completedConfig) New() (*GenericAPIServer, error) {
 	if c.Serializer == nil {
 		return nil, fmt.Errorf("Genericapiserver.New() called with config.Serializer == nil")
 	}
 
-	c.setDefaults()
-
 	s := &GenericAPIServer{
 		ServiceClusterIPRange: c.ServiceClusterIPRange,
 		ServiceNodePortRange:  c.ServiceNodePortRange,
+		LoopbackClientConfig:  c.LoopbackClientConfig,
 		legacyAPIPrefix:       c.APIPrefix,
 		apiPrefix:             c.APIGroupPrefix,
 		admissionControl:      c.AdmissionControl,
@@ -294,6 +377,8 @@ func (c Config) New() (*GenericAPIServer, error) {
 		enableSwaggerSupport: c.EnableSwaggerSupport,
 
 		MasterCount:          c.MasterCount,
+		SecureServingInfo:    c.SecureServingInfo,
+		InsecureServingInfo:  c.InsecureServingInfo,
 		ExternalAddress:      c.ExternalHost,
 		ClusterIP:            c.PublicAddress,
 		PublicReadWritePort:  c.ReadWritePort,
@@ -308,22 +393,10 @@ func (c Config) New() (*GenericAPIServer, error) {
 		enableOpenAPISupport:   c.EnableOpenAPISupport,
 		openAPIInfo:            c.OpenAPIInfo,
 		openAPIDefaultResponse: c.OpenAPIDefaultResponse,
+		openAPIDefinitions:     c.OpenAPIDefinitions,
 	}
 
-	if c.EnableWatchCache {
-		s.storageDecorator = registry.StorageWithCacher
-	} else {
-		s.storageDecorator = generic.UndecoratedStorage
-	}
-
-	if c.RestfulContainer != nil {
-		s.HandlerContainer = c.RestfulContainer
-	} else {
-		s.HandlerContainer = NewHandlerContainer(http.NewServeMux(), c.Serializer)
-	}
-	// Use CurlyRouter to be able to use regular expressions in paths. Regular expressions are required in paths for example for proxy (where the path is proxy/{kind}/{name}/{*})
-	s.HandlerContainer.Router(restful.CurlyRouter{})
-	s.Mux = apiserver.NewPathRecorderMux(s.HandlerContainer.ServeMux)
+	s.HandlerContainer = mux.NewAPIContainer(http.NewServeMux(), c.Serializer)
 
 	if c.ProxyDialer != nil || c.ProxyTLSClientConfig != nil {
 		s.ProxyTransport = utilnet.SetTransportDefaults(&http.Transport{
@@ -332,88 +405,53 @@ func (c Config) New() (*GenericAPIServer, error) {
 		})
 	}
 
-	// Send correct mime type for .svg files.
-	// TODO: remove when https://github.com/golang/go/commit/21e47d831bafb59f22b1ea8098f709677ec8ce33
-	// makes it into all of our supported go versions (only in v1.7.1 now).
-	mime.AddExtensionType(".svg", "image/svg+xml")
+	s.installAPI(c.Config)
 
-	// Register root handler.
-	// We do not register this using restful Webservice since we do not want to surface this in api docs.
-	// Allow GenericAPIServer to be embedded in contexts which already have something registered at the root
-	if c.EnableIndex {
-		routes.Index{}.Install(s.Mux, s.HandlerContainer)
-	}
-
-	if c.EnableSwaggerSupport && c.EnableSwaggerUI {
-		routes.SwaggerUI{}.Install(s.Mux, s.HandlerContainer)
-	}
-	if c.EnableProfiling {
-		routes.Profiling{}.Install(s.Mux, s.HandlerContainer)
-	}
-	if c.EnableVersion {
-		routes.Version{}.Install(s.Mux, s.HandlerContainer)
-	}
-
-	handler := http.Handler(s.Mux.BaseMux().(*http.ServeMux))
-
-	// TODO: handle CORS and auth using go-restful
-	// See github.com/emicklei/go-restful/blob/master/examples/restful-CORS-filter.go, and
-	// github.com/emicklei/go-restful/blob/master/examples/restful-basic-authentication.go
-
-	if len(c.CorsAllowedOriginList) > 0 {
-		allowedOriginRegexps, err := util.CompileRegexps(c.CorsAllowedOriginList)
-		if err != nil {
-			glog.Fatalf("Invalid CORS allowed origin, --cors-allowed-origins flag was set to %v - %v", strings.Join(c.CorsAllowedOriginList, ","), err)
-		}
-		handler = apiserver.CORS(handler, allowedOriginRegexps, nil, nil, "true")
-	}
-
-	s.InsecureHandler = handler
-
-	attributeGetter := apiserver.NewRequestAttributeGetter(c.RequestContextMapper, s.NewRequestInfoResolver())
-	handler = apiserver.WithAuthorizationCheck(handler, attributeGetter, c.Authorizer)
-	if len(c.AuditLogPath) != 0 {
-		// audit handler must comes before the impersonationFilter to read the original user
-		writer := &lumberjack.Logger{
-			Filename:   c.AuditLogPath,
-			MaxAge:     c.AuditLogMaxAge,
-			MaxBackups: c.AuditLogMaxBackups,
-			MaxSize:    c.AuditLogMaxSize,
-		}
-		handler = audit.WithAudit(handler, attributeGetter, writer)
-		defer writer.Close()
-	}
-	handler = apiserver.WithImpersonation(handler, c.RequestContextMapper, c.Authorizer)
-
-	// Install Authenticator
-	if c.Authenticator != nil {
-		authenticatedHandler, err := handlers.NewRequestAuthenticator(c.RequestContextMapper, c.Authenticator, handlers.Unauthorized(c.SupportsBasicAuth), handler)
-		if err != nil {
-			glog.Fatalf("Could not initialize authenticator: %v", err)
-		}
-		handler = authenticatedHandler
-	}
-
-	// TODO: Make this optional?  Consumers of GenericAPIServer depend on this currently.
-	s.Handler = handler
-
-	// After all wrapping is done, put a context filter around both handlers
-	var err error
-	handler, err = api.NewRequestContextFilter(c.RequestContextMapper, s.Handler)
-	if err != nil {
-		glog.Fatalf("Could not initialize request context filter for s.Handler: %v", err)
-	}
-	s.Handler = handler
-
-	handler, err = api.NewRequestContextFilter(c.RequestContextMapper, s.InsecureHandler)
-	if err != nil {
-		glog.Fatalf("Could not initialize request context filter for s.InsecureHandler: %v", err)
-	}
-	s.InsecureHandler = handler
-
-	s.installGroupsDiscoveryHandler()
+	s.Handler, s.InsecureHandler = c.BuildHandlerChainsFunc(s.HandlerContainer.ServeMux, c.Config)
 
 	return s, nil
+}
+
+func DefaultBuildHandlerChain(apiHandler http.Handler, c *Config) (secure, insecure http.Handler) {
+	attributeGetter := apiserverfilters.NewRequestAttributeGetter(c.RequestContextMapper)
+
+	generic := func(handler http.Handler) http.Handler {
+		handler = genericfilters.WithCORS(handler, c.CorsAllowedOriginList, nil, nil, nil, "true")
+		handler = genericfilters.WithPanicRecovery(handler, c.RequestContextMapper)
+		handler = apiserverfilters.WithRequestInfo(handler, NewRequestInfoResolver(c), c.RequestContextMapper)
+		handler = api.WithRequestContext(handler, c.RequestContextMapper)
+		handler = genericfilters.WithTimeoutForNonLongRunningRequests(handler, c.LongRunningFunc)
+		handler = genericfilters.WithMaxInFlightLimit(handler, c.MaxRequestsInFlight, c.LongRunningFunc)
+		return handler
+	}
+	audit := func(handler http.Handler) http.Handler {
+		return apiserverfilters.WithAudit(handler, attributeGetter, c.AuditWriter)
+	}
+	protect := func(handler http.Handler) http.Handler {
+		handler = apiserverfilters.WithAuthorization(handler, attributeGetter, c.Authorizer)
+		handler = apiserverfilters.WithImpersonation(handler, c.RequestContextMapper, c.Authorizer)
+		handler = audit(handler) // before impersonation to read original user
+		handler = authhandlers.WithAuthentication(handler, c.RequestContextMapper, c.Authenticator, authhandlers.Unauthorized(c.SupportsBasicAuth))
+		return handler
+	}
+
+	return generic(protect(apiHandler)), generic(audit(apiHandler))
+}
+
+func (s *GenericAPIServer) installAPI(c *Config) {
+	if c.EnableIndex {
+		routes.Index{}.Install(s.HandlerContainer)
+	}
+	if c.EnableSwaggerSupport && c.EnableSwaggerUI {
+		routes.SwaggerUI{}.Install(s.HandlerContainer)
+	}
+	if c.EnableProfiling {
+		routes.Profiling{}.Install(s.HandlerContainer)
+	}
+	if c.EnableVersion {
+		routes.Version{}.Install(s.HandlerContainer)
+	}
+	s.HandlerContainer.Add(s.DynamicApisDiscovery())
 }
 
 func DefaultAndValidateRunOptions(options *options.ServerRunOptions) {
@@ -444,11 +482,15 @@ func DefaultAndValidateRunOptions(options *options.ServerRunOptions) {
 			if !supported {
 				glog.Fatalf("GCE cloud provider has no instances.  this shouldn't happen. exiting.")
 			}
-			name, err := os.Hostname()
+			hostname, err := os.Hostname()
 			if err != nil {
 				glog.Fatalf("Failed to get hostname: %v", err)
 			}
-			addrs, err := instances.NodeAddresses(name)
+			nodeName, err := instances.CurrentNodeName(hostname)
+			if err != nil {
+				glog.Fatalf("Failed to get NodeName: %v", err)
+			}
+			addrs, err := instances.NodeAddresses(nodeName)
 			if err != nil {
 				glog.Warningf("Unable to obtain external host address from cloud provider: %v", err)
 			} else {
@@ -459,5 +501,12 @@ func DefaultAndValidateRunOptions(options *options.ServerRunOptions) {
 				}
 			}
 		}
+	}
+}
+
+func NewRequestInfoResolver(c *Config) *request.RequestInfoFactory {
+	return &request.RequestInfoFactory{
+		APIPrefixes:          sets.NewString(strings.Trim(c.APIPrefix, "/"), strings.Trim(c.APIGroupPrefix, "/")), // all possible API prefixes
+		GrouplessAPIPrefixes: sets.NewString(strings.Trim(c.APIPrefix, "/")),                                      // APIPrefixes that won't have groups (legacy)
 	}
 }

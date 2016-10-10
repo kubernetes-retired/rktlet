@@ -25,7 +25,7 @@ import (
 	"github.com/emicklei/go-restful"
 	"github.com/go-openapi/spec"
 
-	"k8s.io/kubernetes/cmd/libs/go2idl/openapi-gen/generators/common"
+	"k8s.io/kubernetes/pkg/genericapiserver/openapi/common"
 	"k8s.io/kubernetes/pkg/util/json"
 )
 
@@ -50,14 +50,16 @@ type Config struct {
 	DefaultResponse *spec.Response
 	// List of webservice's path prefixes to ignore
 	IgnorePrefixes []string
+
+	// OpenAPIDefinitions should provide definition for all models used by routes. Failure to provide this map
+	// or any of the models will result in spec generation failure.
+	OpenAPIDefinitions *common.OpenAPIDefinitions
 }
 
-// +k8s:openapi-gen=target
 type openAPI struct {
-	config             *Config
-	swagger            *spec.Swagger
-	protocolList       []string
-	openAPIDefinitions *common.OpenAPIDefinitions
+	config       *Config
+	swagger      *spec.Swagger
+	protocolList []string
 }
 
 // RegisterOpenAPIService registers a handler to provides standard OpenAPI specification.
@@ -91,17 +93,10 @@ func RegisterOpenAPIService(config *Config, containers *restful.Container) (err 
 }
 
 func (o *openAPI) init() error {
-	if o.openAPIDefinitions == nil {
-		// Compilation error here means the code generator need to run first.
-		o.openAPIDefinitions = o.OpenAPIDefinitions()
-	}
 	err := o.buildPaths()
 	if err != nil {
 		return err
 	}
-	// no need to the keep type list in memory
-	o.openAPIDefinitions = nil
-
 	return nil
 }
 
@@ -109,7 +104,7 @@ func (o *openAPI) buildDefinitionRecursively(name string) error {
 	if _, ok := o.swagger.Definitions[name]; ok {
 		return nil
 	}
-	if item, ok := (*o.openAPIDefinitions)[name]; ok {
+	if item, ok := (*o.config.OpenAPIDefinitions)[name]; ok {
 		o.swagger.Definitions[name] = item.Schema
 		for _, v := range item.Dependencies {
 			if err := o.buildDefinitionRecursively(v); err != nil {
@@ -188,8 +183,10 @@ func (o *openAPI) buildPaths() error {
 			for _, p := range inPathCommonParamsMap {
 				pathItem.Parameters = append(pathItem.Parameters, p)
 			}
+			sortParameters(pathItem.Parameters)
 			for _, route := range routes {
 				op, err := o.buildOperations(route, inPathCommonParamsMap)
+				sortParameters(op.Parameters)
 				if err != nil {
 					return err
 				}
@@ -290,28 +287,6 @@ func (o *openAPI) buildResponse(model interface{}, description string) (spec.Res
 			Schema:      schema,
 		},
 	}, nil
-}
-
-func groupRoutesByPath(routes []restful.Route) (ret map[string][]restful.Route) {
-	ret = make(map[string][]restful.Route)
-	for _, r := range routes {
-		route, exists := ret[r.Path]
-		if !exists {
-			route = make([]restful.Route, 0, 1)
-		}
-		ret[r.Path] = append(route, r)
-	}
-	return ret
-}
-
-func mapKeyFromParam(param *restful.Parameter) interface{} {
-	return struct {
-		Name string
-		Kind int
-	}{
-		Name: param.Data().Name,
-		Kind: param.Data().Kind,
-	}
 }
 
 func (o *openAPI) findCommonParameters(routes []restful.Route) (map[interface{}]spec.Parameter, error) {
@@ -416,55 +391,4 @@ func (o *openAPI) buildParameters(restParam []*restful.Parameter) (ret []spec.Pa
 		}
 	}
 	return ret, nil
-}
-
-// A simple trie implementation with Add an HasPrefix methods only.
-type trie struct {
-	children map[byte]*trie
-	wordTail bool
-}
-
-func createTrie(list []string) trie {
-	ret := trie{
-		children: make(map[byte]*trie),
-		wordTail: false,
-	}
-	for _, v := range list {
-		ret.Add(v)
-	}
-	return ret
-}
-
-func (t *trie) Add(v string) {
-	root := t
-	for _, b := range []byte(v) {
-		child, exists := root.children[b]
-		if !exists {
-			child = &trie{
-				children: make(map[byte]*trie),
-				wordTail: false,
-			}
-			root.children[b] = child
-		}
-		root = child
-	}
-	root.wordTail = true
-}
-
-func (t *trie) HasPrefix(v string) bool {
-	root := t
-	if root.wordTail {
-		return true
-	}
-	for _, b := range []byte(v) {
-		child, exists := root.children[b]
-		if !exists {
-			return false
-		}
-		if child.wordTail {
-			return true
-		}
-		root = child
-	}
-	return false
 }

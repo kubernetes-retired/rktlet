@@ -304,14 +304,18 @@ runTests() {
   if [[ -z "${version}" ]]; then
     kube_flags=(
       -s "http://127.0.0.1:${API_PORT}"
-      --match-server-version
     )
+    if [[ -z "${ALLOW_SKEW:-}" ]]; then
+      kube_flags+=("--match-server-version")
+    fi
     [ "$(kubectl get nodes -o go-template='{{ .apiVersion }}' "${kube_flags[@]}")" == "v1" ]
   else
     kube_flags=(
       -s "http://127.0.0.1:${API_PORT}"
-      --match-server-version
     )
+    if [[ -z "${ALLOW_SKEW:-}" ]]; then
+      kube_flags+=("--match-server-version")
+    fi
     [ "$(kubectl get nodes -o go-template='{{ .apiVersion }}' "${kube_flags[@]}")" == "${version}" ]
   fi
   id_field=".metadata.name"
@@ -620,6 +624,22 @@ runTests() {
   # Post-condition: valid-pod is labelled
   kube::test::get_object_assert 'pod valid-pod' "{{range$labels_field}}{{.}}:{{end}}" 'valid-pod:new-valid-pod:'
 
+  ### Label the valid-pod POD with empty label value
+  # Pre-condition: valid-pod does not have label "emptylabel"
+  kube::test::get_object_assert 'pod valid-pod' "{{range$labels_field}}{{.}}:{{end}}" 'valid-pod:new-valid-pod:'
+  # Command
+  kubectl label pods valid-pod emptylabel="" "${kube_flags[@]}"
+  # Post-condition: valid pod contains "emptylabel" with no value
+  kube::test::get_object_assert 'pod valid-pod' "{{${labels_field}.emptylabel}}" ''
+
+  ### Annotate the valid-pod POD with empty annotation value
+  # Pre-condition: valid-pod does not have annotation "emptyannotation"
+  kube::test::get_object_assert 'pod valid-pod' "{{${annotations_field}.emptyannotation}}" '<no value>'
+  # Command
+  kubectl annotate pods valid-pod emptyannotation="" "${kube_flags[@]}"
+  # Post-condition: valid pod contains "emptyannotation" with no value
+  kube::test::get_object_assert 'pod valid-pod' "{{${annotations_field}.emptyannotation}}" ''
+
   ### Record label change
   # Pre-condition: valid-pod does not have record annotation
   kube::test::get_object_assert 'pod valid-pod' "{{range.items}}{{$annotations_field}}:{{end}}" ''
@@ -672,6 +692,25 @@ runTests() {
   kube::test::get_object_assert 'pod pod-with-precision' "{{${annotations_field}.annotatekey}}" 'annotatevalue'
   # Cleanup
   kubectl delete pod pod-with-precision "${kube_flags[@]}"
+
+  ### Annotate POD YAML file locally without effecting the live pod.
+  kubectl create -f hack/testdata/pod.yaml "${kube_flags[@]}"
+  # Command
+  kubectl annotate -f hack/testdata/pod.yaml annotatekey=annotatevalue "${kube_flags[@]}"
+
+  # Pre-condition: annotationkey is annotationvalue
+  kube::test::get_object_assert 'pod test-pod' "{{${annotations_field}.annotatekey}}" 'annotatevalue'
+
+  # Command
+  output_message=$(kubectl annotate --local -f hack/testdata/pod.yaml annotatekey=localvalue -o yaml "${kube_flags[@]}")
+  echo $output_message
+
+  # Post-condition: annotationkey is still annotationvalue in the live pod, but command output is the new value
+  kube::test::get_object_assert 'pod test-pod' "{{${annotations_field}.annotatekey}}" 'annotatevalue'
+  kube::test::if_has_string "${output_message}" "localvalue"
+
+  # Cleanup
+  kubectl delete -f hack/testdata/pod.yaml "${kube_flags[@]}"
 
   ### Create valid-pod POD
   # Pre-condition: no POD exists
@@ -803,6 +842,16 @@ __EOF__
   [ "$(EDITOR=cat kubectl edit pod/valid-pod | grep 'name: valid-pod')" ]
   [ "$(EDITOR=cat kubectl edit --windows-line-endings pod/valid-pod | file - | grep CRLF)" ]
   [ ! "$(EDITOR=cat kubectl edit --windows-line-endings=false pod/valid-pod | file - | grep CRLF)" ]
+
+  ### Label POD YAML file locally without effecting the live pod.
+  # Pre-condition: name is valid-pod
+  kube::test::get_object_assert 'pod valid-pod' "{{${labels_field}.name}}" 'valid-pod'
+  # Command
+  output_message=$(kubectl label --local --overwrite -f hack/testdata/pod.yaml name=localonlyvalue -o yaml "${kube_flags[@]}")
+  echo $output_message
+  # Post-condition: name is still valid-pod in the live pod, but command output is the new value
+  kube::test::get_object_assert 'pod valid-pod' "{{${labels_field}.name}}" 'valid-pod'
+  kube::test::if_has_string "${output_message}" "localonlyvalue"
 
   ### Overwriting an existing label is not permitted
   # Pre-condition: name is valid-pod
@@ -988,6 +1037,76 @@ __EOF__
   # Clean up
   kubectl delete pods test-pod "${kube_flags[@]}"
 
+
+  ## kubectl apply -f with label selector should only apply matching objects
+  # Pre-Condition: no POD exists
+  kube::test::get_object_assert pods "{{range.items}}{{$id_field}}:{{end}}" ''
+  # apply
+  kubectl apply -l unique-label=bingbang -f hack/testdata/filter "${kube_flags[@]}"
+  # check right pod exists
+  kube::test::get_object_assert 'pods selector-test-pod' "{{${labels_field}.name}}" 'selector-test-pod'
+  # check wrong pod doesn't exist
+  output_message=$(! kubectl get pods selector-test-pod-dont-apply 2>&1 "${kube_flags[@]}")
+  kube::test::if_has_string "${output_message}" 'pods "selector-test-pod-dont-apply" not found'
+  # cleanup
+  kubectl delete pods selector-test-pod
+
+
+  ## kubectl apply --prune
+  # Pre-Condition: no POD exists
+  kube::test::get_object_assert pods "{{range.items}}{{$id_field}}:{{end}}" ''
+
+  # apply a
+  kubectl apply --prune -l prune-group=true -f hack/testdata/prune/a.yaml "${kube_flags[@]}"
+  # check right pod exists
+  kube::test::get_object_assert 'pods a' "{{${id_field}}}" 'a'
+  # check wrong pod doesn't exist
+  output_message=$(! kubectl get pods b 2>&1 "${kube_flags[@]}")
+  kube::test::if_has_string "${output_message}" 'pods "b" not found'
+
+  # apply b
+  kubectl apply --prune -l prune-group=true -f hack/testdata/prune/b.yaml "${kube_flags[@]}"
+  # check right pod exists
+  kube::test::get_object_assert 'pods b' "{{${id_field}}}" 'b'
+  # check wrong pod doesn't exist
+  output_message=$(! kubectl get pods a 2>&1 "${kube_flags[@]}")
+  kube::test::if_has_string "${output_message}" 'pods "a" not found'
+
+  # cleanup
+  kubectl delete pods b
+
+  # same thing without prune for a sanity check
+  # Pre-Condition: no POD exists
+  kube::test::get_object_assert pods "{{range.items}}{{$id_field}}:{{end}}" ''
+
+  # apply a
+  kubectl apply -l prune-group=true -f hack/testdata/prune/a.yaml "${kube_flags[@]}"
+  # check right pod exists
+  kube::test::get_object_assert 'pods a' "{{${id_field}}}" 'a'
+  # check wrong pod doesn't exist
+  output_message=$(! kubectl get pods b 2>&1 "${kube_flags[@]}")
+  kube::test::if_has_string "${output_message}" 'pods "b" not found'
+
+  # apply b
+  kubectl apply -l prune-group=true -f hack/testdata/prune/b.yaml "${kube_flags[@]}"
+  # check both pods exist
+  kube::test::get_object_assert 'pods a' "{{${id_field}}}" 'a'
+  kube::test::get_object_assert 'pods b' "{{${id_field}}}" 'b'
+  # check wrong pod doesn't exist
+
+  # cleanup
+  kubectl delete pod/a pod/b
+
+  ## kubectl apply --prune requires a --all flag to select everything
+  output_message=$(! kubectl apply --prune -f hack/testdata/prune 2>&1 "${kube_flags[@]}")
+  kube::test::if_has_string "${output_message}" \
+    'all resources selected for prune without explicitly passing --all'
+  # should apply everything
+  kubectl apply --all --prune -f hack/testdata/prune
+  kube::test::get_object_assert 'pods a' "{{${id_field}}}" 'a'
+  kube::test::get_object_assert 'pods b' "{{${id_field}}}" 'b'
+  kubectl delete pod/a pod/b
+
   ## kubectl run should create deployments or jobs
   # Pre-Condition: no Job exists
   kube::test::get_object_assert jobs "{{range.items}}{{$id_field}}:{{end}}" ''
@@ -1048,6 +1167,19 @@ __EOF__
     exit 1
   fi
 
+  ### Test kubectl get all
+  output_message=$(kubectl --v=6 --namespace default get all 2>&1 "${kube_flags[@]}")
+  # Post-condition: Check if we get 200 OK from all the url(s)
+  kube::test::if_has_string "${output_message}" "/api/v1/namespaces/default/pods 200 OK"
+  kube::test::if_has_string "${output_message}" "/api/v1/namespaces/default/replicationcontrollers 200 OK"
+  kube::test::if_has_string "${output_message}" "/api/v1/namespaces/default/services 200 OK"
+  kube::test::if_has_string "${output_message}" "/apis/apps/v1alpha1/namespaces/default/petsets 200 OK"
+  kube::test::if_has_string "${output_message}" "/apis/autoscaling/v1/namespaces/default/horizontalpodautoscalers 200"
+  kube::test::if_has_string "${output_message}" "/apis/batch/v1/namespaces/default/jobs 200 OK"
+  kube::test::if_has_string "${output_message}" "/apis/extensions/v1beta1/namespaces/default/deployments 200 OK"
+  kube::test::if_has_string "${output_message}" "/apis/extensions/v1beta1/namespaces/default/replicasets 200 OK"
+
+
   #####################################
   # Third Party Resources             #
   #####################################
@@ -1084,7 +1216,7 @@ __EOF__
   ]
 }
 __EOF__
-  
+
   # Post-Condition: assertion object exist
   kube::test::get_object_assert thirdpartyresources "{{range.items}}{{$id_field}}:{{end}}" 'bar.company.com:foo.company.com:'
 
@@ -1553,6 +1685,51 @@ __EOF__
   kubectl delete namespace test-configmaps
 
   ####################
+  # Client Config    #
+  ####################
+
+  # Command
+  # Pre-condition: kubeconfig "missing" is not a file or directory
+  output_message=$(! kubectl get pod --context="" --kubeconfig=missing 2>&1)
+  kube::test::if_has_string "${output_message}" "missing: no such file or directory"
+
+  # Pre-condition: kubeconfig "missing" is not a file or directory
+  # Command
+  output_message=$(! kubectl get pod --user="" --kubeconfig=missing 2>&1)
+  # Post-condition: --user contains a valid / empty value, missing config file returns error
+  kube::test::if_has_string "${output_message}" "missing: no such file or directory"
+  # Command
+  output_message=$(! kubectl get pod --cluster="" --kubeconfig=missing 2>&1)
+  # Post-condition: --cluster contains a "valid" value, missing config file returns error
+  kube::test::if_has_string "${output_message}" "missing: no such file or directory"
+
+  # Pre-condition: context "missing-context" does not exist
+  # Command
+  output_message=$(! kubectl get pod --context="missing-context" 2>&1)
+  kube::test::if_has_string "${output_message}" 'context "missing-context" does not exist'
+  # Post-condition: invalid or missing context returns error
+
+  # Pre-condition: cluster "missing-cluster" does not exist
+  # Command
+  output_message=$(! kubectl get pod --cluster="missing-cluster" 2>&1)
+  kube::test::if_has_string "${output_message}" 'cluster "missing-cluster" does not exist'
+  # Post-condition: invalid or missing cluster returns error
+
+  # Pre-condition: user "missing-user" does not exist
+  # Command
+  output_message=$(! kubectl get pod --user="missing-user" 2>&1)
+  kube::test::if_has_string "${output_message}" 'auth info "missing-user" does not exist'
+  # Post-condition: invalid or missing user returns error
+
+  # test invalid config
+  kubectl config view | sed -E "s/apiVersion: .*/apiVersion: v-1/g" > "${TMPDIR:-/tmp}"/newconfig.yaml
+  output_message=$(! "${KUBE_OUTPUT_HOSTBIN}/kubectl" get pods --context="" --user="" --kubeconfig=/tmp/newconfig.yaml 2>&1)
+  kube::test::if_has_string "${output_message}" "Error loading config file"
+
+  output_message=$(! kubectl get pod --kubeconfig=missing-config 2>&1)
+  kube::test::if_has_string "${output_message}" 'no such file or directory'
+
+  ####################
   # Service Accounts #
   ####################
 
@@ -1989,6 +2166,10 @@ __EOF__
   kubectl-with-retry rollout resume deployment nginx "${kube_flags[@]}"
   # The resumed deployment can now be rolled back
   kubectl rollout undo deployment nginx "${kube_flags[@]}"
+  # Check that the new replica set (nginx-618515232) has all old revisions stored in an annotation
+  kubectl get rs nginx-618515232 -o yaml | grep "deployment.kubernetes.io/revision-history: 1,3"
+  # Check that trying to watch the status of a superseded revision returns an error
+  ! kubectl rollout status deployment/nginx --revision=3
   # Clean up
   kubectl delete deployment nginx "${kube_flags[@]}"
 

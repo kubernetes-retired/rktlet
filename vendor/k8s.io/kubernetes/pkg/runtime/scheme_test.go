@@ -161,7 +161,7 @@ func TestBadJSONRejection(t *testing.T) {
 		t.Errorf("Did not reject despite use of unknown type: %s", badJSONUnknownType)
 	}
 	/*badJSONKindMismatch := []byte(`{"kind": "Pod"}`)
-	if err2 := DecodeInto(badJSONKindMismatch, &Minion{}); err2 == nil {
+	if err2 := DecodeInto(badJSONKindMismatch, &Node{}); err2 == nil {
 		t.Errorf("Kind is set but doesn't match the object type: %s", badJSONKindMismatch)
 	}*/
 }
@@ -602,12 +602,15 @@ func TestConvertToVersion(t *testing.T) {
 			gv:     unversioned.GroupVersion{Version: "__internal"},
 			out:    &TestType1{A: "test"},
 		},
-		// prefers the first group version in the list
+		// prefers the best match
 		{
 			scheme: GetTestScheme(),
 			in:     &ExternalTestType1{A: "test"},
 			gv:     unversioned.GroupVersions{{Version: "__internal"}, {Version: "v1"}},
-			out:    &TestType1{A: "test"},
+			out: &ExternalTestType1{
+				MyWeirdCustomEmbeddedVersionKindField: MyWeirdCustomEmbeddedVersionKindField{APIVersion: "v1", ObjectKind: "TestType1"},
+				A: "test",
+			},
 		},
 		// unversioned type returned as-is
 		{

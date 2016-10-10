@@ -21,7 +21,6 @@ import (
 	"os"
 	"time"
 
-	glog "github.com/golang/glog"
 	"github.com/onsi/ginkgo/config"
 	"github.com/spf13/viper"
 	"k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
@@ -56,6 +55,7 @@ type TestContextType struct {
 	NodeOSDistro             string
 	VerifyServiceAccount     bool
 	DeleteNamespace          bool
+	DeleteNamespaceOnFailure bool
 	AllowedNotReadyNodes     int
 	CleanStart               bool
 	// If set to 'true' or 'all' framework will start a goroutine monitoring resource usage of system add-ons.
@@ -78,6 +78,24 @@ type TestContextType struct {
 	FeatureGates string
 	// Node e2e specific test context
 	NodeTestContextType
+
+	// Viper-only parameters.  These will in time replace all flags.
+
+	// Example: Create a file 'e2e.json' with the following:
+	// 	"Cadvisor":{
+	// 		"MaxRetries":"6"
+	// 	}
+
+	Viper    string
+	Cadvisor struct {
+		MaxRetries      int
+		SleepDurationMS int
+	}
+
+	LoggingSoak struct {
+		Scale                    int
+		MilliSecondsBetweenWaves int
+	}
 }
 
 // NodeTestContextType is part of TestContextType, it is shared by all node e2e test.
@@ -92,6 +110,10 @@ type NodeTestContextType struct {
 	EvictionHard string
 	// ManifestPath is the static pod manifest path.
 	ManifestPath string
+	// PrepullImages indicates whether node e2e framework should prepull images.
+	PrepullImages bool
+	// RuntimeIntegrationType indicates how runtime is integrated with Kubelet. This is mainly used for CRI validation test.
+	RuntimeIntegrationType string
 }
 
 type CloudConfig struct {
@@ -127,11 +149,13 @@ func RegisterCommonFlags() {
 	flag.StringVar(&TestContext.OutputPrintType, "output-print-type", "hr", "Comma separated list: 'hr' for human readable summaries 'json' for JSON ones.")
 	flag.BoolVar(&TestContext.DumpLogsOnFailure, "dump-logs-on-failure", true, "If set to true test will dump data about the namespace in which test was running.")
 	flag.BoolVar(&TestContext.DeleteNamespace, "delete-namespace", true, "If true tests will delete namespace after completion. It is only designed to make debugging easier, DO NOT turn it off by default.")
+	flag.BoolVar(&TestContext.DeleteNamespaceOnFailure, "delete-namespace-on-failure", true, "If true, framework will delete test namespace on failure. Used only during test debugging.")
 	flag.IntVar(&TestContext.AllowedNotReadyNodes, "allowed-not-ready-nodes", 0, "If non-zero, framework will allow for that many non-ready nodes when checking for all ready nodes.")
 	flag.StringVar(&TestContext.Host, "host", "http://127.0.0.1:8080", "The host, or apiserver, to connect to")
 	flag.StringVar(&TestContext.ReportPrefix, "report-prefix", "", "Optional prefix for JUnit XML reports. Default is empty, which doesn't prepend anything to the default name.")
 	flag.StringVar(&TestContext.ReportDir, "report-dir", "", "Path to the directory where the JUnit XML reports should be saved. Default is empty, which doesn't generate these reports.")
 	flag.StringVar(&TestContext.FeatureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
+	flag.StringVar(&TestContext.Viper, "viper-config", "e2e", "The name of the viper config i.e. 'e2e' will read values from 'e2e.json' locally.  All e2e parameters are meant to be configurable by viper.")
 }
 
 // Register flags specific to the cluster e2e test suite.
@@ -139,7 +163,7 @@ func RegisterClusterFlags() {
 	flag.BoolVar(&TestContext.VerifyServiceAccount, "e2e-verify-service-account", true, "If true tests will verify the service account before running.")
 	flag.StringVar(&TestContext.KubeConfig, clientcmd.RecommendedConfigPathFlag, os.Getenv(clientcmd.RecommendedConfigPathEnvVar), "Path to kubeconfig containing embedded authinfo.")
 	flag.StringVar(&TestContext.KubeContext, clientcmd.FlagContext, "", "kubeconfig context to use/override. If unset, will use value from 'current-context'")
-	flag.StringVar(&TestContext.KubeAPIContentType, "kube-api-content-type", "", "ContentType used to communicate with apiserver")
+	flag.StringVar(&TestContext.KubeAPIContentType, "kube-api-content-type", "application/vnd.kubernetes.protobuf", "ContentType used to communicate with apiserver")
 	flag.StringVar(&federatedKubeContext, "federated-kube-context", "federation-cluster", "kubeconfig context for federation-cluster.")
 
 	flag.StringVar(&TestContext.KubeVolumeDir, "volume-dir", "/var/lib/kubelet", "Path to the directory containing the kubelet volumes.")
@@ -183,29 +207,40 @@ func RegisterNodeFlags() {
 	//flag.BoolVar(&TestContext.CgroupsPerQOS, "cgroups-per-qos", false, "Enable creation of QoS cgroup hierarchy, if true top level QoS and pod cgroups are created.")
 	flag.StringVar(&TestContext.EvictionHard, "eviction-hard", "memory.available<250Mi,imagefs.available<10%", "The hard eviction thresholds. If set, pods get evicted when the specified resources drop below the thresholds.")
 	flag.StringVar(&TestContext.ManifestPath, "manifest-path", "", "The path to the static pod manifest file.")
+	flag.BoolVar(&TestContext.PrepullImages, "prepull-images", true, "If true, prepull images so image pull failures do not cause test failures.")
+	flag.StringVar(&TestContext.RuntimeIntegrationType, "runtime-integration-type", "", "Choose the integration path for the container runtime, mainly used for CRI validation.")
 }
 
 // Enable viper configuration management of flags.
 func ViperizeFlags() {
-	// Add viper in a minimal way.
-	// Flag interop isnt possible, since 'go test' coupling to flag.Parse.
-	viper.SetConfigName("e2e")
-	viper.AddConfigPath(".")
-	viper.ReadInConfig()
-
 	// TODO @jayunit100: Maybe a more elegant viper-flag integration for the future?
 	// For now, we layer it on top, because 'flag' deps of 'go test' make pflag wrappers
 	// fragile, seeming to force 'flag' to have deep awareness of pflag params.
 	RegisterCommonFlags()
 	RegisterClusterFlags()
+
 	flag.Parse()
 
-	viperFlagSetter := func(f *flag.Flag) {
-		if viper.IsSet(f.Name) {
-			glog.V(4).Infof("[viper config] Overwriting, found a settting for %v %v", f.Name, f.Value)
-			f.Value.Set(viper.GetString(f.Name))
-		}
-	}
-	// Each flag that we've declared can be set via viper.
-	flag.VisitAll(viperFlagSetter)
+	// Add viper in a minimal way.
+	// Flag interop isnt possible, since 'go test' coupling to flag.Parse.
+	// This must be done after common flags are registered, since Viper is a flag option.
+	viper.SetConfigName(TestContext.Viper)
+	viper.AddConfigPath(".")
+	viper.ReadInConfig()
+
+	viper.Unmarshal(&TestContext)
+
+	/** This can be used to overwrite a flag value.
+	*
+	*	viperFlagSetter := func(f *flag.Flag) {
+	*		if viper.IsSet(f.Name) {
+	*			glog.V(4).Infof("[viper config] Overwriting, found a settting for %v %v", f.Name, f.Value)
+	*			viper.Unmarshal(&TestContext)
+	*			// f.Value.Set(viper.GetString(f.Name))
+	*		}
+	*	}
+	*	// Each flag that we've declared can be set via viper.
+	*	flag.VisitAll(viperFlagSetter)
+	*
+	 */
 }
