@@ -129,7 +129,6 @@ func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, 
 	// TODO: Make sure mount name is unique.
 	for _, mnt := range app.Mounts {
 		status.Mounts = append(status.Mounts, &runtimeApi.Mount{
-			Name:          &mnt.Name,
 			ContainerPath: &mnt.ContainerPath,
 			HostPath:      &mnt.HostPath,
 			Readonly:      &mnt.ReadOnly,
@@ -303,11 +302,11 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 	}
 
 	// Add DNS options.
-	if options := req.Config.DnsOptions; options != nil {
-		for _, server := range options.Servers {
+	if config := req.Config.DnsConfig; config != nil {
+		for _, server := range config.Servers {
 			cmd = append(cmd, "--dns="+server)
 		}
-		for _, search := range options.Searches {
+		for _, search := range config.Searches {
 			cmd = append(cmd, "--dns-search="+search)
 		}
 		// TODO(yifan): Add dns-opt after
