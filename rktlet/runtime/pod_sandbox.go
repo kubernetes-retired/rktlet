@@ -63,8 +63,7 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 	glog.V(4).Infof("pod sandbox is running as service %q", id)
 
 	var rktUUID string
-	// TODO, inotify watch for the uuid file would be slightly more efficient
-	// We could also create a pair of pipes for this
+	// TODO, switch to sdnotify, possibly with a fallback for non-systemd or non-coreos stage1
 	for i := 0; i < 100; i++ {
 		data, err := ioutil.ReadAll(podUUIDFile)
 		if err != nil {
@@ -77,12 +76,25 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 
 		time.Sleep(100 * time.Millisecond)
 	}
-
 	if rktUUID == "" {
 		return nil, fmt.Errorf("waited 10s for pod sandbox to start, but it didn't: %v", k8sPodUid)
 	}
 
-	return &runtimeApi.RunPodSandboxResponse{PodSandboxId: &rktUUID}, nil
+	// Wait for the status to be running too, up to 10 more seconds
+	var status *runtimeApi.PodSandboxStatusResponse
+	for i := 0; i < 100; i++ {
+		status, err = r.PodSandboxStatus(ctx, &runtimeApi.PodSandboxStatusRequest{PodSandboxId: &rktUUID})
+		if err == nil {
+			break
+		}
+		if status.GetStatus().GetState() != runtimeApi.PodSandBoxState_READY {
+			continue
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	glog.Warningf("sandbox got a UUID but did not have a ready status after 10s: %v, %v", status, err)
+
+	return &runtimeApi.RunPodSandboxResponse{PodSandboxId: &rktUUID}, err
 }
 
 func (r *RktRuntime) StopPodSandbox(ctx context.Context, req *runtimeApi.StopPodSandboxRequest) (*runtimeApi.StopPodSandboxResponse, error) {
