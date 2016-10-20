@@ -23,6 +23,8 @@ import (
 
 	"github.com/coreos/rkt/lib"
 	"github.com/coreos/rkt/networking/netinfo"
+	"github.com/golang/glog"
+	"github.com/pborman/uuid"
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
 
@@ -126,7 +128,6 @@ func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, 
 	status.Labels = getKubernetesLabels(app.UserLabels)
 	status.Annotations = getKubernetesAnnotations(app.UserAnnotations)
 
-	// TODO: Make sure mount name is unique.
 	for _, mnt := range app.Mounts {
 		status.Mounts = append(status.Mounts, &runtimeApi.Mount{
 			ContainerPath: &mnt.ContainerPath,
@@ -266,7 +267,15 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 	}
 	// TODO(yifan): logpath
 	// TODO(yifan): privileged
-	// TODO(yifan): mount, volumes
+
+	for _, mnt := range config.GetMounts() {
+		if mnt == nil {
+			glog.Warningf("unexpected nil mount: %v, %+v", mnt, config)
+			continue
+		}
+		volumeName := uuid.NewUUID()
+		cmd = append(cmd, fmt.Sprintf("--mnt-volume=name=%s,kind=host,source=%s,target=%s,readOnly=%t", volumeName, mnt.GetHostPath(), mnt.GetContainerPath(), mnt.GetReadonly()))
+	}
 
 	// Add ReadOnlyRootFs.
 	if config.GetReadonlyRootfs() {
