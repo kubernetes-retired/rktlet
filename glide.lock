@@ -1,8 +1,8 @@
-hash: f733e61ca8440029a5b4d999fb5fc4ce108fd9702abe6396b6bc397a26e2dab8
-updated: 2016-10-10T10:27:05.495548376-07:00
+hash: d2f237a9140350d2a69975d3d9517c9ac66b4a71560fa9712ad6f71dd610c7b4
+updated: 2016-10-20T18:43:43.702795282-07:00
 imports:
 - name: github.com/appc/spec
-  version: c204336cefe58b802e2df7f93fd0e145a43946ec
+  version: 3fddc8f00a9e8db1e1a8fe23180e7869ebaadc57
   subpackages:
   - aci
   - pkg/device
@@ -21,7 +21,7 @@ imports:
   subpackages:
   - semver
 - name: github.com/coreos/rkt
-  version: aa1954caf048481c556c42de70346c9f524dd013
+  version: c384225ec08acbc706e78fe482eae12ccd41b924
   subpackages:
   - common
   - lib
@@ -45,6 +45,11 @@ imports:
   - daemon/caps
   - pkg/random
   - pkg/stringutils
+- name: github.com/emicklei/go-restful
+  version: 89ef8af493ab468a45a42bb0d89a06fccdd2fb22
+  subpackages:
+  - log
+  - swagger
 - name: github.com/go-openapi/jsonpointer
   version: 46af16f9f7b149af66e5d1bd010e3574dc06de98
 - name: github.com/go-openapi/jsonreference
@@ -84,7 +89,7 @@ imports:
 - name: github.com/golang/glog
   version: 23def4e6c14b4da8ac2ed8007337bc5eb5007998
 - name: github.com/golang/protobuf
-  version: df1d3ca07d2d07bba352d5b73c4313b4e2a6203e
+  version: 98fa357170587e470c5f27d3c3ea0947b71eb455
   subpackages:
   - proto
 - name: github.com/hashicorp/errwrap
@@ -115,7 +120,7 @@ imports:
   - assert
   - mock
 - name: github.com/syndtr/gocapability
-  version: 2c00daeb6c3b45114c80ac44119e7b8801fdd852
+  version: e7cb7fa329f456b3855136a2642b197bad7366ba
   subpackages:
   - capability
 - name: github.com/vektra/errors
@@ -173,7 +178,7 @@ imports:
 - name: gopkg.in/inf.v0
   version: 3887ee99ecf07df5b447e9b00d9c0b2adaa9f3e4
 - name: k8s.io/kubernetes
-  version: e72f26a3fff4f521d1da9f52b3ce82d4d0d5a401
+  version: 230fe1aeab7588fd375581a4dbec4b8d72006122
   subpackages:
   - pkg/api/resource
   - pkg/genericapiserver/openapi/common

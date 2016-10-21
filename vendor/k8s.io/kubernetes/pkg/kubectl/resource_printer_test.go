@@ -1446,9 +1446,10 @@ func TestPrintDaemonSet(t *testing.T) {
 				Status: extensions.DaemonSetStatus{
 					CurrentNumberScheduled: 2,
 					DesiredNumberScheduled: 3,
+					NumberReady:            1,
 				},
 			},
-			"test1\t3\t2\t<none>\t0s\n",
+			"test1\t3\t2\t1\t<none>\t0s\n",
 		},
 	}
 
@@ -1567,6 +1568,56 @@ func TestPrintPodShowLabels(t *testing.T) {
 		// We ignore time
 		if !strings.HasPrefix(buf.String(), test.startsWith) || !strings.HasSuffix(buf.String(), test.endsWith) {
 			t.Fatalf("Expected to start with: %s and end with: %s, but got: %s", test.startsWith, test.endsWith, buf.String())
+		}
+		buf.Reset()
+	}
+}
+
+func TestPrintService(t *testing.T) {
+	tests := []struct {
+		service api.Service
+		expect  string
+	}{
+		{
+			// Test name, cluster ip, port with protocol
+			api.Service{
+				ObjectMeta: api.ObjectMeta{Name: "test1"},
+				Spec: api.ServiceSpec{
+					Type: api.ServiceTypeClusterIP,
+					Ports: []api.ServicePort{
+						{Protocol: "tcp",
+							Port: 2233},
+					},
+					ClusterIP: "0.0.0.0",
+				},
+			},
+			"test1\t0.0.0.0\t<none>\t2233/tcp\t<unknown>\n",
+		},
+		{
+			// Test name, cluster ip, port:nodePort with protocol
+			api.Service{
+				ObjectMeta: api.ObjectMeta{Name: "test2"},
+				Spec: api.ServiceSpec{
+					Type: api.ServiceTypeClusterIP,
+					Ports: []api.ServicePort{
+						{Protocol: "tcp",
+							Port:     8888,
+							NodePort: 9999,
+						},
+					},
+					ClusterIP: "10.9.8.7",
+				},
+			},
+			"test2\t10.9.8.7\t<none>\t8888:9999/tcp\t<unknown>\n",
+		},
+	}
+
+	buf := bytes.NewBuffer([]byte{})
+	for _, test := range tests {
+		printService(&test.service, buf, PrintOptions{false, false, false, false, true, false, false, "", []string{}})
+		// We ignore time
+		if buf.String() != test.expect {
+			t.Fatalf("Expected: %s, got: %s %d", test.expect, buf.String(), strings.Compare(test.expect, buf.String()))
 		}
 		buf.Reset()
 	}

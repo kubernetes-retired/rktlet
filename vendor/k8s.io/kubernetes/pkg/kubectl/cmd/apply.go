@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
-	"github.com/renstrom/dedent"
 	"github.com/spf13/cobra"
 
 	"k8s.io/kubernetes/pkg/api"
@@ -32,6 +31,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/kubectl"
+	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
 	"k8s.io/kubernetes/pkg/labels"
@@ -58,16 +58,16 @@ const (
 )
 
 var (
-	apply_long = dedent.Dedent(`
+	apply_long = templates.LongDesc(`
 		Apply a configuration to a resource by filename or stdin.
 		This resource will be created if it doesn't exist yet.
 		To use 'apply', always create the resource initially with either 'apply' or 'create --save-config'.
 
 		JSON and YAML formats are accepted.
-		
+
 		Alpha Disclaimer: the --prune functionality is not yet complete. Do not use unless you are aware of what the current state is. See https://issues.k8s.io/34274.`)
 
-	apply_example = dedent.Dedent(`
+	apply_example = templates.Examples(`
 		# Apply the configuration in pod.json to a pod.
 		kubectl apply -f ./pod.json
 
@@ -75,7 +75,7 @@ var (
 		cat pod.json | kubectl apply -f -`)
 )
 
-func NewCmdApply(f *cmdutil.Factory, out io.Writer) *cobra.Command {
+func NewCmdApply(f cmdutil.Factory, out io.Writer) *cobra.Command {
 	var options ApplyOptions
 
 	cmd := &cobra.Command{
@@ -101,7 +101,8 @@ func NewCmdApply(f *cmdutil.Factory, out io.Writer) *cobra.Command {
 	cmdutil.AddValidateFlags(cmd)
 	cmd.Flags().StringVarP(&options.Selector, "selector", "l", "", "Selector (label query) to filter on")
 	cmd.Flags().Bool("all", false, "[-all] to select all the specified resources.")
-	cmdutil.AddOutputFlagsForMutation(cmd)
+	cmdutil.AddDryRunFlag(cmd)
+	cmdutil.AddPrinterFlags(cmd)
 	cmdutil.AddRecordFlag(cmd)
 	cmdutil.AddInclude3rdPartyFlags(cmd)
 	return cmd
@@ -122,7 +123,7 @@ func validatePruneAll(prune, all bool, selector string) error {
 	return nil
 }
 
-func RunApply(f *cmdutil.Factory, cmd *cobra.Command, out io.Writer, options *ApplyOptions) error {
+func RunApply(f cmdutil.Factory, cmd *cobra.Command, out io.Writer, options *ApplyOptions) error {
 	shortOutput := cmdutil.GetFlagString(cmd, "output") == "name"
 	schema, err := f.Validator(cmdutil.GetFlagBool(cmd, "validate"), cmdutil.GetFlagString(cmd, "schema-cache-dir"))
 	if err != nil {
@@ -147,6 +148,8 @@ func RunApply(f *cmdutil.Factory, cmd *cobra.Command, out io.Writer, options *Ap
 	if err != nil {
 		return err
 	}
+
+	dryRun := cmdutil.GetFlagBool(cmd, "dry-run")
 
 	encoder := f.JSONEncoder()
 	decoder := f.Decoder(false)
@@ -195,47 +198,52 @@ func RunApply(f *cmdutil.Factory, cmd *cobra.Command, out io.Writer, options *Ap
 				}
 			}
 
-			// Then create the resource and skip the three-way merge
-			if err := createAndRefresh(info); err != nil {
-				return cmdutil.AddSourceToErr("creating", info.Source, err)
+			if !dryRun {
+				// Then create the resource and skip the three-way merge
+				if err := createAndRefresh(info); err != nil {
+					return cmdutil.AddSourceToErr("creating", info.Source, err)
+				}
+				if uid, err := info.Mapping.UID(info.Object); err != nil {
+					return err
+				} else {
+					visitedUids.Insert(string(uid))
+				}
 			}
+
+			count++
+			cmdutil.PrintSuccess(mapper, shortOutput, out, info.Mapping.Resource, info.Name, dryRun, "created")
+			return nil
+		}
+
+		if !dryRun {
+			overwrite := cmdutil.GetFlagBool(cmd, "overwrite")
+			helper := resource.NewHelper(info.Client, info.Mapping)
+			patcher := NewPatcher(encoder, decoder, info.Mapping, helper, overwrite)
+
+			patchBytes, err := patcher.patch(info.Object, modified, info.Source, info.Namespace, info.Name)
+			if err != nil {
+				return cmdutil.AddSourceToErr(fmt.Sprintf("applying patch:\n%s\nto:\n%v\nfor:", patchBytes, info), info.Source, err)
+			}
+
+			if cmdutil.ShouldRecord(cmd, info) {
+				patch, err := cmdutil.ChangeResourcePatch(info, f.Command())
+				if err != nil {
+					return err
+				}
+				_, err = helper.Patch(info.Namespace, info.Name, api.StrategicMergePatchType, patch)
+				if err != nil {
+					return cmdutil.AddSourceToErr(fmt.Sprintf("applying patch:\n%s\nto:\n%v\nfor:", patch, info), info.Source, err)
+				}
+			}
+
 			if uid, err := info.Mapping.UID(info.Object); err != nil {
 				return err
 			} else {
 				visitedUids.Insert(string(uid))
 			}
-			count++
-			cmdutil.PrintSuccess(mapper, shortOutput, out, info.Mapping.Resource, info.Name, false, "created")
-			return nil
-		}
-
-		overwrite := cmdutil.GetFlagBool(cmd, "overwrite")
-		helper := resource.NewHelper(info.Client, info.Mapping)
-		patcher := NewPatcher(encoder, decoder, info.Mapping, helper, overwrite)
-
-		patchBytes, err := patcher.patch(info.Object, modified, info.Source, info.Namespace, info.Name)
-		if err != nil {
-			return cmdutil.AddSourceToErr(fmt.Sprintf("applying patch:\n%s\nto:\n%v\nfor:", patchBytes, info), info.Source, err)
-		}
-
-		if cmdutil.ShouldRecord(cmd, info) {
-			patch, err := cmdutil.ChangeResourcePatch(info, f.Command())
-			if err != nil {
-				return err
-			}
-			_, err = helper.Patch(info.Namespace, info.Name, api.StrategicMergePatchType, patch)
-			if err != nil {
-				return cmdutil.AddSourceToErr(fmt.Sprintf("applying patch:\n%s\nto:\n%v\nfor:", patch, info), info.Source, err)
-			}
-		}
-
-		if uid, err := info.Mapping.UID(info.Object); err != nil {
-			return err
-		} else {
-			visitedUids.Insert(string(uid))
 		}
 		count++
-		cmdutil.PrintSuccess(mapper, shortOutput, out, info.Mapping.Resource, info.Name, false, "configured")
+		cmdutil.PrintSuccess(mapper, shortOutput, out, info.Mapping.Resource, info.Name, dryRun, "configured")
 		return nil
 	})
 
@@ -343,10 +351,7 @@ func (p *pruner) prune(namespace string, mapping *meta.RESTMapping, shortOutput 
 
 func (p *pruner) delete(namespace, name string, mapping *meta.RESTMapping, c resource.RESTClient) error {
 	if !p.cascade {
-		if err := resource.NewHelper(c, mapping).Delete(namespace, name); err != nil {
-			return err
-		}
-		return nil
+		return resource.NewHelper(c, mapping).Delete(namespace, name)
 	}
 	cs, err := p.clientsetFunc()
 	if err != nil {
@@ -354,7 +359,10 @@ func (p *pruner) delete(namespace, name string, mapping *meta.RESTMapping, c res
 	}
 	r, err := kubectl.ReaperFor(mapping.GroupVersionKind.GroupKind(), cs)
 	if err != nil {
-		return err
+		if _, ok := err.(*kubectl.NoSuchReaperError); !ok {
+			return err
+		}
+		return resource.NewHelper(c, mapping).Delete(namespace, name)
 	}
 	if err := r.Stop(namespace, name, 2*time.Minute, api.NewDeleteOptions(int64(p.gracePeriod))); err != nil {
 		return err

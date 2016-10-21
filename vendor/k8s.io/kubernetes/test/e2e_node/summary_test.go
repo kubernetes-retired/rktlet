@@ -32,8 +32,7 @@ import (
 	"github.com/onsi/gomega/types"
 )
 
-// TODO(timstclair): Move this test out of the flaky suite once it has demonstrated stability.
-var _ = framework.KubeDescribe("Summary API [Flaky]", func() {
+var _ = framework.KubeDescribe("Summary API", func() {
 	f := framework.NewDefaultFramework("summary-test")
 	Context("when querying /stats/summary", func() {
 		It("should report resource usage through the stats api", func() {
@@ -75,9 +74,8 @@ var _ = framework.KubeDescribe("Summary API [Flaky]", func() {
 					"PageFaults":      bounded(1000, 1E9),
 					"MajorPageFaults": bounded(0, 100000),
 				}),
-				// TODO(#31999): Don't report FS stats for system containers.
-				"Rootfs":             gstruct.Ignore(),
-				"Logs":               gstruct.Ignore(),
+				"Rootfs":             BeNil(),
+				"Logs":               BeNil(),
 				"UserDefinedMetrics": BeEmpty(),
 			})
 			// Expectations for pods.

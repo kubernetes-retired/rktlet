@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"sort"
 	"time"
 
@@ -29,10 +28,10 @@ import (
 	fed "k8s.io/kubernetes/federation/apis/federation"
 	fedv1 "k8s.io/kubernetes/federation/apis/federation/v1beta1"
 	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_release_1_5"
-	"k8s.io/kubernetes/federation/pkg/federation-controller/replicaset"
-	"k8s.io/kubernetes/federation/pkg/federation-controller/replicaset/planner"
 	fedutil "k8s.io/kubernetes/federation/pkg/federation-controller/util"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util/eventsink"
+	"k8s.io/kubernetes/federation/pkg/federation-controller/util/planner"
+	"k8s.io/kubernetes/federation/pkg/federation-controller/util/podanalyzer"
 	"k8s.io/kubernetes/pkg/api"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 	extensionsv1 "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
@@ -228,17 +227,7 @@ func (fdc *DeploymentController) Run(workers int, stopCh <-chan struct{}) {
 		go wait.Until(fdc.worker, time.Second, stopCh)
 	}
 
-	go func() {
-		for {
-			// Perform backof registry cleanup from time to time.
-			select {
-			case <-time.After(time.Minute):
-				fdc.deploymentBackoff.GC()
-			case <-stopCh:
-				return
-			}
-		}
-	}()
+	fedutil.StartBackoffGC(fdc.deploymentBackoff, stopCh)
 
 	<-stopCh
 	glog.Infof("Shutting down DeploymentController")
@@ -445,7 +434,7 @@ func (fdc *DeploymentController) reconcileDeployment(key string) (reconciliation
 	if err != nil {
 		return statusError, err
 	}
-	podStatus, err := replicaset.AnalysePods(fd.Spec.Selector, allPods, time.Now())
+	podStatus, err := podanalyzer.AnalysePods(fd.Spec.Selector, allPods, time.Now())
 	current := make(map[string]int64)
 	estimatedCapacity := make(map[string]int64)
 	for _, cluster := range clusters {
@@ -499,8 +488,7 @@ func (fdc *DeploymentController) reconcileDeployment(key string) (reconciliation
 
 			currentLd := ldObj.(*extensionsv1.Deployment)
 			// Update existing replica set, if needed.
-			if !fedutil.ObjectMetaEquivalent(ld.ObjectMeta, currentLd.ObjectMeta) ||
-				!reflect.DeepEqual(ld.Spec, currentLd.Spec) {
+			if !fedutil.ObjectMetaAndSpecEquivalent(ld, currentLd) {
 				fdc.eventRecorder.Eventf(fd, api.EventTypeNormal, "UpdateInCluster",
 					"Updating deployment in cluster %s", clusterName)
 

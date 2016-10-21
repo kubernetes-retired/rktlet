@@ -44,6 +44,7 @@ import (
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/apis/rbac"
 	"k8s.io/kubernetes/pkg/apis/storage"
+	storageutil "k8s.io/kubernetes/pkg/apis/storage/util"
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/runtime"
 	utilerrors "k8s.io/kubernetes/pkg/util/errors"
@@ -472,7 +473,7 @@ var (
 	petSetColumns                = []string{"NAME", "DESIRED", "CURRENT", "AGE"}
 	endpointColumns              = []string{"NAME", "ENDPOINTS", "AGE"}
 	nodeColumns                  = []string{"NAME", "STATUS", "AGE"}
-	daemonSetColumns             = []string{"NAME", "DESIRED", "CURRENT", "NODE-SELECTOR", "AGE"}
+	daemonSetColumns             = []string{"NAME", "DESIRED", "CURRENT", "READY", "NODE-SELECTOR", "AGE"}
 	eventColumns                 = []string{"LASTSEEN", "FIRSTSEEN", "COUNT", "NAME", "KIND", "SUBOBJECT", "TYPE", "REASON", "SOURCE", "MESSAGE"}
 	limitRangeColumns            = []string{"NAME", "AGE"}
 	resourceQuotaColumns         = []string{"NAME", "AGE"}
@@ -1100,6 +1101,9 @@ func makePortString(ports []api.ServicePort) string {
 	for ix := range ports {
 		port := &ports[ix]
 		pieces[ix] = fmt.Sprintf("%d/%s", port.Port, port.Protocol)
+		if port.NodePort > 0 {
+			pieces[ix] = fmt.Sprintf("%d:%d/%s", port.Port, port.NodePort, port.Protocol)
+		}
 	}
 	return strings.Join(pieces, ",")
 }
@@ -1286,15 +1290,17 @@ func printDaemonSet(ds *extensions.DaemonSet, w io.Writer, options PrintOptions)
 
 	desiredScheduled := ds.Status.DesiredNumberScheduled
 	currentScheduled := ds.Status.CurrentNumberScheduled
+	numberReady := ds.Status.NumberReady
 	selector, err := unversioned.LabelSelectorAsSelector(ds.Spec.Selector)
 	if err != nil {
 		// this shouldn't happen if LabelSelector passed validation
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s",
+	if _, err := fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%s\t%s",
 		name,
 		desiredScheduled,
 		currentScheduled,
+		numberReady,
 		labels.FormatLabels(ds.Spec.Template.Spec.NodeSelector),
 		translateTimestamp(ds.CreationTimestamp),
 	); err != nil {
@@ -2080,6 +2086,10 @@ func printNetworkPolicyList(list *extensions.NetworkPolicyList, w io.Writer, opt
 
 func printStorageClass(sc *storage.StorageClass, w io.Writer, options PrintOptions) error {
 	name := sc.Name
+
+	if storageutil.IsDefaultAnnotation(sc.ObjectMeta) {
+		name += " (default)"
+	}
 	provtype := sc.Provisioner
 
 	if _, err := fmt.Fprintf(w, "%s\t%s\t", name, provtype); err != nil {

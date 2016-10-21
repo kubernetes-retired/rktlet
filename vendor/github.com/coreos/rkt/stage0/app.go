@@ -186,6 +186,7 @@ func AddApp(cfg AddConfig) error {
 			ID:     cfg.Image,
 			Labels: am.Labels,
 		},
+		Mounts:         MergeMounts(cfg.Apps.Mounts, app.Mounts),
 		ReadOnlyRootFS: app.ReadOnlyRootFS,
 	}
 
@@ -225,11 +226,11 @@ func AddApp(cfg AddConfig) error {
 	}
 
 	if app.UserAnnotations != nil {
-		ra.App.CRIAnnotations = app.UserAnnotations
+		ra.App.UserAnnotations = app.UserAnnotations
 	}
 
 	if app.UserLabels != nil {
-		ra.App.CRILabels = app.UserLabels
+		ra.App.UserLabels = app.UserLabels
 	}
 
 	if app.Environments != nil {

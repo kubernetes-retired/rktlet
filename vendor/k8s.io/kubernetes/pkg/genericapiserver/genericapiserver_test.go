@@ -17,7 +17,6 @@ limitations under the License.
 package genericapiserver
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,7 +39,8 @@ import (
 	genericmux "k8s.io/kubernetes/pkg/genericapiserver/mux"
 	ipallocator "k8s.io/kubernetes/pkg/registry/core/service/ipallocator"
 	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
-	utilnet "k8s.io/kubernetes/pkg/util/net"
+	"k8s.io/kubernetes/pkg/util/sets"
+	"k8s.io/kubernetes/pkg/version"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -49,16 +49,12 @@ import (
 func setUp(t *testing.T) (*etcdtesting.EtcdTestServer, Config, *assert.Assertions) {
 	etcdServer, _ := etcdtesting.NewUnsecuredEtcd3TestClientServer(t)
 
-	config := Config{}
+	config := NewConfig()
 	config.PublicAddress = net.ParseIP("192.168.10.4")
 	config.RequestContextMapper = api.NewRequestContextMapper()
-	config.ProxyDialer = func(network, addr string) (net.Conn, error) { return nil, nil }
-	config.ProxyTLSClientConfig = &tls.Config{}
-	config.Serializer = api.Codecs
-	config.APIPrefix = "/api"
-	config.APIGroupPrefix = "/apis"
+	config.LegacyAPIGroupPrefixes = sets.NewString("/api")
 
-	return etcdServer, config, assert.New(t)
+	return etcdServer, *config, assert.New(t)
 }
 
 func newMaster(t *testing.T) (*GenericAPIServer, *etcdtesting.EtcdTestServer, Config, *assert.Assertions) {
@@ -79,26 +75,15 @@ func TestNew(t *testing.T) {
 
 	// Verify many of the variables match their config counterparts
 	assert.Equal(s.enableSwaggerSupport, config.EnableSwaggerSupport)
-	assert.Equal(s.legacyAPIPrefix, config.APIPrefix)
-	assert.Equal(s.apiPrefix, config.APIGroupPrefix)
+	assert.Equal(s.legacyAPIGroupPrefixes, config.LegacyAPIGroupPrefixes)
 	assert.Equal(s.admissionControl, config.AdmissionControl)
 	assert.Equal(s.RequestContextMapper(), config.RequestContextMapper)
-	assert.Equal(s.ClusterIP, config.PublicAddress)
 
 	// these values get defaulted
 	_, serviceClusterIPRange, _ := net.ParseCIDR("10.0.0.0/24")
 	serviceReadWriteIP, _ := ipallocator.GetIndexedIP(serviceClusterIPRange, 1)
 	assert.Equal(s.ServiceReadWriteIP, serviceReadWriteIP)
 	assert.Equal(s.ExternalAddress, net.JoinHostPort(config.PublicAddress.String(), "6443"))
-	assert.Equal(s.PublicReadWritePort, 6443)
-
-	// These functions should point to the same memory location
-	serverDialer, _ := utilnet.Dialer(s.ProxyTransport)
-	serverDialerFunc := fmt.Sprintf("%p", serverDialer)
-	configDialerFunc := fmt.Sprintf("%p", config.ProxyDialer)
-	assert.Equal(serverDialerFunc, configDialerFunc)
-
-	assert.Equal(s.ProxyTransport.(*http.Transport).TLSClientConfig, config.ProxyTLSClientConfig)
 }
 
 // Verifies that AddGroupVersions works as expected.
@@ -106,25 +91,24 @@ func TestInstallAPIGroups(t *testing.T) {
 	etcdserver, config, assert := setUp(t)
 	defer etcdserver.Terminate(t)
 
-	config.APIPrefix = "/apiPrefix"
-	config.APIGroupPrefix = "/apiGroupPrefix"
+	config.LegacyAPIGroupPrefixes = sets.NewString("/apiPrefix")
 
-	s, err := config.Complete().New()
+	s, err := config.SkipComplete().New()
 	if err != nil {
 		t.Fatalf("Error in bringing up the server: %v", err)
 	}
 
 	apiGroupMeta := registered.GroupOrDie(api.GroupName)
 	extensionsGroupMeta := registered.GroupOrDie(extensions.GroupName)
+	s.InstallLegacyAPIGroup("/apiPrefix", &APIGroupInfo{
+		// legacy group version
+		GroupMeta:                    *apiGroupMeta,
+		VersionedResourcesStorageMap: map[string]map[string]rest.Storage{},
+		ParameterCodec:               api.ParameterCodec,
+		NegotiatedSerializer:         api.Codecs,
+	})
+
 	apiGroupsInfo := []APIGroupInfo{
-		{
-			// legacy group version
-			GroupMeta:                    *apiGroupMeta,
-			VersionedResourcesStorageMap: map[string]map[string]rest.Storage{},
-			IsLegacyGroup:                true,
-			ParameterCodec:               api.ParameterCodec,
-			NegotiatedSerializer:         api.Codecs,
-		},
 		{
 			// extensions group version
 			GroupMeta:                    *extensionsGroupMeta,
@@ -142,13 +126,13 @@ func TestInstallAPIGroups(t *testing.T) {
 	defer server.Close()
 	validPaths := []string{
 		// "/api"
-		config.APIPrefix,
+		config.LegacyAPIGroupPrefixes.List()[0],
 		// "/api/v1"
-		config.APIPrefix + "/" + apiGroupMeta.GroupVersion.Version,
+		config.LegacyAPIGroupPrefixes.List()[0] + "/" + apiGroupMeta.GroupVersion.Version,
 		// "/apis/extensions"
-		config.APIGroupPrefix + "/" + extensionsGroupMeta.GroupVersion.Group,
+		APIGroupPrefix + "/" + extensionsGroupMeta.GroupVersion.Group,
 		// "/apis/extensions/v1beta1"
-		config.APIGroupPrefix + "/" + extensionsGroupMeta.GroupVersion.String(),
+		APIGroupPrefix + "/" + extensionsGroupMeta.GroupVersion.String(),
 	}
 	for _, path := range validPaths {
 		_, err := http.Get(server.URL + path)
@@ -165,7 +149,6 @@ func TestCustomHandlerChain(t *testing.T) {
 
 	var protected, called bool
 
-	config.Serializer = api.Codecs
 	config.BuildHandlerChainsFunc = func(apiHandler http.Handler, c *Config) (secure, insecure http.Handler) {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				protected = true
@@ -179,7 +162,7 @@ func TestCustomHandlerChain(t *testing.T) {
 		called = true
 	})
 
-	s, err := config.Complete().New()
+	s, err := config.SkipComplete().New()
 	if err != nil {
 		t.Fatalf("Error in bringing up the server: %v", err)
 	}
@@ -225,17 +208,18 @@ func TestNotRestRoutesHaveAuth(t *testing.T) {
 
 	authz := mockAuthorizer{}
 
-	config.APIPrefix = "/apiPrefix"
-	config.APIGroupPrefix = "/apiGroupPrefix"
+	config.LegacyAPIGroupPrefixes = sets.NewString("/apiPrefix")
 	config.Authorizer = &authz
 
 	config.EnableSwaggerUI = true
 	config.EnableIndex = true
 	config.EnableProfiling = true
 	config.EnableSwaggerSupport = true
-	config.EnableVersion = true
 
-	s, err := config.Complete().New()
+	kubeVersion := version.Get()
+	config.Version = &kubeVersion
+
+	s, err := config.SkipComplete().New()
 	if err != nil {
 		t.Fatalf("Error in bringing up the server: %v", err)
 	}
@@ -311,8 +295,6 @@ func TestInstallSwaggerAPI(t *testing.T) {
 	mux = http.NewServeMux()
 	server.HandlerContainer = genericmux.NewAPIContainer(mux, nil)
 	server.ExternalAddress = ""
-	server.ClusterIP = net.IPv4(10, 10, 10, 10)
-	server.PublicReadWritePort = 1010
 	server.InstallSwaggerAPI()
 	if assert.NotEqual(0, len(ws), "SwaggerAPI not installed.") {
 		assert.Equal("/swaggerapi/", ws[0].RootPath(), "SwaggerAPI did not install to the proper path. %s != /swaggerapi", ws[0].RootPath())

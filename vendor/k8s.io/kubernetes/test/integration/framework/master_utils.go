@@ -60,8 +60,8 @@ import (
 	"k8s.io/kubernetes/pkg/master"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage/storagebackend"
-	utilnet "k8s.io/kubernetes/pkg/util/net"
 	"k8s.io/kubernetes/pkg/util/wait"
+	"k8s.io/kubernetes/pkg/version"
 	"k8s.io/kubernetes/pkg/watch"
 	"k8s.io/kubernetes/plugin/pkg/admission/admit"
 	authenticatorunion "k8s.io/kubernetes/plugin/pkg/auth/authenticator/request/union"
@@ -175,7 +175,7 @@ func startMasterOrDie(masterConfig *master.Config, incomingServer *httptest.Serv
 		s = incomingServer
 	} else {
 		s = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			m.Handler.ServeHTTP(w, req)
+			m.GenericAPIServer.Handler.ServeHTTP(w, req)
 		}))
 	}
 
@@ -184,17 +184,18 @@ func startMasterOrDie(masterConfig *master.Config, incomingServer *httptest.Serv
 		masterConfig.GenericConfig.EnableProfiling = true
 		masterConfig.GenericConfig.EnableSwaggerSupport = true
 		masterConfig.GenericConfig.EnableOpenAPISupport = true
-		masterConfig.GenericConfig.OpenAPIInfo = spec.Info{
+		masterConfig.GenericConfig.OpenAPIConfig.Info = &spec.Info{
 			InfoProps: spec.InfoProps{
 				Title:   "Kubernetes",
 				Version: "unversioned",
 			},
 		}
-		masterConfig.GenericConfig.OpenAPIDefaultResponse = spec.Response{
+		masterConfig.GenericConfig.OpenAPIConfig.DefaultResponse = &spec.Response{
 			ResponseProps: spec.ResponseProps{
 				Description: "Default Response.",
 			},
 		}
+		masterConfig.GenericConfig.OpenAPIConfig.Definitions = openapi.OpenAPIDefinitions
 	}
 
 	// set the loopback client config
@@ -343,25 +344,20 @@ func NewMasterConfig() *master.Config {
 		"",
 		NewSingleContentTypeSerializer(api.Scheme, testapi.Storage.Codec(), runtime.ContentTypeJSON))
 
+	genericConfig := genericapiserver.NewConfig()
+	kubeVersion := version.Get()
+	genericConfig.Version = &kubeVersion
+	genericConfig.APIResourceConfigSource = master.DefaultAPIResourceConfigSource()
+	genericConfig.Authorizer = authorizer.NewAlwaysAllowAuthorizer()
+	genericConfig.AdmissionControl = admit.NewAlwaysAdmit()
+	genericConfig.EnableOpenAPISupport = true
+
 	return &master.Config{
-		GenericConfig: &genericapiserver.Config{
-			APIResourceConfigSource: master.DefaultAPIResourceConfigSource(),
-			APIPrefix:               "/api",
-			APIGroupPrefix:          "/apis",
-			Authorizer:              authorizer.NewAlwaysAllowAuthorizer(),
-			AdmissionControl:        admit.NewAlwaysAdmit(),
-			Serializer:              api.Codecs,
-			// Set those values to avoid annoying warnings in logs.
-			ServiceClusterIPRange: parseCIDROrDie("10.0.0.0/24"),
-			ServiceNodePortRange:  utilnet.PortRange{Base: 30000, Size: 2768},
-			EnableVersion:         true,
-			OpenAPIDefinitions:    openapi.OpenAPIDefinitions,
-			EnableOpenAPISupport:  true,
-		},
+		GenericConfig:         genericConfig,
 		StorageFactory:        storageFactory,
 		EnableCoreControllers: true,
 		EnableWatchCache:      true,
-		KubeletClient:         kubeletclient.FakeKubeletClient{},
+		KubeletClientConfig:   kubeletclient.KubeletClientConfig{Port: 10250},
 	}
 }
 
@@ -369,8 +365,6 @@ func NewMasterConfig() *master.Config {
 func NewIntegrationTestMasterConfig() *master.Config {
 	masterConfig := NewMasterConfig()
 	masterConfig.EnableCoreControllers = true
-	masterConfig.GenericConfig.EnableIndex = true
-	masterConfig.GenericConfig.EnableVersion = true
 	masterConfig.GenericConfig.PublicAddress = net.ParseIP("192.168.10.4")
 	masterConfig.GenericConfig.APIResourceConfigSource = master.DefaultAPIResourceConfigSource()
 	return masterConfig
