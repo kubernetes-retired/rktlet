@@ -34,9 +34,12 @@ type RktRuntime struct {
 	cli.Init
 }
 
-// NewImageStore creates an image storage that allows CRUD operations for images.
+// New creates a new RuntimeServiceServer backed by rkt
 func New(cli cli.CLI, init cli.Init) runtimeApi.RuntimeServiceServer {
-	return &RktRuntime{cli, init}
+	return &RktRuntime{
+		CLI:  cli,
+		Init: init,
+	}
 }
 
 func (r *RktRuntime) Version(ctx context.Context, req *runtimeApi.VersionRequest) (*runtimeApi.VersionResponse, error) {
@@ -199,4 +202,9 @@ func (r *RktRuntime) RemoveContainer(ctx context.Context, req *runtimeApi.Remove
 		return nil, err
 	}
 	return &runtimeApi.RemoveContainerResponse{}, nil
+}
+
+func (r *RktRuntime) UpdateRuntimeConfig(ctx context.Context, req *runtimeApi.UpdateRuntimeConfigRequest) (*runtimeApi.UpdateRuntimeConfigResponse, error) {
+	// TODO, use the PodCIDR passed in once we have network plugins setup
+	return &runtimeApi.UpdateRuntimeConfigResponse{}, nil
 }
