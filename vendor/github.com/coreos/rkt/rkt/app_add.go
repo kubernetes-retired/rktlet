@@ -42,6 +42,9 @@ func init() {
 	addAppFlags(cmdAppAdd)
 	addIsolatorFlags(cmdAppAdd, false)
 
+	// Add per-app volume mounts only for sandbox for now
+	cmdAppAdd.Flags().Var((*appMountVolume)(&rktApps), "mnt-volume", "Configure a per-app mount and volume directly")
+
 	// Disable interspersed flags to stop parsing after the first non flag
 	// argument. All the subsequent parsing will be done by parseApps.
 	// This is needed to correctly handle image args

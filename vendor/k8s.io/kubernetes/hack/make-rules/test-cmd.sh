@@ -419,6 +419,10 @@ runTests() {
 
   kubectl get "${kube_flags[@]}" --raw /version
 
+  # make sure the server was properly bootstrapped with clusterroles and bindings
+  kube::test::get_object_assert clusterroles/cluster-admin "{{.metadata.name}}" 'cluster-admin'
+  kube::test::get_object_assert clusterrolebindings/cluster-admin "{{.metadata.name}}" 'cluster-admin'
+
   ###########################
   # POD creation / deletion #
   ###########################
@@ -1107,6 +1111,14 @@ __EOF__
   kube::test::get_object_assert 'pods b' "{{${id_field}}}" 'b'
   kubectl delete pod/a pod/b
 
+  ## kubectl apply --prune should fallback to delete for non reapable types
+  kubectl apply --all --prune -f hack/testdata/prune-reap/a.yml 2>&1 "${kube_flags[@]}"
+  kube::test::get_object_assert 'pvc a-pvc' "{{${id_field}}}" 'a-pvc'
+  kubectl apply --all --prune -f hack/testdata/prune-reap/b.yml 2>&1 "${kube_flags[@]}"
+  kube::test::get_object_assert 'pvc b-pvc' "{{${id_field}}}" 'b-pvc'
+  kube::test::get_object_assert pods "{{range.items}}{{$id_field}}:{{end}}" ''
+  kubectl delete pvc b-pvc 2>&1 "${kube_flags[@]}"
+
   ## kubectl run should create deployments or jobs
   # Pre-Condition: no Job exists
   kube::test::get_object_assert jobs "{{range.items}}{{$id_field}}:{{end}}" ''
@@ -1179,6 +1191,39 @@ __EOF__
   kube::test::if_has_string "${output_message}" "/apis/extensions/v1beta1/namespaces/default/deployments 200 OK"
   kube::test::if_has_string "${output_message}" "/apis/extensions/v1beta1/namespaces/default/replicasets 200 OK"
 
+
+  ##################
+  # Global timeout #
+  ##################
+
+  ### Test global request timeout option
+  # Pre-condition: no POD exists
+  create_and_use_new_namespace
+  kube::test::get_object_assert pods "{{range.items}}{{$id_field}}:{{end}}" ''
+  # Command
+  kubectl create "${kube_flags[@]}" -f test/fixtures/doc-yaml/admin/limitrange/valid-pod.yaml
+  # Post-condition: valid-pod POD is created
+  kubectl get "${kube_flags[@]}" pods -o json
+  kube::test::get_object_assert pods "{{range.items}}{{$id_field}}:{{end}}" 'valid-pod:'
+
+  ## check --request-timeout on 'get pod'
+  output_message=$(kubectl get pod valid-pod --request-timeout=1)
+  kube::test::if_has_string "${output_message}" 'valid-pod'
+
+  ## check --request-timeout on 'get pod' with --watch
+  output_message=$(kubectl get pod valid-pod --request-timeout=1 --watch 2>&1)
+  kube::test::if_has_string "${output_message}" 'Timeout exceeded while reading body'
+
+  ## check --request-timeout value with no time unit
+  output_message=$(kubectl get pod valid-pod --request-timeout=1 2>&1)
+  kube::test::if_has_string "${output_message}" 'valid-pod'
+
+  ## check --request-timeout value with invalid time unit
+  output_message=$(! kubectl get pod valid-pod --request-timeout="1p" 2>&1)
+  kube::test::if_has_string "${output_message}" 'Invalid value for option'
+
+  # cleanup
+  kubectl delete pods valid-pod "${kube_flags[@]}"
 
   #####################################
   # Third Party Resources             #
@@ -1544,9 +1589,9 @@ __EOF__
   # Clean up
   kubectl delete namespace my-namespace
 
-  ##############
+  ######################
   # Pods in Namespaces #
-  ##############
+  ######################
 
   ### Create a new namespace
   # Pre-condition: the other namespace does not exist
@@ -1565,6 +1610,9 @@ __EOF__
   kube::test::get_object_assert 'pods --namespace=other' "{{range.items}}{{$id_field}}:{{end}}" 'valid-pod:'
   # Post-condition: verify shorthand `-n other` has the same results as `--namespace=other`
   kube::test::get_object_assert 'pods -n other' "{{range.items}}{{$id_field}}:{{end}}" 'valid-pod:'
+  # Post-condition: a resource cannot be retrieved by name across all namespaces
+  output_message=$(! kubectl get "${kube_flags[@]}" pod valid-pod --all-namespaces 2>&1)
+  kube::test::if_has_string "${output_message}" "a resource cannot be retrieved by name across all namespaces"
 
   ### Delete POD valid-pod in specific namespace
   # Pre-condition: valid-pod POD exists
@@ -1576,9 +1624,9 @@ __EOF__
   # Clean up
   kubectl delete namespace other
 
-  ##############
+  ###########
   # Secrets #
-  ##############
+  ###########
 
   ### Create a new namespace
   # Pre-condition: the test-secrets namespace does not exist
@@ -2110,6 +2158,37 @@ __EOF__
   ! kubectl autoscale rc frontend "${kube_flags[@]}"
   # Clean up
   kubectl delete rc frontend "${kube_flags[@]}"
+
+  ## Set resource limits/request of a deployment
+  # Pre-condition: no deployment exists
+  kube::test::get_object_assert deployment "{{range.items}}{{$id_field}}:{{end}}" ''
+  # Create a deployment
+  kubectl create -f hack/testdata/deployment-multicontainer.yaml "${kube_flags[@]}"
+  kube::test::get_object_assert deployment "{{range.items}}{{$id_field}}:{{end}}" 'nginx-deployment:'
+  kube::test::get_object_assert deployment "{{range.items}}{{$deployment_image_field}}:{{end}}" "${IMAGE_DEPLOYMENT_R1}:"
+  kube::test::get_object_assert deployment "{{range.items}}{{$deployment_second_image_field}}:{{end}}" "${IMAGE_PERL}:"
+  # Set the deployment's cpu limits
+  kubectl set resources deployment nginx-deployment --limits=cpu=100m "${kube_flags[@]}"
+  kube::test::get_object_assert deployment "{{range.items}}{{(index .spec.template.spec.containers 0).resources.limits.cpu}}:{{end}}" "100m:"
+  kube::test::get_object_assert deployment "{{range.items}}{{(index .spec.template.spec.containers 1).resources.limits.cpu}}:{{end}}" "100m:"
+  # Set a non-existing container should fail
+  ! kubectl set resources deployment nginx-deployment -c=redis --limits=cpu=100m
+  # Set the limit of a specific container in deployment
+  kubectl set resources deployment nginx-deployment -c=nginx --limits=cpu=200m "${kube_flags[@]}"
+  kube::test::get_object_assert deployment "{{range.items}}{{(index .spec.template.spec.containers 0).resources.limits.cpu}}:{{end}}" "200m:"
+  kube::test::get_object_assert deployment "{{range.items}}{{(index .spec.template.spec.containers 1).resources.limits.cpu}}:{{end}}" "100m:"
+  # Set limits/requests of a deployment specified by a file
+  kubectl set resources -f hack/testdata/deployment-multicontainer.yaml -c=perl --limits=cpu=300m --requests=cpu=300m "${kube_flags[@]}"
+  kube::test::get_object_assert deployment "{{range.items}}{{(index .spec.template.spec.containers 0).resources.limits.cpu}}:{{end}}" "200m:"
+  kube::test::get_object_assert deployment "{{range.items}}{{(index .spec.template.spec.containers 1).resources.limits.cpu}}:{{end}}" "300m:"
+  kube::test::get_object_assert deployment "{{range.items}}{{(index .spec.template.spec.containers 1).resources.requests.cpu}}:{{end}}" "300m:"
+  # Set limits on a local file without talking to the server
+  kubectl set resources deployment -f hack/testdata/deployment-multicontainer.yaml -c=perl --limits=cpu=300m --requests=cpu=300m --dry-run -o yaml "${kube_flags[@]}"
+  kube::test::get_object_assert deployment "{{range.items}}{{(index .spec.template.spec.containers 0).resources.limits.cpu}}:{{end}}" "200m:"
+  kube::test::get_object_assert deployment "{{range.items}}{{(index .spec.template.spec.containers 1).resources.limits.cpu}}:{{end}}" "300m:"
+  kube::test::get_object_assert deployment "{{range.items}}{{(index .spec.template.spec.containers 1).resources.requests.cpu}}:{{end}}" "300m:"
+  # Clean up
+  kubectl delete deployment nginx-deployment "${kube_flags[@]}"
 
 
   ######################

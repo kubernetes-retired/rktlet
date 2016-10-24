@@ -26,9 +26,9 @@ import (
 	"sync"
 	"time"
 
-	staging "k8s.io/client-go/1.5/kubernetes"
-	"k8s.io/client-go/1.5/pkg/util/sets"
-	clientreporestclient "k8s.io/client-go/1.5/rest"
+	staging "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/pkg/util/sets"
+	clientreporestclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/federation/client/clientset_generated/federation_release_1_5"
 	"k8s.io/kubernetes/pkg/api"
 	apierrs "k8s.io/kubernetes/pkg/api/errors"
@@ -45,6 +45,7 @@ import (
 	"k8s.io/kubernetes/pkg/metrics"
 	"k8s.io/kubernetes/pkg/util/intstr"
 	"k8s.io/kubernetes/pkg/util/wait"
+	testutils "k8s.io/kubernetes/test/utils"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -260,7 +261,7 @@ func (f *Framework) BeforeEach() {
 		f.logsSizeWaitGroup = sync.WaitGroup{}
 		f.logsSizeWaitGroup.Add(1)
 		f.logsSizeCloseChannel = make(chan bool)
-		f.logsSizeVerifier = NewLogsVerifier(f.Client, f.logsSizeCloseChannel)
+		f.logsSizeVerifier = NewLogsVerifier(f.Client, f.ClientSet, f.logsSizeCloseChannel)
 		go func() {
 			f.logsSizeVerifier.Run()
 			f.logsSizeWaitGroup.Done()
@@ -377,16 +378,16 @@ func (f *Framework) AfterEach() {
 		// Pass both unversioned client and and versioned clientset, till we have removed all uses of the unversioned client.
 		DumpAllNamespaceInfo(f.Client, f.ClientSet_1_5, f.Namespace.Name)
 		By(fmt.Sprintf("Dumping a list of prepulled images on each node"))
-		LogContainersInPodsWithLabels(f.Client, api.NamespaceSystem, ImagePullerLabels, "image-puller")
+		LogContainersInPodsWithLabels(f.Client, api.NamespaceSystem, ImagePullerLabels, "image-puller", Logf)
 		if f.federated {
 			// Dump federation events in federation namespace.
 			DumpEventsInNamespace(func(opts v1.ListOptions, ns string) (*v1.EventList, error) {
 				return f.FederationClientset_1_5.Core().Events(ns).List(opts)
 			}, f.FederationNamespace.Name)
 			// Print logs of federation control plane pods (federation-apiserver and federation-controller-manager)
-			LogPodsWithLabels(f.Client, "federation", map[string]string{"app": "federated-cluster"})
+			LogPodsWithLabels(f.Client, "federation", map[string]string{"app": "federated-cluster"}, Logf)
 			// Print logs of kube-dns pod
-			LogPodsWithLabels(f.Client, "kube-system", map[string]string{"k8s-app": "kube-dns"})
+			LogPodsWithLabels(f.Client, "kube-system", map[string]string{"k8s-app": "kube-dns"}, Logf)
 		}
 	}
 
@@ -612,7 +613,7 @@ func (f *Framework) CreateServiceForSimpleAppWithPods(contPort int, svcPort int,
 	theService := f.CreateServiceForSimpleApp(contPort, svcPort, appName)
 	f.CreatePodsPerNodeForSimpleApp(appName, podSpec, count)
 	if block {
-		err = WaitForPodsWithLabelRunning(f.Client, f.Namespace.Name, labels.SelectorFromSet(labels.Set(theService.Spec.Selector)))
+		err = testutils.WaitForPodsWithLabelRunning(f.Client, f.Namespace.Name, labels.SelectorFromSet(labels.Set(theService.Spec.Selector)))
 	}
 	return err, theService
 }
@@ -658,7 +659,7 @@ func (f *Framework) CreateServiceForSimpleApp(contPort, svcPort int, appName str
 
 // CreatePodsPerNodeForSimpleApp Creates pods w/ labels.  Useful for tests which make a bunch of pods w/o any networking.
 func (f *Framework) CreatePodsPerNodeForSimpleApp(appName string, podSpec func(n api.Node) api.PodSpec, maxCount int) map[string]string {
-	nodes := GetReadySchedulableNodesOrDie(f.Client)
+	nodes := GetReadySchedulableNodesOrDie(f.ClientSet)
 	labels := map[string]string{
 		"app": appName + "-pod",
 	}

@@ -1,7 +1,7 @@
 package: github.com/kubernetes-incubator/rktlet
 import:
 - package: k8s.io/kubernetes
-  version: e72f26a3fff4f521d1da9f52b3ce82d4d0d5a401
+  version: 230fe1aeab7588fd375581a4dbec4b8d72006122
   subpackages:
   - pkg/kubelet/api/v1alpha1/runtime
   - pkg/kubelet/container

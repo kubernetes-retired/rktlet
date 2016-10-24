@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package api
+package kubeadm
 
 import "k8s.io/kubernetes/pkg/api/unversioned"
 
@@ -23,6 +23,7 @@ type MasterConfiguration struct {
 
 	Secrets           Secrets
 	API               API
+	Discovery         Discovery
 	Etcd              Etcd
 	Networking        Networking
 	KubernetesVersion string
@@ -32,6 +33,11 @@ type MasterConfiguration struct {
 type API struct {
 	AdvertiseAddresses []string
 	ExternalDNSNames   []string
+	BindPort           int32
+}
+
+type Discovery struct {
+	BindPort int32
 }
 
 type Networking struct {
@@ -59,6 +65,8 @@ type NodeConfiguration struct {
 
 	MasterAddresses []string
 	Secrets         Secrets
+	APIPort         int32
+	DiscoveryPort   int32
 }
 
 // ClusterInfo TODO add description

@@ -19,10 +19,12 @@ package v1alpha1
 import "k8s.io/kubernetes/pkg/api/unversioned"
 
 type MasterConfiguration struct {
-	unversioned.TypeMeta
+	unversioned.TypeMeta `json:",inline"`
 
 	Secrets           Secrets    `json:"secrets"`
 	API               API        `json:"api"`
+	Etcd              Etcd       `json:"etcd"`
+	Discovery         Discovery  `json:"discovery"`
 	Networking        Networking `json:"networking"`
 	KubernetesVersion string     `json:"kubernetesVersion"`
 	CloudProvider     string     `json:"cloudProvider"`
@@ -31,6 +33,11 @@ type MasterConfiguration struct {
 type API struct {
 	AdvertiseAddresses []string `json:"advertiseAddresses"`
 	ExternalDNSNames   []string `json:"externalDNSNames"`
+	BindPort           int32    `json:"bindPort"`
+}
+
+type Discovery struct {
+	BindPort int32 `json:"bindPort"`
 }
 
 type Networking struct {
@@ -54,14 +61,17 @@ type Secrets struct {
 }
 
 type NodeConfiguration struct {
-	unversioned.TypeMeta
+	unversioned.TypeMeta `json:",inline"`
 
 	MasterAddresses []string `json:"masterAddresses"`
+	Secrets         Secrets  `json:"secrets"`
+	APIPort         int32    `json:"apiPort"`
+	DiscoveryPort   int32    `json:"discoveryPort"`
 }
 
 // ClusterInfo TODO add description
 type ClusterInfo struct {
-	unversioned.TypeMeta
+	unversioned.TypeMeta `json:",inline"`
 	// TODO(phase1+) this may become simply `api.Config`
 	CertificateAuthorities []string `json:"certificateAuthorities"`
 	Endpoints              []string `json:"endpoints"`

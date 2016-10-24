@@ -18,7 +18,6 @@ package ingress
 
 import (
 	"fmt"
-	"reflect"
 	"sync"
 	"time"
 
@@ -317,17 +316,9 @@ func (ic *IngressController) Run(stopChan <-chan struct{}) {
 		}
 		ic.reconcileConfigMapForCluster(clusterName)
 	})
-	go func() {
-		select {
-		case <-time.After(time.Minute):
-			glog.V(4).Infof("Ingress controller is garbage collecting")
-			ic.ingressBackoff.GC()
-			ic.configMapBackoff.GC()
-			glog.V(4).Infof("Ingress controller garbage collection complete")
-		case <-stopChan:
-			return
-		}
-	}()
+
+	util.StartBackoffGC(ic.ingressBackoff, stopChan)
+	util.StartBackoffGC(ic.configMapBackoff, stopChan)
 }
 
 func (ic *IngressController) deliverIngressObj(obj interface{}, delay time.Duration, failed bool) {
@@ -719,8 +710,7 @@ func (ic *IngressController) reconcileIngress(ingress types.NamespacedName) {
 				glog.V(4).Infof(logStr, "Not transferring")
 			}
 			// Update existing cluster ingress, if needed.
-			if util.ObjectMetaEquivalent(baseIngress.ObjectMeta, clusterIngress.ObjectMeta) &&
-				reflect.DeepEqual(baseIngress.Spec, clusterIngress.Spec) {
+			if util.ObjectMetaAndSpecEquivalent(baseIngress, clusterIngress) {
 				glog.V(4).Infof("Ingress %q in cluster %q does not need an update: cluster ingress is equivalent to federated ingress", ingress, cluster.Name)
 			} else {
 				glog.V(4).Infof("Ingress %s in cluster %s needs an update: cluster ingress %v is not equivalent to federated ingress %v", ingress, cluster.Name, clusterIngress, desiredIngress)

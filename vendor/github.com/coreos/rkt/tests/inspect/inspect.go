@@ -35,6 +35,8 @@ import (
 
 	"github.com/appc/spec/pkg/device"
 	"github.com/coreos/rkt/common/cgroup"
+	"github.com/coreos/rkt/common/cgroup/v1"
+	"github.com/coreos/rkt/common/cgroup/v2"
 	"github.com/coreos/rkt/tests/testutils"
 	"github.com/syndtr/gocapability/capability"
 )
@@ -58,6 +60,7 @@ var (
 		WriteFile          bool
 		StatFile           bool
 		HashFile           bool
+		FileSymlinkTarget  bool
 		Sleep              int
 		PreSleep           int
 		PrintMemoryLimit   bool
@@ -102,6 +105,7 @@ func init() {
 	globalFlagset.BoolVar(&globalFlags.WriteFile, "write-file", false, "Write $CONTENT in the file $FILE")
 	globalFlagset.BoolVar(&globalFlags.StatFile, "stat-file", false, "Print the ownership and mode of the file $FILE")
 	globalFlagset.BoolVar(&globalFlags.HashFile, "hash-file", false, "Print the SHA1SUM of the file $FILE")
+	globalFlagset.BoolVar(&globalFlags.FileSymlinkTarget, "file-symlink-target", false, "Print the symlink target of $FILE")
 	globalFlagset.IntVar(&globalFlags.Sleep, "sleep", -1, "Sleep before exiting (in seconds)")
 	globalFlagset.IntVar(&globalFlags.PreSleep, "pre-sleep", -1, "Sleep before executing (in seconds)")
 	globalFlagset.BoolVar(&globalFlags.PrintMemoryLimit, "print-memorylimit", false, "Print cgroup memory limit")
@@ -142,7 +146,7 @@ func main() {
 	args := globalFlagset.Args()
 	if len(args) > 0 {
 		fmt.Fprintln(os.Stderr, "Wrong parameters")
-		os.Exit(1)
+		os.Exit(254)
 	}
 
 	if globalFlags.PrintNoNewPrivs {
@@ -160,18 +164,18 @@ func main() {
 		dev := strings.SplitN(globalFlags.CheckMknod, ":", 4)
 		if len(dev) < 4 {
 			fmt.Fprintln(os.Stderr, "Not enough parameters for mknod")
-			os.Exit(1)
+			os.Exit(254)
 		}
 		typ := dev[0]
 		major, err := strconv.Atoi(dev[1])
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Wrong major")
-			os.Exit(1)
+			os.Exit(254)
 		}
 		minor, err := strconv.Atoi(dev[2])
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Wrong minor")
-			os.Exit(1)
+			os.Exit(254)
 		}
 		nodeName := dev[3]
 
@@ -184,12 +188,12 @@ func main() {
 			mode |= syscall.S_IFBLK
 		default:
 			fmt.Fprintln(os.Stderr, "Wrong device node type")
-			os.Exit(1)
+			os.Exit(254)
 		}
 
 		if err := syscall.Mknod(nodeName, mode, int(majorMinor)); err != nil {
 			fmt.Fprintf(os.Stderr, "mknod %s: fail: %v\n", nodeName, err)
-			os.Exit(1)
+			os.Exit(254)
 		} else {
 			fmt.Printf("mknod %s: succeed\n", nodeName)
 			os.Exit(0)
@@ -231,7 +235,7 @@ func main() {
 		envBytes, err := ioutil.ReadFile("/proc/self/environ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading environment from \"/proc/self/environ\": %v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		for _, v := range bytes.Split(envBytes, []byte{0}) {
 			if len(v) == 0 {
@@ -240,7 +244,7 @@ func main() {
 			if strings.HasPrefix(string(v), "PATH=") {
 				if strings.Contains(string(v), "\n") {
 					fmt.Fprintf(os.Stderr, "Malformed PATH: found new line")
-					os.Exit(1)
+					os.Exit(254)
 				} else {
 					fmt.Printf("PATH is good\n")
 					os.Exit(0)
@@ -250,7 +254,7 @@ func main() {
 			}
 		}
 		fmt.Fprintf(os.Stderr, "PATH not found")
-		os.Exit(1)
+		os.Exit(254)
 	}
 
 	if globalFlags.PrintExec {
@@ -277,7 +281,7 @@ func main() {
 		caps, err := capability.NewPid(globalFlags.PrintCapsPid)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cannot get caps: %v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Printf("Capability set: effective: %s (%s)\n", caps.StringCap(capability.EFFECTIVE), globalFlags.SuffixMsg)
 		fmt.Printf("Capability set: permitted: %s (%s)\n", caps.StringCap(capability.PERMITTED), globalFlags.SuffixMsg)
@@ -288,7 +292,7 @@ func main() {
 			capInt, err := strconv.Atoi(capStr)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Environment variable $CAPABILITY is not a valid capability number: %v\n", err)
-				os.Exit(1)
+				os.Exit(254)
 			}
 			c := capability.Cap(capInt)
 			if caps.Get(capability.BOUNDING, c) {
@@ -307,7 +311,7 @@ func main() {
 		gids, err := os.Getgroups()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error getting groups: %v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		// getgroups(2): It is unspecified whether the effective group ID of
 		// the calling process is included in the returned list. (Thus, an
@@ -338,7 +342,7 @@ func main() {
 		err := ioutil.WriteFile(fileName, []byte(content), 0600)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cannot write to file %q: %v\n", fileName, err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 	}
 
@@ -351,7 +355,7 @@ func main() {
 		dat, err := ioutil.ReadFile(fileName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cannot read file %q: %v\n", fileName, err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Print("<<<")
 		fmt.Print(string(dat))
@@ -367,7 +371,7 @@ func main() {
 		fi, err := os.Stat(fileName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cannot stat file %q: %v\n", fileName, err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Printf("%s: mode: %s\n", fileName, fi.Mode().String())
 		fmt.Printf("%s: user: %v\n", fileName, fi.Sys().(*syscall.Stat_t).Uid)
@@ -383,17 +387,32 @@ func main() {
 		dat, err := ioutil.ReadFile(fileName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cannot read file %q: %v\n", fileName, err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 
 		fmt.Printf("sha1sum: %x\n", sha1.Sum(dat))
+	}
+
+	if globalFlags.FileSymlinkTarget {
+		fileName := os.Getenv("FILE")
+		if globalFlags.FileName != "" {
+			fileName = globalFlags.FileName
+		}
+
+		dst, err := os.Readlink(fileName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Cannot read file target %q: %v\n", fileName, err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("symlink: %q -> %q\n", fileName, dst)
 	}
 
 	if globalFlags.PrintCwd {
 		wd, err := os.Getwd()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cannot get working directory: %v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Printf("cwd: %s\n", wd)
 	}
@@ -407,23 +426,23 @@ func main() {
 		isUnified, err := cgroup.IsCgroupUnified("/proc/1/root/")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error getting cgroup type: %v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 
 		var limitPath string
 		if isUnified {
-			cgroupPath, err := cgroup.GetOwnV2CgroupPath()
+			cgroupPath, err := v2.GetOwnCgroupPath()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error getting own memory cgroup path: %v\n", err)
-				os.Exit(1)
+				os.Exit(254)
 			}
 			limitPath = filepath.Join("/proc/1/root/sys/fs/cgroup/", cgroupPath, "memory.max")
 			fmt.Fprintln(os.Stderr, "limitPath:", limitPath)
 		} else {
-			memCgroupPath, err := cgroup.GetOwnV1CgroupPath("memory")
+			memCgroupPath, err := v1.GetOwnCgroupPath("memory")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error getting own memory cgroup path: %v\n", err)
-				os.Exit(1)
+				os.Exit(254)
 			}
 			limitPath = filepath.Join("/proc/1/root/sys/fs/cgroup/memory", memCgroupPath, "memory.limit_in_bytes")
 			fmt.Fprintln(os.Stderr, limitPath)
@@ -431,17 +450,17 @@ func main() {
 		limit, err := ioutil.ReadFile(limitPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Can't read %s\n", limitPath)
-			os.Exit(1)
+			os.Exit(254)
 		}
 
 		fmt.Printf("Memory Limit: %s\n", string(limit))
 	}
 
 	if globalFlags.PrintCPUQuota {
-		cpuCgroupPath, err := cgroup.GetOwnV1CgroupPath("cpu")
+		cpuCgroupPath, err := v1.GetOwnCgroupPath("cpu")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error getting own cpu cgroup path: %v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		// we use /proc/1/root to escape the chroot we're in and read our
 		// cpu quota
@@ -449,24 +468,24 @@ func main() {
 		periodBytes, err := ioutil.ReadFile(periodPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Can't read cpu.cpu_period_us\n")
-			os.Exit(1)
+			os.Exit(254)
 		}
 		quotaPath := filepath.Join("/proc/1/root/sys/fs/cgroup/cpu", cpuCgroupPath, "cpu.cfs_quota_us")
 		quotaBytes, err := ioutil.ReadFile(quotaPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Can't read cpu.cpu_quota_us\n")
-			os.Exit(1)
+			os.Exit(254)
 		}
 
 		period, err := strconv.Atoi(strings.Trim(string(periodBytes), "\n"))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		quota, err := strconv.Atoi(strings.Trim(string(quotaBytes), "\n"))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 
 		quotaMilliCores := quota * 1000 / period
@@ -488,7 +507,7 @@ func main() {
 		for _, p := range testPaths {
 			if err := syscall.Mkdir(filepath.Join(p, "test"), 0600); err == nil || err != syscall.EROFS {
 				fmt.Fprintf(os.Stderr, "check-cgroups: FAIL (%v)", err)
-				os.Exit(1)
+				os.Exit(254)
 			}
 		}
 
@@ -509,11 +528,11 @@ func main() {
 		ips, err := testutils.GetIPsv4(iface)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		if len(ips) == 0 {
 			fmt.Fprintf(os.Stderr, "No IPv4 found for interface %+v:\n", iface)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Printf("%v IPv4: %s\n", iface, ips[0])
 	}
@@ -522,7 +541,7 @@ func main() {
 		gw, err := testutils.GetDefaultGWv4()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Printf("DefaultGWv4: %s\n", gw)
 	}
@@ -531,7 +550,7 @@ func main() {
 		gw, err := testutils.GetDefaultGWv6()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Printf("DefaultGWv6: %s\n", gw)
 	}
@@ -542,7 +561,7 @@ func main() {
 		gw, err := testutils.GetGWv4(iface)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Printf("%v GWv4: %s\n", iface, gw)
 	}
@@ -559,7 +578,7 @@ func main() {
 		hostname, err := os.Hostname()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Printf("Hostname: %s\n", hostname)
 	}
@@ -568,7 +587,7 @@ func main() {
 		err := testutils.HTTPServe(globalFlags.ServeHTTP, globalFlags.ServeHTTPTimeout)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 	}
 
@@ -576,7 +595,7 @@ func main() {
 		body, err := testutils.HTTPGet(globalFlags.GetHTTP)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Printf("HTTP-Get received: %s\n", body)
 	}
@@ -585,7 +604,7 @@ func main() {
 		ifaceCount, err := testutils.GetIfaceCount()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Printf("Interface count: %d\n", ifaceCount)
 	}
@@ -595,7 +614,7 @@ func main() {
 		body, err := testutils.HTTPGet(fmt.Sprintf("%s/acMetadata/v1/apps/%s/annotations/%s", mdsUrl, appName, globalFlags.PrintAppAnnotation))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		fmt.Printf("Annotation %s=%s\n", globalFlags.PrintAppAnnotation, body)
 	}
@@ -604,18 +623,18 @@ func main() {
 		appMountNS, err := os.Readlink("/proc/self/ns/mnt")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		s1MountNS, err := os.Readlink("/proc/1/ns/mnt")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
+			os.Exit(254)
 		}
 		if appMountNS != s1MountNS {
 			fmt.Println("check-mountns: DIFFERENT")
 		} else {
 			fmt.Println("check-mountns: IDENTICAL")
-			os.Exit(1)
+			os.Exit(254)
 		}
 	}
 

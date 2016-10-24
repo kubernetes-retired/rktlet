@@ -137,7 +137,7 @@ var (
 				volDir, mountDir,
 			),
 			nil,
-			1,
+			254,
 			"",
 		},
 	}
@@ -180,7 +180,7 @@ var (
 								{"FILE", mountFilePath},
 							},
 							MountPoints: []types.MountPoint{
-								{mountName, mountDir, false, nil},
+								{mountName, mountDir, false},
 							},
 						},
 					},
@@ -213,7 +213,7 @@ var (
 								{"CONTENT", "should-not-see-me"},
 							},
 							MountPoints: []types.MountPoint{
-								{mountName, mountDir, false, nil},
+								{mountName, mountDir, false},
 							},
 						},
 					},
@@ -224,7 +224,7 @@ var (
 						Mode: nil, UID: nil, GID: nil},
 				},
 			},
-			1,
+			254,
 			"",
 		},
 	}
@@ -249,7 +249,7 @@ var (
 								{"CONTENT", "host:foo"},
 							},
 							MountPoints: []types.MountPoint{
-								{mountName, mountDir, false, nil},
+								{mountName, mountDir, false},
 							},
 						},
 						ReadOnlyRootFS: true,
@@ -285,7 +285,7 @@ var (
 								{"FILE", mountFilePath},
 							},
 							MountPoints: []types.MountPoint{
-								{mountName, mountDir, false, nil},
+								{mountName, mountDir, false},
 							},
 						},
 					},

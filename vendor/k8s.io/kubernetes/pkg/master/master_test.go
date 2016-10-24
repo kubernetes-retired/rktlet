@@ -19,7 +19,6 @@ package master
 import (
 	"crypto/tls"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -44,11 +43,12 @@ import (
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	extensionsapiv1beta1 "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	"k8s.io/kubernetes/pkg/apis/rbac"
+	"k8s.io/kubernetes/pkg/apiserver/openapi"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
 	"k8s.io/kubernetes/pkg/client/restclient"
-	"k8s.io/kubernetes/pkg/generated/openapi"
+	openapigen "k8s.io/kubernetes/pkg/generated/openapi"
 	"k8s.io/kubernetes/pkg/genericapiserver"
-	"k8s.io/kubernetes/pkg/kubelet/client"
+	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
 	ipallocator "k8s.io/kubernetes/pkg/registry/core/service/ipallocator"
 	"k8s.io/kubernetes/pkg/registry/registrytest"
 	"k8s.io/kubernetes/pkg/runtime"
@@ -69,7 +69,7 @@ func setUp(t *testing.T) (*Master, *etcdtesting.EtcdTestServer, Config, *assert.
 	server, storageConfig := etcdtesting.NewUnsecuredEtcd3TestClientServer(t)
 
 	config := &Config{
-		GenericConfig: &genericapiserver.Config{},
+		GenericConfig: genericapiserver.NewConfig(),
 	}
 
 	resourceEncoding := genericapiserver.NewDefaultResourceEncodingConfig()
@@ -82,29 +82,22 @@ func setUp(t *testing.T) (*Master, *etcdtesting.EtcdTestServer, Config, *assert.
 	resourceEncoding.SetVersionEncoding(certificates.GroupName, *testapi.Certificates.GroupVersion(), unversioned.GroupVersion{Group: certificates.GroupName, Version: runtime.APIVersionInternal})
 	storageFactory := genericapiserver.NewDefaultStorageFactory(*storageConfig, testapi.StorageMediaType(), api.Codecs, resourceEncoding, DefaultAPIResourceConfigSource())
 
+	kubeVersion := version.Get()
+	config.GenericConfig.Version = &kubeVersion
 	config.StorageFactory = storageFactory
 	config.GenericConfig.LoopbackClientConfig = &restclient.Config{APIPath: "/api", ContentConfig: restclient.ContentConfig{NegotiatedSerializer: api.Codecs}}
 	config.GenericConfig.APIResourceConfigSource = DefaultAPIResourceConfigSource()
 	config.GenericConfig.PublicAddress = net.ParseIP("192.168.10.4")
-	config.GenericConfig.Serializer = api.Codecs
-	config.KubeletClient = client.FakeKubeletClient{}
-	config.GenericConfig.APIPrefix = "/api"
-	config.GenericConfig.APIGroupPrefix = "/apis"
+	config.GenericConfig.LegacyAPIGroupPrefixes = sets.NewString("/api")
 	config.GenericConfig.APIResourceConfigSource = DefaultAPIResourceConfigSource()
-	config.GenericConfig.ProxyDialer = func(network, addr string) (net.Conn, error) { return nil, nil }
-	config.GenericConfig.ProxyTLSClientConfig = &tls.Config{}
 	config.GenericConfig.RequestContextMapper = api.NewRequestContextMapper()
-	config.GenericConfig.EnableVersion = true
 	config.GenericConfig.LoopbackClientConfig = &restclient.Config{APIPath: "/api", ContentConfig: restclient.ContentConfig{NegotiatedSerializer: api.Codecs}}
 	config.EnableCoreControllers = false
-
-	// TODO: this is kind of hacky.  The trouble is that the sync loop
-	// runs in a go-routine and there is no way to validate in the test
-	// that the sync routine has actually run.  The right answer here
-	// is probably to add some sort of callback that we can register
-	// to validate that it's actually been run, but for now we don't
-	// run the sync routine and register types manually.
-	config.disableThirdPartyControllerForTesting = true
+	config.KubeletClientConfig = kubeletclient.KubeletClientConfig{Port: 10250}
+	config.ProxyTransport = utilnet.SetTransportDefaults(&http.Transport{
+		Dial:            func(network, addr string) (net.Conn, error) { return nil, nil },
+		TLSClientConfig: &tls.Config{},
+	})
 
 	master, err := config.Complete().New()
 	if err != nil {
@@ -157,27 +150,14 @@ func newLimitedMaster(t *testing.T) (*Master, *etcdtesting.EtcdTestServer, Confi
 // TestNew verifies that the New function returns a Master
 // using the configuration properly.
 func TestNew(t *testing.T) {
-	master, etcdserver, config, assert := newMaster(t)
+	master, etcdserver, _, assert := newMaster(t)
 	defer etcdserver.Terminate(t)
-
-	// Verify many of the variables match their config counterparts
-	assert.Equal(master.RequestContextMapper(), config.GenericConfig.RequestContextMapper)
-	assert.Equal(master.ClusterIP, config.GenericConfig.PublicAddress)
 
 	// these values get defaulted
 	_, serviceClusterIPRange, _ := net.ParseCIDR("10.0.0.0/24")
 	serviceReadWriteIP, _ := ipallocator.GetIndexedIP(serviceClusterIPRange, 1)
-	assert.Equal(master.MasterCount, 1)
-	assert.Equal(master.PublicReadWritePort, 6443)
-	assert.Equal(master.ServiceReadWriteIP, serviceReadWriteIP)
-
-	// These functions should point to the same memory location
-	masterDialer, _ := utilnet.Dialer(master.ProxyTransport)
-	masterDialerFunc := fmt.Sprintf("%p", masterDialer)
-	configDialerFunc := fmt.Sprintf("%p", config.GenericConfig.ProxyDialer)
-	assert.Equal(masterDialerFunc, configDialerFunc)
-
-	assert.Equal(master.ProxyTransport.(*http.Transport).TLSClientConfig, config.GenericConfig.ProxyTLSClientConfig)
+	assert.Equal(master.GenericAPIServer.MasterCount, 1)
+	assert.Equal(master.GenericAPIServer.ServiceReadWriteIP, serviceReadWriteIP)
 }
 
 // TestVersion tests /version
@@ -187,7 +167,7 @@ func TestVersion(t *testing.T) {
 
 	req, _ := http.NewRequest("GET", "/version", nil)
 	resp := httptest.NewRecorder()
-	s.InsecureHandler.ServeHTTP(resp, req)
+	s.GenericAPIServer.InsecureHandler.ServeHTTP(resp, req)
 	if resp.Code != 200 {
 		t.Fatalf("expected http 200, got: %d", resp.Code)
 	}
@@ -302,7 +282,7 @@ func TestAPIVersionOfDiscoveryEndpoints(t *testing.T) {
 	master, etcdserver, _, assert := newMaster(t)
 	defer etcdserver.Terminate(t)
 
-	server := httptest.NewServer(master.HandlerContainer.ServeMux)
+	server := httptest.NewServer(master.GenericAPIServer.HandlerContainer.ServeMux)
 
 	// /api exists in release-1.1
 	resp, err := http.Get(server.URL + "/api")
@@ -376,7 +356,7 @@ func TestDiscoveryAtAPIS(t *testing.T) {
 	master, etcdserver, _, assert := newLimitedMaster(t)
 	defer etcdserver.Terminate(t)
 
-	server := httptest.NewServer(master.HandlerContainer.ServeMux)
+	server := httptest.NewServer(master.GenericAPIServer.HandlerContainer.ServeMux)
 	resp, err := http.Get(server.URL + "/apis")
 	if !assert.NoError(err) {
 		t.Errorf("unexpected error: %v", err)
@@ -453,12 +433,10 @@ func TestDiscoveryAtAPIS(t *testing.T) {
 	}
 
 	thirdPartyGV := unversioned.GroupVersionForDiscovery{GroupVersion: "company.com/v1", Version: "v1"}
-	master.addThirdPartyResourceStorage("/apis/company.com/v1", "foos", nil,
-		unversioned.APIGroup{
-			Name:             "company.com",
-			Versions:         []unversioned.GroupVersionForDiscovery{thirdPartyGV},
-			PreferredVersion: thirdPartyGV,
-		})
+	master.thirdPartyResourceServer.InstallThirdPartyResource(&extensions.ThirdPartyResource{
+		ObjectMeta: api.ObjectMeta{Name: "foo.company.com"},
+		Versions:   []extensions.APIVersion{{Name: "v1"}},
+	})
 
 	resp, err = http.Get(server.URL + "/apis")
 	if !assert.NoError(err) {
@@ -500,29 +478,30 @@ func TestValidOpenAPISpec(t *testing.T) {
 	_, etcdserver, config, assert := setUp(t)
 	defer etcdserver.Terminate(t)
 
-	config.GenericConfig.OpenAPIDefinitions = openapi.OpenAPIDefinitions
+	config.GenericConfig.OpenAPIConfig.Definitions = openapigen.OpenAPIDefinitions
 	config.GenericConfig.EnableOpenAPISupport = true
 	config.GenericConfig.EnableIndex = true
-	config.GenericConfig.OpenAPIInfo = spec.Info{
+	config.GenericConfig.OpenAPIConfig.Info = &spec.Info{
 		InfoProps: spec.InfoProps{
 			Title:   "Kubernetes",
 			Version: "unversioned",
 		},
 	}
+	config.GenericConfig.OpenAPIConfig.GetOperationID = openapi.GetOperationID
 	master, err := config.Complete().New()
 	if err != nil {
 		t.Fatalf("Error in bringing up the master: %v", err)
 	}
 
 	// make sure swagger.json is not registered before calling install api.
-	server := httptest.NewServer(master.HandlerContainer.ServeMux)
+	server := httptest.NewServer(master.GenericAPIServer.HandlerContainer.ServeMux)
 	resp, err := http.Get(server.URL + "/swagger.json")
 	if !assert.NoError(err) {
 		t.Errorf("unexpected error: %v", err)
 	}
 	assert.Equal(http.StatusNotFound, resp.StatusCode)
 
-	master.InstallOpenAPI()
+	master.GenericAPIServer.InstallOpenAPI()
 	resp, err = http.Get(server.URL + "/swagger.json")
 	if !assert.NoError(err) {
 		t.Errorf("unexpected error: %v", err)
@@ -593,7 +572,7 @@ func TestValidOpenAPISpec(t *testing.T) {
 						t.Logf("Open API spec on %v has some warnings : %v", path, warns)
 					}
 				} else {
-					t.Logf("Validation is disabled because it is timing out on jenkins put passing locally.")
+					t.Logf("Validation is disabled because it is timing out on jenkins but passing locally.")
 				}
 			}
 

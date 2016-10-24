@@ -61,17 +61,17 @@ var debugEnabled bool
 // PrepareConfig defines the configuration parameters required by Prepare
 type PrepareConfig struct {
 	*CommonConfig
-	Apps               *apps.Apps           // apps to prepare
-	InheritEnv         bool                 // inherit parent environment into apps
-	ExplicitEnv        []string             // always set these environment variables for all the apps
-	EnvFromFile        []string             // environment variables loaded from files, set for all the apps
-	Ports              []types.ExposedPort  // list of ports that rkt will expose on the host
-	UseOverlay         bool                 // prepare pod with overlay fs
-	SkipTreeStoreCheck bool                 // skip checking the treestore before rendering
-	PodManifest        string               // use the pod manifest specified by the user, this will ignore flags such as '--volume', '--port', etc.
-	PrivateUsers       *user.UidRange       // user namespaces
-	UserAnnotations    types.CRIAnnotations // user annotations for the pod.
-	UserLabels         types.CRILabels      // user labels for the pod.
+	Apps               *apps.Apps            // apps to prepare
+	InheritEnv         bool                  // inherit parent environment into apps
+	ExplicitEnv        []string              // always set these environment variables for all the apps
+	EnvFromFile        []string              // environment variables loaded from files, set for all the apps
+	Ports              []types.ExposedPort   // list of ports that rkt will expose on the host
+	UseOverlay         bool                  // prepare pod with overlay fs
+	SkipTreeStoreCheck bool                  // skip checking the treestore before rendering
+	PodManifest        string                // use the pod manifest specified by the user, this will ignore flags such as '--volume', '--port', etc.
+	PrivateUsers       *user.UidRange        // user namespaces
+	UserAnnotations    types.UserAnnotations // user annotations for the pod.
+	UserLabels         types.UserLabels      // user labels for the pod.
 }
 
 // RunConfig defines the configuration parameters needed by Run
@@ -108,7 +108,8 @@ type CommonConfig struct {
 	Mutable      bool   // whether this pod is mutable
 }
 
-// An etc-hosts file: mapping from IP to arbitrary list of hostnames
+// HostsEntries encapsulates the entries in an etc-hosts file: mapping from IP
+// to arbitrary list of hostnames
 type HostsEntries map[string][]string
 
 // DNSConfMode indicates what the stage1 should do with dns config files
@@ -117,7 +118,6 @@ type HostsEntries map[string][]string
 // 'stage0': the stage0 has generated it
 // 'none' : do not generate it
 // 'default' : do whatever was the default
-
 type DNSConfMode struct {
 	Resolv string // /etc/rkt-resolv.conf
 	Hosts  string // /etc/rkt-hosts
@@ -280,11 +280,11 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 		}
 
 		if app.UserAnnotations != nil {
-			ra.App.CRIAnnotations = app.UserAnnotations
+			ra.App.UserAnnotations = app.UserAnnotations
 		}
 
 		if app.UserLabels != nil {
-			ra.App.CRILabels = app.UserLabels
+			ra.App.UserLabels = app.UserLabels
 		}
 
 		// loading the environment from the lowest priority to highest
@@ -326,8 +326,8 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 		Value: strconv.FormatBool(cfg.Mutable),
 	})
 
-	pm.CRIAnnotations = cfg.UserAnnotations
-	pm.CRILabels = cfg.UserLabels
+	pm.UserAnnotations = cfg.UserAnnotations
+	pm.UserLabels = cfg.UserLabels
 
 	pmb, err := json.Marshal(pm)
 	if err != nil {
@@ -556,11 +556,9 @@ func writeResolvConf(cfg *RunConfig, rootfs string) {
 	}
 }
 
-/*
- * Write /etc/rkt-hosts in to the stage1 rootfs, if there is anything there
- * This will read defaults from <rootfs>/etc/hosts-fallback if it exists.
- * Therefore, this should be called after the stage1 is mounted
- */
+// writeEtcHosts writes the file /etc/rkt-hosts into the stage1 rootfs.
+// This will read defaults from <rootfs>/etc/hosts-fallback if it exists.
+// Therefore, this should be called after the stage1 is mounted
 func writeEtcHosts(cfg *RunConfig, rootfs string) {
 	if cfg.DNSConfMode.Hosts != "stage0" {
 		return
@@ -580,7 +578,7 @@ func writeEtcHosts(cfg *RunConfig, rootfs string) {
 		hostsText = fmt.Sprintf("%s%s %s\n", hostsText, ip, strings.Join(hostnames, " "))
 	}
 
-	// Create /etc if it does not exists
+	// Create /etc if it does not exist
 	etcPath := filepath.Join(rootfs, "etc")
 	if _, err := os.Stat(etcPath); err != nil && os.IsNotExist(err) {
 		err = os.Mkdir(etcPath, 0755)
@@ -822,8 +820,9 @@ func prepareAppImage(cfg PrepareConfig, appName types.ACName, img types.Hash, cd
 }
 
 // setupAppImage mounts the overlay filesystem for the app image that
-// corresponds to the given hash. Then, it creates the tmp directory.
-// When useOverlay is false it just creates the tmp directory for this app.
+// corresponds to the given hash if useOverlay is true.
+// It also creates an mtab file in the application's rootfs if one is not
+// present.
 func setupAppImage(cfg RunConfig, appName types.ACName, img types.Hash, cdir string, useOverlay bool) error {
 	ad := common.AppPath(cdir, appName)
 	if useOverlay {
@@ -842,7 +841,39 @@ func setupAppImage(cfg RunConfig, appName types.ACName, img types.Hash, cdir str
 			return errwrap.Wrap(errors.New("error rendering overlay filesystem"), err)
 		}
 	}
+	return ensureMtabExists(filepath.Join(ad, "rootfs"))
+}
 
+// ensureMtabExists creates a symlink from /etc/mtab -> /proc/self/mounts if
+// nothing exists at /etc/mtab.
+// Various tools, such as mount from util-linux 2.25, expect the mtab file to
+// be populated.
+func ensureMtabExists(rootfs string) error {
+	stat, err := os.Stat(filepath.Join(rootfs, "etc"))
+	if os.IsNotExist(err) {
+		// If your image has no /etc you don't get /etc/mtab either
+		return nil
+	}
+	if err != nil {
+		return errwrap.Wrap(errors.New("error determining if /etc existed in the image"), err)
+	}
+	if !stat.IsDir() {
+		return nil
+	}
+	mtabPath := filepath.Join(rootfs, "etc", "mtab")
+	if _, err = os.Lstat(mtabPath); err == nil {
+		// If the image already has an mtab, don't replace it
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return errwrap.Wrap(errors.New("error determining if /etc/mtab exists in the image"), err)
+	}
+
+	target := "../proc/self/mounts"
+	err = os.Symlink(target, mtabPath)
+	if err != nil {
+		return errwrap.Wrap(errors.New("error creating mtab symlink"), err)
+	}
 	return nil
 }
 

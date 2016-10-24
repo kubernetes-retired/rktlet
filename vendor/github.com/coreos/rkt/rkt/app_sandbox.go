@@ -295,12 +295,12 @@ func (apl *appPortList) Type() string {
 }
 
 // parseAnnotations converts the annotations set by '--user-annotation' flag,
-// and returns types.CRIAnnotations.
-func parseAnnotations(flagAnnotations *kvMap) types.CRIAnnotations {
+// and returns types.UserAnnotations.
+func parseAnnotations(flagAnnotations *kvMap) types.UserAnnotations {
 	if flagAnnotations.IsEmpty() {
 		return nil
 	}
-	annotations := make(types.CRIAnnotations)
+	annotations := make(types.UserAnnotations)
 	for k, v := range flagAnnotations.mapping {
 		annotations[k] = v
 	}
@@ -308,12 +308,12 @@ func parseAnnotations(flagAnnotations *kvMap) types.CRIAnnotations {
 }
 
 // parseLabels converts the labels set by '--user-label' flag,
-// and returns types.CRILabels.
-func parseLabels(flagLabels *kvMap) types.CRILabels {
+// and returns types.UserLabels.
+func parseLabels(flagLabels *kvMap) types.UserLabels {
 	if flagLabels.IsEmpty() {
 		return nil
 	}
-	labels := make(types.CRILabels)
+	labels := make(types.UserLabels)
 	for k, v := range flagLabels.mapping {
 		labels[k] = v
 	}
