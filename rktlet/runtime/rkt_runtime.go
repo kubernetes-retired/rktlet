@@ -27,19 +27,41 @@ import (
 	"golang.org/x/net/context"
 
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	"k8s.io/kubernetes/pkg/kubelet/server/streaming"
 )
 
 type RktRuntime struct {
 	cli.CLI
 	cli.Init
+
+	execShim     *execShim
+	streamServer streaming.Server
 }
 
 // New creates a new RuntimeServiceServer backed by rkt
-func New(cli cli.CLI, init cli.Init) runtimeApi.RuntimeServiceServer {
-	return &RktRuntime{
-		CLI:  cli,
-		Init: init,
+func New(cli cli.CLI, init cli.Init) (runtimeApi.RuntimeServiceServer, error) {
+	runtime := &RktRuntime{
+		CLI:      cli,
+		Init:     init,
+		execShim: NewExecShim(cli),
 	}
+
+	var err error
+	streamConfig := streaming.DefaultConfig
+	streamConfig.Addr = "0.0.0.0:10241"
+	runtime.streamServer, err = streaming.NewServer(streamConfig, runtime.execShim)
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		// TODO, ctx or somethign
+		glog.Infof("listening for execs on: %v", streamConfig.Addr)
+		glog.Fatalf("error serving execs: %v", runtime.streamServer.Start(true))
+	}()
+	if err != nil {
+		return nil, err
+	}
+	return runtime, nil
 }
 
 func (r *RktRuntime) Version(ctx context.Context, req *runtimeApi.VersionRequest) (*runtimeApi.VersionResponse, error) {

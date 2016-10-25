@@ -17,25 +17,175 @@ limitations under the License.
 package runtime
 
 import (
+	"bytes"
 	"errors"
+	"io"
+	"io/ioutil"
+	"os/exec"
+	"syscall"
+
+	"github.com/golang/glog"
+	"github.com/kr/pty"
+	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
+	utilexec "k8s.io/kubernetes/pkg/util/exec"
 
 	"golang.org/x/net/context"
 
-	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	"k8s.io/kubernetes/pkg/kubelet/server/streaming"
+	"k8s.io/kubernetes/pkg/util/term"
 )
 
-func (r *RktRuntime) Exec(ctx context.Context, req *runtimeApi.ExecRequest) (*runtimeApi.ExecResponse, error) {
-	return nil, errors.New("TODO")
+func (r *RktRuntime) Attach(ctx context.Context, req *runtimeapi.AttachRequest) (*runtimeapi.AttachResponse, error) {
+	// TODO, the second parameter here needs to be retrieved from the
+	// `ContainerConfig` associated with the req.ContainerID
+	return r.streamServer.GetAttach(req, true)
 }
 
-func (r *RktRuntime) ExecSync(ctx context.Context, req *runtimeApi.ExecSyncRequest) (*runtimeApi.ExecSyncResponse, error) {
-	return nil, errors.New("TODO")
+func (r *RktRuntime) Exec(ctx context.Context, req *runtimeapi.ExecRequest) (*runtimeapi.ExecResponse, error) {
+	return r.streamServer.GetExec(req)
 }
 
-func (r *RktRuntime) Attach(ctx context.Context, req *runtimeApi.AttachRequest) (*runtimeApi.AttachResponse, error) {
-	return nil, errors.New("TODO")
+type nopWriteCloser bytes.Buffer
+
+func (n nopWriteCloser) Bytes() []byte {
+	return n.Bytes()
 }
 
-func (r *RktRuntime) PortForward(ctx context.Context, req *runtimeApi.PortForwardRequest) (*runtimeApi.PortForwardResponse, error) {
-	return nil, errors.New("TODO")
+func (n nopWriteCloser) Write(p []byte) (int, error) {
+	return n.Write(p)
+}
+
+func (nopWriteCloser) Close() error {
+	return nil
+}
+
+func (r *RktRuntime) ExecSync(ctx context.Context, req *runtimeapi.ExecSyncRequest) (*runtimeapi.ExecSyncResponse, error) {
+	var stdout, stderr nopWriteCloser
+	nopStdin := ioutil.NopCloser(bytes.NewReader([]byte{}))
+
+	err := r.execShim.Exec(req.GetContainerId(), req.GetCmd(), nopStdin, stdout, stderr, false, make(chan term.Size))
+	if err != nil {
+		return nil, err
+	}
+
+	var exitCode int32 = 0 // TODO
+	return &runtimeapi.ExecSyncResponse{
+		ExitCode: &exitCode,
+		Stderr:   stderr.Bytes(),
+		Stdout:   stdout.Bytes(),
+	}, nil
+}
+
+func (r *RktRuntime) PortForward(ctx context.Context, req *runtimeapi.PortForwardRequest) (*runtimeapi.PortForwardResponse, error) {
+	return r.streamServer.GetPortForward(req)
+}
+
+type execShim struct {
+	cli cli.CLI
+}
+
+var _ streaming.Runtime = &execShim{}
+
+func NewExecShim(cli cli.CLI) *execShim {
+	return &execShim{cli: cli}
+}
+
+func (es *execShim) Attach(containerID string, in io.Reader, out, err io.WriteCloser, resize <-chan term.Size) error {
+	return errors.New("TODO")
+}
+
+// Exec executes a given command in a container
+func (es *execShim) Exec(containerID string, cmd []string, in io.Reader, out, errOut io.WriteCloser, tty bool, resize <-chan term.Size) error {
+	uuid, appName, err := parseContainerID(containerID)
+	if err != nil {
+		return err
+	}
+
+	// TODO(euank): Make it possible to use "k8s.io/kubernetes/pkg/util/exec.Cmd"
+	// by adding more methods (for mocking)
+	cmdList := []string{"app", "exec", "--app=" + appName, uuid}
+	cmdList = append(cmdList, cmd...)
+	rktCommand := es.cli.Command(cmdList[0], cmdList[1:]...)
+	execCmd := exec.Command(rktCommand[0], rktCommand[1:]...)
+	glog.V(5).Infof("executing command: %v", execCmd.Args)
+
+	if tty {
+		return execWithTty(execCmd, in, out, resize)
+	}
+
+	execCmd.Stdin = in
+	execCmd.Stdout = out
+	execCmd.Stderr = errOut
+
+	if err := execCmd.Start(); err != nil {
+		glog.Warningf("error running exec: %v", err)
+		return err
+	}
+
+	if err := execCmd.Wait(); err != nil {
+		glog.Warningf("error waiting for exec: %v", err)
+		return newRktExitError(err)
+	}
+	return nil
+}
+
+func execWithTty(execCmd *exec.Cmd, in io.Reader, out io.WriteCloser, resize <-chan term.Size) error {
+	p, err := pty.Start(execCmd) // calls execCmd.Start
+	if err != nil {
+		return err
+	}
+	defer p.Close()
+	defer out.Close()
+
+	// defensive check in case the resize stream isn't closed
+	done := make(chan struct{}, 1)
+	defer func() {
+		done <- struct{}{}
+	}()
+
+	go func() {
+		for {
+			select {
+			case rsz := <-resize:
+				term.SetSize(p.Fd(), rsz)
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	if in != nil {
+		go io.Copy(p, in)
+	}
+	if out != nil {
+		go io.Copy(out, p)
+	}
+	// stderr + tty can't happen
+
+	return newRktExitError(execCmd.Wait())
+}
+
+func (es *execShim) PortForward(sandboxID string, port int32, stream io.ReadWriteCloser) error {
+	return errors.New("TODO")
+}
+
+// rktExitError implements k8s.io/kubernetes/pkg/util/exec.ExitError interface.
+// TODO(euank): Figure out if this actually works correctly in this impl.
+type rktExitError struct{ *exec.ExitError }
+
+var _ utilexec.ExitError = &rktExitError{}
+
+func (r *rktExitError) ExitStatus() int {
+	if status, ok := r.Sys().(syscall.WaitStatus); ok {
+		return status.ExitStatus()
+	}
+	return 0
+}
+
+func newRktExitError(e error) error {
+	if exitErr, ok := e.(*exec.ExitError); ok {
+		return &rktExitError{exitErr}
+	}
+	return e
 }
