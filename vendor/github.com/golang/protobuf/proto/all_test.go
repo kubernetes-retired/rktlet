@@ -420,7 +420,7 @@ func TestMarshalerEncoding(t *testing.T) {
 		name    string
 		m       Message
 		want    []byte
-		errType reflect.Type
+		wantErr error
 	}{
 		{
 			name: "Marshaler that fails",
@@ -428,11 +428,9 @@ func TestMarshalerEncoding(t *testing.T) {
 				err: errors.New("some marshal err"),
 				b:   []byte{5, 6, 7},
 			},
-			// Since the Marshal method returned bytes, they should be written to the
-			// buffer.  (For efficiency, we assume that Marshal implementations are
-			// always correct w.r.t. RequiredNotSetError and output.)
-			want:    []byte{5, 6, 7},
-			errType: reflect.TypeOf(errors.New("some marshal err")),
+			// Since there's an error, nothing should be written to buffer.
+			want:    nil,
+			wantErr: errors.New("some marshal err"),
 		},
 		{
 			name: "Marshaler that fails with RequiredNotSetError",
@@ -448,36 +446,29 @@ func TestMarshalerEncoding(t *testing.T) {
 				10, 3, // for &msgWithFakeMarshaler
 				5, 6, 7, // for &fakeMarshaler
 			},
-			errType: reflect.TypeOf(&RequiredNotSetError{}),
+			wantErr: &RequiredNotSetError{},
 		},
 		{
 			name: "Marshaler that succeeds",
 			m: &fakeMarshaler{
 				b: []byte{0, 1, 2, 3, 4, 127, 255},
 			},
-			want: []byte{0, 1, 2, 3, 4, 127, 255},
+			want:    []byte{0, 1, 2, 3, 4, 127, 255},
+			wantErr: nil,
 		},
 	}
 	for _, test := range tests {
 		b := NewBuffer(nil)
 		err := b.Marshal(test.m)
-		if reflect.TypeOf(err) != test.errType {
-			t.Errorf("%s: got err %T(%v) wanted %T", test.name, err, err, test.errType)
+		if _, ok := err.(*RequiredNotSetError); ok {
+			// We're not in package proto, so we can only assert the type in this case.
+			err = &RequiredNotSetError{}
+		}
+		if !reflect.DeepEqual(test.wantErr, err) {
+			t.Errorf("%s: got err %v wanted %v", test.name, err, test.wantErr)
 		}
 		if !reflect.DeepEqual(test.want, b.Bytes()) {
 			t.Errorf("%s: got bytes %v wanted %v", test.name, b.Bytes(), test.want)
-		}
-		if size := Size(test.m); size != len(b.Bytes()) {
-			t.Errorf("%s: Size(_) = %v, but marshaled to %v bytes", test.name, size, len(b.Bytes()))
-		}
-
-		m, mErr := Marshal(test.m)
-		if !bytes.Equal(b.Bytes(), m) {
-			t.Errorf("%s: Marshal returned %v, but (*Buffer).Marshal wrote %v", test.name, m, b.Bytes())
-		}
-		if !reflect.DeepEqual(err, mErr) {
-			t.Errorf("%s: Marshal err = %q, but (*Buffer).Marshal returned %q",
-				test.name, fmt.Sprint(mErr), fmt.Sprint(err))
 		}
 	}
 }
@@ -1311,7 +1302,7 @@ func TestEnum(t *testing.T) {
 // We don't care what the value actually is, just as long as it doesn't crash.
 func TestPrintingNilEnumFields(t *testing.T) {
 	pb := new(GoEnum)
-	_ = fmt.Sprintf("%+v", pb)
+	fmt.Sprintf("%+v", pb)
 }
 
 // Verify that absent required fields cause Marshal/Unmarshal to return errors.

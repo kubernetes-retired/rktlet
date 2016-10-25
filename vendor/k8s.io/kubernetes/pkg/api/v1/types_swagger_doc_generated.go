@@ -53,7 +53,7 @@ func (Affinity) SwaggerDoc() map[string]string {
 var map_AttachedVolume = map[string]string{
 	"":           "AttachedVolume describes a volume attached to a node",
 	"name":       "Name of the attached volume",
-	"devicePath": "DevicePath represents the device path where the volume should be avilable",
+	"devicePath": "DevicePath represents the device path where the volume should be available",
 }
 
 func (AttachedVolume) SwaggerDoc() map[string]string {
@@ -1447,7 +1447,6 @@ var map_ReplicationControllerCondition = map[string]string{
 	"":                   "ReplicationControllerCondition describes the state of a replication controller at a certain point.",
 	"type":               "Type of replication controller condition.",
 	"status":             "Status of the condition, one of True, False, Unknown.",
-	"lastProbeTime":      "Last time we probed the condition.",
 	"lastTransitionTime": "The last time the condition transitioned from one status to another.",
 	"reason":             "The reason for the condition's last transition.",
 	"message":            "A human readable message indicating details about the transition.",
