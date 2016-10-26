@@ -67,7 +67,7 @@ function detect-project() {
 #   KUBE_ROOT
 function test-build-release() {
   echo "... in gke:test-build-release()" >&2
-  "${KUBE_ROOT}/build/release.sh"
+  "${KUBE_ROOT}/build-tools/release.sh"
 }
 
 # Verify needed binaries exist.
@@ -401,6 +401,8 @@ function test-teardown() {
 function kube-down() {
   echo "... in gke:kube-down()" >&2
   detect-project >&2
-  "${GCLOUD}" ${CMD_GROUP:-} container clusters delete --project="${PROJECT}" \
-    --zone="${ZONE}" "${CLUSTER_NAME}" --quiet
+  if "${GCLOUD}" ${CMD_GROUP:-} container clusters describe --project="${PROJECT}" --zone="${ZONE}" "${CLUSTER_NAME}" --quiet &>/dev/null; then
+    "${GCLOUD}" ${CMD_GROUP:-} container clusters delete --project="${PROJECT}" \
+      --zone="${ZONE}" "${CLUSTER_NAME}" --quiet
+  fi
 }

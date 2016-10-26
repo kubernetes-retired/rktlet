@@ -1423,6 +1423,9 @@ const (
 	PodReady PodConditionType = "Ready"
 	// PodInitialized means that all init containers in the pod have started successfully.
 	PodInitialized PodConditionType = "Initialized"
+	// PodReasonUnschedulable reason in PodScheduled PodCondition means that the scheduler
+	// can't schedule the pod right now, for example due to insufficient resources in the cluster.
+	PodReasonUnschedulable = "Unschedulable"
 )
 
 type PodCondition struct {
@@ -2041,9 +2044,6 @@ type ReplicationControllerCondition struct {
 	Type ReplicationControllerConditionType `json:"type"`
 	// Status of the condition, one of True, False, Unknown.
 	Status ConditionStatus `json:"status"`
-	// Last time we probed the condition.
-	// +optional
-	LastProbeTime unversioned.Time `json:"lastProbeTime,omitempty"`
 	// The last time the condition transitioned from one status to another.
 	// +optional
 	LastTransitionTime unversioned.Time `json:"lastTransitionTime,omitempty"`

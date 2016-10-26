@@ -28,14 +28,14 @@ source "${KUBE_ROOT}/cluster/lib/util.sh"
 source "${KUBE_ROOT}/cluster/lib/logging.sh"
 # KUBE_RELEASE_VERSION_REGEX matches things like "v1.2.3" or "v1.2.3-alpha.4"
 #
-# NOTE This must match the version_regex in build/common.sh
+# NOTE This must match the version_regex in build-tools/common.sh
 # kube::release::parse_and_validate_release_version()
 KUBE_RELEASE_VERSION_REGEX="^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-(beta|alpha)\\.(0|[1-9][0-9]*))?$"
 KUBE_RELEASE_VERSION_DASHED_REGEX="v(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-(0|[1-9][0-9]*)(-(beta|alpha)-(0|[1-9][0-9]*))?"
 
 # KUBE_CI_VERSION_REGEX matches things like "v1.2.3-alpha.4.56+abcdefg" This
 #
-# NOTE This must match the version_regex in build/common.sh
+# NOTE This must match the version_regex in build-tools/common.sh
 # kube::release::parse_and_validate_ci_version()
 KUBE_CI_VERSION_REGEX="^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)-(beta|alpha)\\.(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)\\+[-0-9a-z]*)?$"
 KUBE_CI_VERSION_DASHED_REGEX="^v(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-(beta|alpha)-(0|[1-9][0-9]*)(-(0|[1-9][0-9]*)\\+[-0-9a-z]*)?"
@@ -540,14 +540,21 @@ EOF
 function write-master-env {
   # If the user requested that the master be part of the cluster, set the
   # environment variable to program the master kubelet to register itself.
-  if [[ "${REGISTER_MASTER_KUBELET:-}" == "true" ]]; then
+  if [[ "${REGISTER_MASTER_KUBELET:-}" == "true" && -z "${KUBELET_APISERVER:-}" ]]; then
     KUBELET_APISERVER="${MASTER_NAME}"
+  fi
+  if [[ -z "${KUBERNETES_MASTER_NAME:-}" ]]; then
+    KUBERNETES_MASTER_NAME="${MASTER_NAME}"
   fi
 
   build-kube-env true "${KUBE_TEMP}/master-kube-env.yaml"
 }
 
 function write-node-env {
+  if [[ -z "${KUBERNETES_MASTER_NAME:-}" ]]; then
+    KUBERNETES_MASTER_NAME="${MASTER_NAME}"
+  fi
+
   build-kube-env false "${KUBE_TEMP}/node-kube-env.yaml"
 }
 
@@ -582,7 +589,7 @@ SERVER_BINARY_TAR_HASH: $(yaml-quote ${SERVER_BINARY_TAR_HASH})
 SALT_TAR_URL: $(yaml-quote ${salt_tar_url})
 SALT_TAR_HASH: $(yaml-quote ${SALT_TAR_HASH})
 SERVICE_CLUSTER_IP_RANGE: $(yaml-quote ${SERVICE_CLUSTER_IP_RANGE})
-KUBERNETES_MASTER_NAME: $(yaml-quote ${MASTER_NAME})
+KUBERNETES_MASTER_NAME: $(yaml-quote ${KUBERNETES_MASTER_NAME})
 ALLOCATE_NODE_CIDRS: $(yaml-quote ${ALLOCATE_NODE_CIDRS:-false})
 ENABLE_CLUSTER_MONITORING: $(yaml-quote ${ENABLE_CLUSTER_MONITORING:-none})
 DOCKER_REGISTRY_MIRROR_URL: $(yaml-quote ${DOCKER_REGISTRY_MIRROR_URL:-})
