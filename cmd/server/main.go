@@ -17,24 +17,30 @@ limitations under the License.
 package main
 
 import (
-	"flag"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
-	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
-
-	"google.golang.org/grpc"
-
 	"github.com/golang/glog"
+	"github.com/kubernetes-incubator/rktlet/cmd/server/options"
 	"github.com/kubernetes-incubator/rktlet/rktlet"
+	"github.com/spf13/pflag"
+	"google.golang.org/grpc"
+	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	"k8s.io/kubernetes/pkg/util/flag"
+	"k8s.io/kubernetes/pkg/util/logs"
 )
 
 const defaultUnixSock = "/var/run/rktlet.sock"
 
 func main() {
-	flag.Parse()
+	s := options.NewRktletServer()
+	s.AddFlags(pflag.CommandLine)
+	flag.InitFlags()
+	logs.InitLogs()
+	defer logs.FlushLogs()
+
 	glog.Warning("This rkt CRI server implementation is for development use only; we recommend using the copy of this code included in the kubelet")
 
 	exitCh := make(chan os.Signal, 1)
@@ -51,7 +57,7 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 
-	rktruntime, err := rktlet.New()
+	rktruntime, err := rktlet.New(s.Config)
 	if err != nil {
 		glog.Fatalf("could not create rktlet: %v", err)
 	}
