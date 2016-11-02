@@ -23,15 +23,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
-	"k8s.io/kubernetes/pkg/util/exec"
+	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 
 	"google.golang.org/grpc"
 
 	"github.com/golang/glog"
-	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
-	"github.com/kubernetes-incubator/rktlet/rktlet/image"
-	"github.com/kubernetes-incubator/rktlet/rktlet/runtime"
+	"github.com/kubernetes-incubator/rktlet/rktlet"
 )
 
 const defaultUnixSock = "/var/run/rktlet.sock"
@@ -52,24 +49,15 @@ func main() {
 	}
 	defer sock.Close()
 
-	execer := exec.New()
-	os.Setenv("RKT_EXPERIMENT_APP", "true")
-	rktPath, err := execer.LookPath("rkt")
-	if err != nil {
-		glog.Fatalf("Must have rkt installed: %v", err)
-	}
-
-	systemdRunPath, err := execer.LookPath("systemd-run")
-	if err != nil {
-		glog.Fatalf("Must have systemd-run installed: %v", err)
-	}
-
-	cli, init := cli.NewRktCLI(rktPath, execer, cli.CLIConfig{}), cli.NewSystemd(systemdRunPath, execer)
-
 	grpcServer := grpc.NewServer()
 
-	runtimeApi.RegisterImageServiceServer(grpcServer, image.NewImageStore(image.ImageStoreConfig{CLI: cli}))
-	runtimeApi.RegisterRuntimeServiceServer(grpcServer, runtime.New(cli, init))
+	rktruntime, err := rktlet.New()
+	if err != nil {
+		glog.Fatalf("could not create rktlet: %v", err)
+	}
+
+	runtimeapi.RegisterImageServiceServer(grpcServer, rktruntime)
+	runtimeapi.RegisterRuntimeServiceServer(grpcServer, rktruntime)
 
 	glog.Infof("Starting to serve on %q", socketPath)
 	go grpcServer.Serve(sock)
