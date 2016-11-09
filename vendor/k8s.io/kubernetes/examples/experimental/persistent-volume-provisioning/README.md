@@ -1,42 +1,8 @@
-<!-- BEGIN MUNGE: UNVERSIONED_WARNING -->
-
-<!-- BEGIN STRIP_FOR_RELEASE -->
-
-<img src="http://kubernetes.io/kubernetes/img/warning.png" alt="WARNING"
-     width="25" height="25">
-<img src="http://kubernetes.io/kubernetes/img/warning.png" alt="WARNING"
-     width="25" height="25">
-<img src="http://kubernetes.io/kubernetes/img/warning.png" alt="WARNING"
-     width="25" height="25">
-<img src="http://kubernetes.io/kubernetes/img/warning.png" alt="WARNING"
-     width="25" height="25">
-<img src="http://kubernetes.io/kubernetes/img/warning.png" alt="WARNING"
-     width="25" height="25">
-
-<h2>PLEASE NOTE: This document applies to the HEAD of the source tree</h2>
-
-If you are using a released version of Kubernetes, you should
-refer to the docs that go with that version.
-
-<!-- TAG RELEASE_LINK, added by the munger automatically -->
-<strong>
-The latest release of this document can be found
-[here](http://releases.k8s.io/release-1.4/examples/experimental/persistent-volume-provisioning/README.md).
-
-Documentation for other releases can be found at
-[releases.k8s.io](http://releases.k8s.io).
-</strong>
---
-
-<!-- END STRIP_FOR_RELEASE -->
-
-<!-- END MUNGE: UNVERSIONED_WARNING -->
-
 ## Persistent Volume Provisioning
 
 This example shows how to use experimental persistent volume provisioning.
 
-### Pre-requisites
+### Prerequisites
 
 This example assumes that you have an understanding of Kubernetes administration and can modify the
 scripts that launch kube-controller-manager.
@@ -92,7 +58,7 @@ metadata:
   name: slow
 provisioner: kubernetes.io/vsphere-volume
 parameters:
-  diskformat: thin
+  diskformat: eagerzeroedthick
 ```
 
 * `diskformat`: `thin`, `zeroedthick` and `eagerzeroedthick`. See vSphere docs for details. Default: `"thin"`.
@@ -118,7 +84,7 @@ parameters:
 * `restauthenabled` : Gluster REST service authentication boolean that enables authentication to the REST server. If this value is 'true', `restuser` and `restuserkey` or `secretNamespace` + `secretName` have to be filled. This option is deprecated, authentication is enabled when any of `restuser`, `restuserkey`, `secretName` or `secretNamespace` is specified.
 * `restuser` : Gluster REST service/Heketi user who has access to create volumes in the Gluster Trusted Pool.
 * `restuserkey` : Gluster REST service/Heketi user's password which will be used for authentication to the REST server. This parameter is deprecated in favor of `secretNamespace` + `secretName`.
-* `secretNamespace` + `secretName` : Identification of Secret instance that containes user password to use when talking to Gluster REST service. These parameters are optional, empty password will be used when both `secretNamespace` and `secretName` are omitted.
+* `secretNamespace` + `secretName` : Identification of Secret instance that containes user password to use when talking to Gluster REST service. These parameters are optional, empty password will be used when both `secretNamespace` and `secretName` are omitted. The provided secret must have type "kubernetes.io/glusterfs".
 
 When both `restuserkey` and `secretNamespace` + `secretName` is specified, the secret will be used.
 
@@ -165,7 +131,7 @@ parameters:
 
 * `monitors`: Ceph monitors, comma delimited. It is required.
 * `adminId`: Ceph client ID that is capable of creating images in the pool. Default is "admin".
-* `adminSecret`: Secret Name for `adminId`. It is required.
+* `adminSecret`: Secret Name for `adminId`. It is required. The provided secret must have type "kubernetes.io/rbd".
 * `adminSecretNamespace`: The namespace for `adminSecret`. Default is "default".
 * `pool`: Ceph RBD pool. Default is "rbd".
 * `userId`: Ceph client ID that is used to map the RBD image. Default is the same as `adminId`.
@@ -197,7 +163,7 @@ parameters:
 
 * **quobyteAPIServer** API Server of Quobyte in the format http(s)://api-server:7860
 * **registry** Quobyte registry to use to mount the volume. You can specifiy the registry as <host>:<port> pair or if you want to specify multiple registries you just have to put a comma between them e.q. <host1>:<port>,<host2>:<port>,<host3>:<port>. The host can be an IP address or if you have a working DNS you can also provide the DNS names.
-* **adminSecretName** secret that holds information about the Quobyte user and the password to authenticate agains the API server.
+* **adminSecretName** secret that holds information about the Quobyte user and the password to authenticate agains the API server. The provided secret must have type "kubernetes.io/quobyte".
 * **adminSecretNamespace** The namespace for **adminSecretName**. Default is `default`.
 * **user** maps all access to this user. Default is `root`.
 * **group** maps all access to this group. Default is `nfsnobody`.
@@ -258,6 +224,23 @@ Create a Pod to use the PVC:
 $ kubectl create -f examples/experimental/persistent-volume-provisioning/quobyte/example-pod.yaml
 ```
 
+#### Azure Disk
+
+```yaml
+kind: StorageClass
+apiVersion: storage.k8s.io/v1beta1
+metadata:
+  name: slow
+provisioner: kubernetes.io/azure-disk
+parameters:
+  skuName: Standard_LRS
+  location: eastus
+  storageAccount: azure_storage_account_name
+```
+
+* `skuName`: Azure storage account Sku tier. Default is empty.
+* `location`: Azure storage account location. Default is empty.
+* `storageAccount`: Azure storage account name. If storage account is not provided, all storage accounts associated with the resource group are searched to find one that matches `skuName` and `location`. If storage account is provided, `skuName` and `location` are ignored.
 
 ### User provisioning requests
 

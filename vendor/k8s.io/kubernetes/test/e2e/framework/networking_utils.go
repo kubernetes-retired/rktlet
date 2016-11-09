@@ -27,7 +27,7 @@ import (
 	api "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/apimachinery/registered"
-	coreclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/unversioned"
+	coreclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/util/intstr"
 	"k8s.io/kubernetes/pkg/util/rand"
@@ -47,12 +47,14 @@ const (
 	testPodName           = "test-container-pod"
 	hostTestPodName       = "host-test-container-pod"
 	nodePortServiceName   = "node-port-service"
-	hitEndpointRetryDelay = 1 * time.Second
+	// wait time between poll attempts of a Service vip and/or nodePort.
+	// coupled with testTries to produce a net timeout value.
+	hitEndpointRetryDelay = 2 * time.Second
 	// Number of retries to hit a given set of endpoints. Needs to be high
 	// because we verify iptables statistical rr loadbalancing.
 	testTries = 30
 	// Maximum number of pods in a test, to make test work in large clusters.
-	maxNetProxyPodsCount = 20
+	maxNetProxyPodsCount = 10
 )
 
 // NewNetworkingTestConfig creates and sets up a new test config helper.
@@ -200,6 +202,8 @@ func (config *NetworkingTestConfig) DialFromContainer(protocol, containerIP, tar
 		if (eps.Equal(expectedEps) || eps.Len() == 0 && expectedEps.Len() == 0) && i+1 >= minTries {
 			return
 		}
+		// TODO: get rid of this delay #36281
+		time.Sleep(hitEndpointRetryDelay)
 	}
 
 	config.diagnoseMissingEndpoints(eps)
@@ -219,9 +223,11 @@ func (config *NetworkingTestConfig) DialFromContainer(protocol, containerIP, tar
 func (config *NetworkingTestConfig) DialFromNode(protocol, targetIP string, targetPort, maxTries, minTries int, expectedEps sets.String) {
 	var cmd string
 	if protocol == "udp" {
-		cmd = fmt.Sprintf("echo 'hostName' | timeout -t 3 nc -w 1 -u %s %d", targetIP, targetPort)
+		// TODO: It would be enough to pass 1s+epsilon to timeout, but unfortunately
+		// busybox timeout doesn't support non-integer values.
+		cmd = fmt.Sprintf("echo 'hostName' | timeout -t 2 nc -w 1 -u %s %d", targetIP, targetPort)
 	} else {
-		cmd = fmt.Sprintf("curl -q -s --connect-timeout 1 http://%s:%d/hostName", targetIP, targetPort)
+		cmd = fmt.Sprintf("timeout -t 15 curl -q -s --connect-timeout 1 http://%s:%d/hostName", targetIP, targetPort)
 	}
 
 	// TODO: This simply tells us that we can reach the endpoints. Check that
@@ -249,6 +255,8 @@ func (config *NetworkingTestConfig) DialFromNode(protocol, targetIP string, targ
 		if (eps.Equal(expectedEps) || eps.Len() == 0 && expectedEps.Len() == 0) && i+1 >= minTries {
 			return
 		}
+		// TODO: get rid of this delay #36281
+		time.Sleep(hitEndpointRetryDelay)
 	}
 
 	config.diagnoseMissingEndpoints(eps)
@@ -314,7 +322,9 @@ func (config *NetworkingTestConfig) createNetShellPodSpec(podName string, node s
 					ReadinessProbe: probe,
 				},
 			},
-			NodeName: node,
+			NodeSelector: map[string]string{
+				"kubernetes.io/hostname": node,
+			},
 		},
 	}
 	return pod
@@ -431,7 +441,7 @@ func (config *NetworkingTestConfig) setup(selector map[string]string) {
 	config.setupCore(selector)
 
 	By("Getting node addresses")
-	ExpectNoError(WaitForAllNodesSchedulable(config.f.ClientSet))
+	ExpectNoError(WaitForAllNodesSchedulable(config.f.ClientSet, 10*time.Minute))
 	nodeList := GetReadySchedulableNodesOrDie(config.f.ClientSet)
 	config.ExternalAddrs = NodeAddresses(nodeList, api.NodeExternalIP)
 	if len(config.ExternalAddrs) < 2 {
@@ -482,12 +492,12 @@ func shuffleNodes(nodes []api.Node) []api.Node {
 }
 
 func (config *NetworkingTestConfig) createNetProxyPods(podName string, selector map[string]string) []*api.Pod {
-	ExpectNoError(WaitForAllNodesSchedulable(config.f.ClientSet))
+	ExpectNoError(WaitForAllNodesSchedulable(config.f.ClientSet, 10*time.Minute))
 	nodeList := GetReadySchedulableNodesOrDie(config.f.ClientSet)
 
 	// To make this test work reasonably fast in large clusters,
-	// we limit the number of NetProxyPods to no more than 100 ones
-	// on random nodes.
+	// we limit the number of NetProxyPods to no more than
+	// maxNetProxyPodsCount on random nodes.
 	nodes := shuffleNodes(nodeList.Items)
 	if len(nodes) > maxNetProxyPodsCount {
 		nodes = nodes[:maxNetProxyPodsCount]

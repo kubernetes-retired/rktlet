@@ -23,12 +23,22 @@ DOCKERIZE_KUBELET=${DOCKERIZE_KUBELET:-""}
 ALLOW_PRIVILEGED=${ALLOW_PRIVILEGED:-""}
 ALLOW_SECURITY_CONTEXT=${ALLOW_SECURITY_CONTEXT:-""}
 RUNTIME_CONFIG=${RUNTIME_CONFIG:-""}
+KUBELET_AUTHORIZATION_WEBHOOK=${KUBELET_AUTHORIZATION_WEBHOOK:-""}
+KUBELET_AUTHENTICATION_WEBHOOK=${KUBELET_AUTHENTICATION_WEBHOOK:-""}
 # Name of the network plugin, eg: "kubenet"
 NET_PLUGIN=${NET_PLUGIN:-""}
 # Place the binaries required by NET_PLUGIN in this directory, eg: "/home/kubernetes/bin".
 NET_PLUGIN_DIR=${NET_PLUGIN_DIR:-""}
 KUBE_ROOT=$(dirname "${BASH_SOURCE}")/..
 SERVICE_CLUSTER_IP_RANGE=${SERVICE_CLUSTER_IP_RANGE:-10.0.0.0/24}
+# if enabled, must set CGROUP_ROOT
+CGROUPS_PER_QOS=${CGROUPS_PER_QOS:-false}
+# this is not defaulted to preserve backward compatibility.
+# if CGROUPS_PER_QOS is enabled, recommend setting to /
+CGROUP_ROOT=${CGROUP_ROOT:""}
+# name of the cgroup driver, i.e. cgroupfs or systemd
+CGROUP_DRIVER=${CGROUP_DRIVER:-""}
+
 # We disable cluster DNS by default because this script uses docker0 (or whatever
 # container bridge docker is currently using) and we don't know the IP of the
 # DNS pod to pass in as --cluster-dns. To set this up by hand, set this flag
@@ -163,8 +173,7 @@ CLAIM_BINDER_SYNC_PERIOD=${CLAIM_BINDER_SYNC_PERIOD:-"15s"} # current k8s defaul
 ENABLE_CONTROLLER_ATTACH_DETACH=${ENABLE_CONTROLLER_ATTACH_DETACH:-"true"} # current default
 CERT_DIR=${CERT_DIR:-"/var/run/kubernetes"}
 ROOT_CA_FILE=$CERT_DIR/apiserver.crt
-# How the kubelet interacts with the runtime, eg: "cri"
-EXPERIMENTAL_RUNTIME_INTEGRATION_TYPE=${EXPERIMENTAL_RUNTIME_INTEGRATION_TYPE:-""}
+EXPERIMENTAL_CRI=${EXPERIMENTAL_CRI:-"false"}
 
 
 function test_apiserver_off {
@@ -332,6 +341,10 @@ function start_apiserver {
     if [[ -n "${RUNTIME_CONFIG}" ]]; then
       runtime_config="--runtime-config=${RUNTIME_CONFIG}"
     fi
+    client_ca_file_arg=""
+    if [[ -n "${CLIENT_CA_FILE:-}" ]]; then
+      client_ca_file_arg="--client-ca-file=${CLIENT_CA_FILE}"
+    fi
 
     # Let the API server pick a default address when API_HOST
     # is set to 127.0.0.1
@@ -346,6 +359,7 @@ function start_apiserver {
 
     APISERVER_LOG=/tmp/kube-apiserver.log
     sudo -E "${GO_OUT}/hyperkube" apiserver ${anytoken_arg} ${authorizer_arg} ${priv_arg} ${runtime_config}\
+      ${client_ca_file_arg} \
       ${advertise_address} \
       --v=${LOG_LEVEL} \
       --cert-dir="${CERT_DIR}" \
@@ -374,16 +388,23 @@ clusters:
       certificate-authority: ${ROOT_CA_FILE}
       server: https://${API_HOST}:${API_SECURE_PORT}/
     name: local-up-cluster
+users:
+  - user:
+      token: ${KUBECONFIG_TOKEN:-}
+      client-certificate: ${KUBECONFIG_CLIENT_CERTIFICATE:-}
+      client-key: ${KUBECONFIG_CLIENT_KEY:-}
+    name: local-up-cluster
 contexts:
   - context:
       cluster: local-up-cluster
+      user: local-up-cluster
     name: service-to-apiserver
 current-context: service-to-apiserver
 EOF
 
     # Wait for kube-apiserver to come up before launching the rest of the components.
     echo "Waiting for apiserver to come up"
-    kube::util::wait_for_url "https://${API_HOST}:${API_SECURE_PORT}/api/v1/pods" "apiserver: " 1 ${WAIT_FOR_URL_API_SERVER} || exit 1
+    kube::util::wait_for_url "https://${API_HOST}:${API_SECURE_PORT}/version" "apiserver: " 1 ${WAIT_FOR_URL_API_SERVER} || exit 1
 }
 
 function start_controller_manager {
@@ -418,18 +439,6 @@ function start_kubelet {
 
     mkdir -p /var/lib/kubelet
     if [[ -z "${DOCKERIZE_KUBELET}" ]]; then
-      # On selinux enabled systems, it might
-      # require to relabel /var/lib/kubelet
-      if which selinuxenabled &> /dev/null && \
-         selinuxenabled && \
-         which chcon > /dev/null ; then
-         if [[ ! $(ls -Zd /var/lib/kubelet) =~ system_u:object_r:svirt_sandbox_file_t:s0 ]] ; then
-            echo "Applying SELinux label to /var/lib/kubelet directory."
-            if ! sudo chcon -Rt svirt_sandbox_file_t /var/lib/kubelet; then
-               echo "Failed to apply selinux label to /var/lib/kubelet."
-            fi
-         fi
-      fi
       # Enable dns
       if [[ "${ENABLE_CLUSTER_DNS}" = true ]]; then
          dns_args="--cluster-dns=${DNS_SERVER_IP} --cluster-domain=${DNS_DOMAIN}"
@@ -445,14 +454,20 @@ function start_kubelet {
         net_plugin_args="--network-plugin=${NET_PLUGIN}"
       fi
 
+      auth_args=""
+      if [[ -n "${KUBELET_AUTHORIZATION_WEBHOOK}" ]]; then
+        auth_args="${auth_args} --authorization-mode=Webhook"
+      fi
+      if [[ -n "${KUBELET_AUTHENTICATION_WEBHOOK}" ]]; then
+        auth_args="${auth_args} --authentication-token-webhook"
+      fi
+      if [[ -n "${CLIENT_CA_FILE:-}" ]]; then
+        auth_args="${auth_args} --client-ca-file=${CLIENT_CA_FILE}"
+      fi
+
       net_plugin_dir_args=""
       if [[ -n "${NET_PLUGIN_DIR}" ]]; then
         net_plugin_dir_args="--network-plugin-dir=${NET_PLUGIN_DIR}"
-      fi
-
-      kubenet_plugin_args=""
-      if [[ "${NET_PLUGIN}" == "kubenet" ]]; then
-        kubenet_plugin_args="--reconcile-cidr=true "
       fi
 
       container_runtime_endpoint_args=""
@@ -469,7 +484,7 @@ function start_kubelet {
         --v=${LOG_LEVEL} \
         --chaos-chance="${CHAOS_CHANCE}" \
         --container-runtime="${CONTAINER_RUNTIME}" \
-        --experimental-runtime-integration-type="${EXPERIMENTAL_RUNTIME_INTEGRATION_TYPE}" \
+        --experimental-cri=${EXPERIMENTAL_CRI} \
         --rkt-path="${RKT_PATH}" \
         --rkt-stage1-image="${RKT_STAGE1_IMAGE}" \
         --hostname-override="${HOSTNAME_OVERRIDE}" \
@@ -481,10 +496,13 @@ function start_kubelet {
         --feature-gates="${FEATURE_GATES}" \
         --cpu-cfs-quota=${CPU_CFS_QUOTA} \
         --enable-controller-attach-detach="${ENABLE_CONTROLLER_ATTACH_DETACH}" \
+        --cgroups-per-qos=${CGROUPS_PER_QOS} \
+        --cgroup-driver=${CGROUP_DRIVER} \
+        --cgroup-root=${CGROUP_ROOT} \
+        ${auth_args} \
         ${dns_args} \
         ${net_plugin_dir_args} \
         ${net_plugin_args} \
-        ${kubenet_plugin_args} \
         ${container_runtime_endpoint_args} \
         ${image_service_endpoint_args} \
         --port="$KUBELET_PORT" >"${KUBELET_LOG}" 2>&1 &
@@ -515,7 +533,7 @@ function start_kubelet {
         --volume=/var/run:/var/run:rw \
         --volume=/sys:/sys:ro \
         --volume=/var/lib/docker/:/var/lib/docker:ro \
-        --volume=/var/lib/kubelet/:/var/lib/kubelet:rw,z \
+        --volume=/var/lib/kubelet/:/var/lib/kubelet:rw \
         --volume=/dev:/dev \
         ${cred_bind} \
         --net=host \
@@ -570,7 +588,7 @@ kind: Namespace
 metadata:
   name: kube-system
 EOF
-        ${KUBECTL} config set-cluster local --server=https://${API_HOST}:${API_SECURE_PORT} --certificate-authority=$(ROOT_CA_FILE)
+        ${KUBECTL} config set-cluster local --server=https://${API_HOST}:${API_SECURE_PORT} --certificate-authority=${ROOT_CA_FILE}
         ${KUBECTL} config set-context local --cluster=local
         ${KUBECTL} config use-context local
 

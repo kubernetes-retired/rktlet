@@ -21,6 +21,8 @@ import (
 	"k8s.io/kubernetes/pkg/api/v1"
 )
 
+// +genclient=true
+
 // Job represents the configuration of a single job.
 type Job struct {
 	unversioned.TypeMeta `json:",inline"`
@@ -108,7 +110,7 @@ type JobSpec struct {
 	// Normally, the system sets this field for you.
 	// More info: http://kubernetes.io/docs/user-guide/labels#label-selectors
 	// +optional
-	Selector *LabelSelector `json:"selector,omitempty" protobuf:"bytes,4,opt,name=selector"`
+	Selector *unversioned.LabelSelector `json:"selector,omitempty" protobuf:"bytes,4,opt,name=selector"`
 
 	// ManualSelector controls generation of pod labels and pod selectors.
 	// Leave `manualSelector` unset unless you are certain what you are doing.
@@ -192,8 +194,10 @@ type JobCondition struct {
 	Message string `json:"message,omitempty" protobuf:"bytes,6,opt,name=message"`
 }
 
-// ScheduledJob represents the configuration of a single scheduled job.
-type ScheduledJob struct {
+// +genclient=true
+
+// CronJob represents the configuration of a single cron job.
+type CronJob struct {
 	unversioned.TypeMeta `json:",inline"`
 	// Standard object's metadata.
 	// More info: http://releases.k8s.io/HEAD/docs/devel/api-conventions.md#metadata
@@ -203,28 +207,28 @@ type ScheduledJob struct {
 	// Spec is a structure defining the expected behavior of a job, including the schedule.
 	// More info: http://releases.k8s.io/HEAD/docs/devel/api-conventions.md#spec-and-status
 	// +optional
-	Spec ScheduledJobSpec `json:"spec,omitempty" protobuf:"bytes,2,opt,name=spec"`
+	Spec CronJobSpec `json:"spec,omitempty" protobuf:"bytes,2,opt,name=spec"`
 
 	// Status is a structure describing current status of a job.
 	// More info: http://releases.k8s.io/HEAD/docs/devel/api-conventions.md#spec-and-status
 	// +optional
-	Status ScheduledJobStatus `json:"status,omitempty" protobuf:"bytes,3,opt,name=status"`
+	Status CronJobStatus `json:"status,omitempty" protobuf:"bytes,3,opt,name=status"`
 }
 
-// ScheduledJobList is a collection of scheduled jobs.
-type ScheduledJobList struct {
+// CronJobList is a collection of cron jobs.
+type CronJobList struct {
 	unversioned.TypeMeta `json:",inline"`
 	// Standard list metadata
 	// More info: http://releases.k8s.io/HEAD/docs/devel/api-conventions.md#metadata
 	// +optional
 	unversioned.ListMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
-	// Items is the list of ScheduledJob.
-	Items []ScheduledJob `json:"items" protobuf:"bytes,2,rep,name=items"`
+	// Items is the list of CronJob.
+	Items []CronJob `json:"items" protobuf:"bytes,2,rep,name=items"`
 }
 
-// ScheduledJobSpec describes how the job execution will look like and when it will actually run.
-type ScheduledJobSpec struct {
+// CronJobSpec describes how the job execution will look like and when it will actually run.
+type CronJobSpec struct {
 
 	// Schedule contains the schedule in Cron format, see https://en.wikipedia.org/wiki/Cron.
 	Schedule string `json:"schedule" protobuf:"bytes,1,opt,name=schedule"`
@@ -244,7 +248,7 @@ type ScheduledJobSpec struct {
 	Suspend *bool `json:"suspend,omitempty" protobuf:"varint,4,opt,name=suspend"`
 
 	// JobTemplate is the object that describes the job that will be created when
-	// executing a ScheduledJob.
+	// executing a CronJob.
 	JobTemplate JobTemplateSpec `json:"jobTemplate" protobuf:"bytes,5,opt,name=jobTemplate"`
 }
 
@@ -255,7 +259,7 @@ type ScheduledJobSpec struct {
 type ConcurrencyPolicy string
 
 const (
-	// AllowConcurrent allows ScheduledJobs to run concurrently.
+	// AllowConcurrent allows CronJobs to run concurrently.
 	AllowConcurrent ConcurrencyPolicy = "Allow"
 
 	// ForbidConcurrent forbids concurrent runs, skipping next run if previous
@@ -266,8 +270,8 @@ const (
 	ReplaceConcurrent ConcurrencyPolicy = "Replace"
 )
 
-// ScheduledJobStatus represents the current state of a Job.
-type ScheduledJobStatus struct {
+// CronJobStatus represents the current state of a cron job.
+type CronJobStatus struct {
 	// Active holds pointers to currently running jobs.
 	// +optional
 	Active []v1.ObjectReference `json:"active,omitempty" protobuf:"bytes,1,rep,name=active"`
@@ -276,43 +280,3 @@ type ScheduledJobStatus struct {
 	// +optional
 	LastScheduleTime *unversioned.Time `json:"lastScheduleTime,omitempty" protobuf:"bytes,4,opt,name=lastScheduleTime"`
 }
-
-// A label selector is a label query over a set of resources. The result of matchLabels and
-// matchExpressions are ANDed. An empty label selector matches all objects. A null
-// label selector matches no objects.
-type LabelSelector struct {
-	// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
-	// map is equivalent to an element of matchExpressions, whose key field is "key", the
-	// operator is "In", and the values array contains only "value". The requirements are ANDed.
-	// +optional
-	MatchLabels map[string]string `json:"matchLabels,omitempty" protobuf:"bytes,1,rep,name=matchLabels"`
-	// matchExpressions is a list of label selector requirements. The requirements are ANDed.
-	// +optional
-	MatchExpressions []LabelSelectorRequirement `json:"matchExpressions,omitempty" protobuf:"bytes,2,rep,name=matchExpressions"`
-}
-
-// A label selector requirement is a selector that contains values, a key, and an operator that
-// relates the key and values.
-type LabelSelectorRequirement struct {
-	// key is the label key that the selector applies to.
-	Key string `json:"key" patchStrategy:"merge" patchMergeKey:"key" protobuf:"bytes,1,opt,name=key"`
-	// operator represents a key's relationship to a set of values.
-	// Valid operators ard In, NotIn, Exists and DoesNotExist.
-	Operator LabelSelectorOperator `json:"operator" protobuf:"bytes,2,opt,name=operator,casttype=LabelSelectorOperator"`
-	// values is an array of string values. If the operator is In or NotIn,
-	// the values array must be non-empty. If the operator is Exists or DoesNotExist,
-	// the values array must be empty. This array is replaced during a strategic
-	// merge patch.
-	// +optional
-	Values []string `json:"values,omitempty" protobuf:"bytes,3,rep,name=values"`
-}
-
-// A label selector operator is the set of operators that can be used in a selector requirement.
-type LabelSelectorOperator string
-
-const (
-	LabelSelectorOpIn           LabelSelectorOperator = "In"
-	LabelSelectorOpNotIn        LabelSelectorOperator = "NotIn"
-	LabelSelectorOpExists       LabelSelectorOperator = "Exists"
-	LabelSelectorOpDoesNotExist LabelSelectorOperator = "DoesNotExist"
-)

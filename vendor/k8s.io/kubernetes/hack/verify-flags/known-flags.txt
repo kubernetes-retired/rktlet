@@ -32,6 +32,7 @@ auth-provider
 auth-provider
 auth-provider-arg
 auth-provider-arg
+authentication-token-webhook
 authentication-token-webhook-cache-ttl
 authentication-token-webhook-config-file
 authorization-mode
@@ -89,21 +90,22 @@ concurrent-gc-syncs
 concurrent-namespace-syncs
 concurrent-replicaset-syncs
 concurrent-resource-quota-syncs
-concurrent-service-syncs
 concurrent-serviceaccount-token-syncs
+concurrent-service-syncs
 config-sync-period
 configure-cloud-routes
 conntrack-max
 conntrack-max-per-core
 conntrack-min
+conntrack-tcp-timeout-close-wait
 conntrack-tcp-timeout-established
 consumer-port
 consumer-service-name
 consumer-service-namespace
-contain-pod-resources
 container-port
 container-runtime
 container-runtime-endpoint
+contain-pod-resources
 controller-start-interval
 cors-allowed-origins
 cpu-cfs-quota
@@ -134,6 +136,7 @@ dns-bind-address
 dns-port
 dns-provider
 dns-provider-config
+dns-zone-name
 docker-email
 docker-endpoint
 docker-exec-handler
@@ -149,6 +152,7 @@ duration-sec
 e2e-output-dir
 e2e-verify-service-account
 enable-controller-attach-detach
+enable-cri
 enable-custom-metrics
 enable-debugging-handlers
 enable-dynamic-provisioning
@@ -186,9 +190,11 @@ exit-on-lock-contention
 experimental-allowed-unsafe-sysctls
 experimental-bootstrap-kubeconfig
 experimental-keystone-url
+experimental-mounter-path
+experimental-mounter-rootfs-path
 experimental-nvidia-gpus
 experimental-prefix
-experimental-runtime-integration-type
+experimental-cri
 external-etcd-cafile
 external-etcd-certfile
 external-etcd-endpoints
@@ -204,6 +210,7 @@ federated-api-burst
 federated-api-qps
 federated-kube-context
 federation-name
+federation-system-namespace
 file-check-frequency
 file-suffix
 file_content_in_loop
@@ -235,10 +242,12 @@ hard-pod-affinity-symmetric-weight
 healthz-bind-address
 healthz-port
 horizontal-pod-autoscaler-sync-period
+host-cluster-context
 host-ipc-sources
 host-network-sources
 host-pid-sources
 host-port-endpoints
+host-system-namespace
 hostname-override
 http-check-frequency
 http-port
@@ -264,6 +273,7 @@ instance-metadata
 instance-name-prefix
 iptables-drop-bit
 iptables-masquerade-bit
+iptables-min-sync-period
 iptables-sync-period
 ir-data-source
 ir-dbname
@@ -284,6 +294,7 @@ kops-kubernetes-version
 kops-nodes
 kops-ssh-key
 kops-state
+kops-up-timeout
 kops-zones
 kube-api-burst
 kube-api-content-type
@@ -292,6 +303,7 @@ kube-master
 kube-master
 kube-master-url
 kube-reserved
+kubeadm-path
 kubecfg-file
 kubectl-path
 kubelet-address
@@ -309,6 +321,7 @@ kubelet-kubeconfig
 kubelet-network-plugin
 kubelet-pod-infra-container-image
 kubelet-port
+kubelet-preferred-address-types
 kubelet-read-only-port
 kubelet-root-dir
 kubelet-sync-frequency
@@ -371,7 +384,6 @@ minion-max-log-age
 minion-max-log-backups
 minion-max-log-size
 minion-path-override
-mounter-path
 namespace-sync-period
 network-plugin
 network-plugin-dir
@@ -462,6 +474,9 @@ replication-controller-lookup-cache-size
 repo-root
 report-dir
 report-prefix
+requestheader-allowed-names
+requestheader-client-ca-file
+requestheader-username-headers
 require-kubeconfig
 required-contexts
 resolv-conf
@@ -480,7 +495,6 @@ run-proxy
 run-services-mode
 runtime-cgroups
 runtime-config
-runtime-integration-type
 runtime-request-timeout
 save-config
 schedule-pods-here
@@ -500,6 +514,7 @@ service-address
 service-cidr
 service-cluster-ip-range
 service-dns-domain
+service-dns-suffix
 service-generator
 service-node-port-range
 service-node-ports
@@ -539,6 +554,7 @@ system-cgroups
 system-container
 system-pods-startup-timeout
 system-reserved
+system-validate-mode
 target-port
 target-ram-mb
 tcp-services
@@ -549,6 +565,7 @@ tls-ca-file
 tls-cert-file
 tls-private-key-file
 to-version
+tls-sni-cert-key
 token-auth-file
 ttl-keys-prefix
 ttl-secs
@@ -560,6 +577,7 @@ unix-socket
 update-period
 upgrade-image
 upgrade-target
+use-service-account-credentials
 use-kubernetes-cluster-service
 use-kubernetes-version
 user-whitelist

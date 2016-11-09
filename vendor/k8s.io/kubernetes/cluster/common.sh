@@ -147,15 +147,15 @@ function clear-kubeconfig() {
   fi
 
   local kubectl="${KUBE_ROOT}/cluster/kubectl.sh"
-  "${kubectl}" config unset "clusters.${CONTEXT}"
-  "${kubectl}" config unset "users.${CONTEXT}"
-  "${kubectl}" config unset "users.${CONTEXT}-basic-auth"
-  "${kubectl}" config unset "contexts.${CONTEXT}"
-
+  # Unset the current-context before we delete it, as otherwise kubectl errors.
   local cc=$("${kubectl}" config view -o jsonpath='{.current-context}')
   if [[ "${cc}" == "${CONTEXT}" ]]; then
     "${kubectl}" config unset current-context
   fi
+  "${kubectl}" config unset "clusters.${CONTEXT}"
+  "${kubectl}" config unset "users.${CONTEXT}"
+  "${kubectl}" config unset "users.${CONTEXT}-basic-auth"
+  "${kubectl}" config unset "contexts.${CONTEXT}"
 
   echo "Cleared config for ${CONTEXT} from ${KUBECONFIG}"
 }
@@ -608,6 +608,7 @@ CLUSTER_REGISTRY_DISK_SIZE: $(yaml-quote ${CLUSTER_REGISTRY_DISK_SIZE:-})
 DNS_REPLICAS: $(yaml-quote ${DNS_REPLICAS:-})
 DNS_SERVER_IP: $(yaml-quote ${DNS_SERVER_IP:-})
 DNS_DOMAIN: $(yaml-quote ${DNS_DOMAIN:-})
+ENABLE_DNS_HORIZONTAL_AUTOSCALER: $(yaml-quote ${ENABLE_DNS_HORIZONTAL_AUTOSCALER:-false})
 KUBELET_TOKEN: $(yaml-quote ${KUBELET_TOKEN:-})
 KUBE_PROXY_TOKEN: $(yaml-quote ${KUBE_PROXY_TOKEN:-})
 ADMISSION_CONTROL: $(yaml-quote ${ADMISSION_CONTROL:-})
@@ -699,12 +700,21 @@ ENABLE_MANIFEST_URL: $(yaml-quote ${ENABLE_MANIFEST_URL:-false})
 MANIFEST_URL: $(yaml-quote ${MANIFEST_URL:-})
 MANIFEST_URL_HEADER: $(yaml-quote ${MANIFEST_URL_HEADER:-})
 NUM_NODES: $(yaml-quote ${NUM_NODES})
-STORAGE_BACKEND: $(yaml-quote ${STORAGE_BACKEND:-})
+STORAGE_BACKEND: $(yaml-quote ${STORAGE_BACKEND:-etcd2})
 ENABLE_GARBAGE_COLLECTOR: $(yaml-quote ${ENABLE_GARBAGE_COLLECTOR:-})
 EOF
-    if [ -n "${TEST_ETCD_VERSION:-}" ]; then
+    # ETCD_IMAGE (if set) allows to use a custom etcd image.
+    if [ -n "${ETCD_IMAGE:-}" ]; then
       cat >>$file <<EOF
-TEST_ETCD_VERSION: $(yaml-quote ${TEST_ETCD_VERSION})
+ETCD_IMAGE: $(yaml-quote ${ETCD_IMAGE})
+EOF
+    fi
+    # ETCD_VERSION (if set) allows you to use custom version of etcd.
+    # The main purpose of using it may be rollback of etcd v3 API,
+    # where we need 3.0.* image, but are rolling back to 2.3.7.
+    if [ -n "${ETCD_VERSION:-}" ]; then
+      cat >>$file <<EOF
+ETCD_VERSION: $(yaml-quote ${ETCD_VERSION})
 EOF
     fi
     if [ -n "${APISERVER_TEST_ARGS:-}" ]; then
@@ -817,10 +827,10 @@ EOF
 }
 
 function sha1sum-file() {
-  if which shasum >/dev/null 2>&1; then
-    shasum -a1 "$1" | awk '{ print $1 }'
-  else
+  if which sha1sum >/dev/null 2>&1; then
     sha1sum "$1" | awk '{ print $1 }'
+  else
+    shasum -a1 "$1" | awk '{ print $1 }'
   fi
 }
 

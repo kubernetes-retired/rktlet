@@ -1,5 +1,5 @@
-hash: d5e86663fc6a0060567440c714ad79d8c156da005444cb5d58aa270a2b7d8407
-updated: 2016-10-25T21:41:04.181044297-07:00
+hash: 499493e8da883c20ceddb54ac58627b86a6d53be330bd5e52293f0e08c9511c4
+updated: 2016-11-08T14:58:42.819393814+01:00
 imports:
 - name: github.com/appc/spec
   version: 3fddc8f00a9e8db1e1a8fe23180e7869ebaadc57
@@ -21,7 +21,7 @@ imports:
   subpackages:
   - semver
 - name: github.com/coreos/rkt
-  version: f030b970665c6e07ca7c58384b1ecf0ced67fb2f
+  version: 4444fe17ac194c27bea01a213d46ea2914884bce
   subpackages:
   - common
   - lib
@@ -111,7 +111,7 @@ imports:
 - name: github.com/PuerkitoBio/urlesc
   version: 5bd2802263f21d8788851d5305584c82a5c75d7e
 - name: github.com/spf13/pflag
-  version: c7e63cf4530bcd3ba943729cee0efeff2ebea63f
+  version: 5ccb023bc27df288a957c5e994cd44fd19619465
 - name: github.com/stretchr/objx
   version: 1a9d0bb9f541897e62256577b352fdbc1fb4fd94
 - name: github.com/stretchr/testify
@@ -178,7 +178,7 @@ imports:
 - name: gopkg.in/inf.v0
   version: 3887ee99ecf07df5b447e9b00d9c0b2adaa9f3e4
 - name: k8s.io/kubernetes
-  version: b23798d4b5841b3e5dacf0e7b7e91f00c74482fa
+  version: 9b32a5d1423282f4363bf3e9ad1fadce633aabbd
   subpackages:
   - pkg/api/resource
   - pkg/genericapiserver/openapi/common
