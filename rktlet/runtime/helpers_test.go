@@ -28,8 +28,8 @@ import (
 func TestPassFilter(t *testing.T) {
 	id1 := "id1"
 	id2 := "id2"
-	state1 := runtimeApi.ContainerState_RUNNING
-	state2 := runtimeApi.ContainerState_EXITED
+	state1 := runtimeApi.ContainerState_CONTAINER_RUNNING
+	state2 := runtimeApi.ContainerState_CONTAINER_EXITED
 	podSandboxId1 := "podSanboxId1"
 	podSandboxId2 := "podSanboxId2"
 	labels1 := map[string]string{"hello": "world"}

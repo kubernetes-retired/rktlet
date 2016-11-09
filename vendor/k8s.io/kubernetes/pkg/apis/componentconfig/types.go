@@ -44,6 +44,9 @@ type KubeProxyConfiguration struct {
 	// iptablesSyncPeriod is the period that iptables rules are refreshed (e.g. '5s', '1m',
 	// '2h22m').  Must be greater than 0.
 	IPTablesSyncPeriod unversioned.Duration `json:"iptablesSyncPeriodSeconds"`
+	// iptablesMinSyncPeriod is the minimum period that iptables rules are refreshed (e.g. '5s', '1m',
+	// '2h22m').
+	IPTablesMinSyncPeriod unversioned.Duration `json:"iptablesMinSyncPeriodSeconds"`
 	// kubeconfigPath is the path to the kubeconfig file with authorization information (the
 	// master location is set by the master flag).
 	KubeconfigPath string `json:"kubeconfigPath"`
@@ -75,8 +78,12 @@ type KubeProxyConfiguration struct {
 	// regardless of conntrackMaxPerCore (set conntrackMaxPerCore=0 to leave the limit as-is).
 	ConntrackMin int32 `json:"conntrackMin"`
 	// conntrackTCPEstablishedTimeout is how long an idle TCP connection will be kept open
-	// (e.g. '250ms', '2s').  Must be greater than 0.
+	// (e.g. '2s').  Must be greater than 0.
 	ConntrackTCPEstablishedTimeout unversioned.Duration `json:"conntrackTCPEstablishedTimeout"`
+	// conntrackTCPCloseWaitTimeout is how long an idle conntrack entry
+	// in CLOSE_WAIT state will remain in the conntrack
+	// table. (e.g. '60s'). Must be greater than 0 to set.
+	ConntrackTCPCloseWaitTimeout unversioned.Duration `json:"conntrackTCPCloseWaitTimeout"`
 }
 
 // Currently two modes of proxying are available: 'userspace' (older, stable) or 'iptables'
@@ -153,6 +160,10 @@ type KubeletConfiguration struct {
 	// default /var/run/kubernetes). If tlsCertFile and tlsPrivateKeyFile
 	// are provided, this flag will be ignored.
 	CertDirectory string `json:"certDirectory"`
+	// authentication specifies how requests to the Kubelet's server are authenticated
+	Authentication KubeletAuthentication `json:"authentication"`
+	// authorization specifies how requests to the Kubelet's server are authorized
+	Authorization KubeletAuthorization `json:"authorization"`
 	// hostnameOverride is the hostname used to identify the kubelet instead
 	// of the actual hostname.
 	HostnameOverride string `json:"hostnameOverride"`
@@ -313,8 +324,10 @@ type KubeletConfiguration struct {
 	// $PATH.
 	// +optional
 	RktPath string `json:"rktPath,omitempty"`
-	// mounterPath is the path of mounter binary. Leave empty to use the default mount path
-	MounterPath string `json:"mounterPath,omitempty"`
+	// experimentalMounterPath is the path of mounter binary. Leave empty to use the default mount path
+	ExperimentalMounterPath string `json:"experimentalMounterPath,omitempty"`
+	// experimentalMounterRootfsPath is the absolute path to root filesystem for the mounter binary.
+	ExperimentalMounterRootfsPath string `json:"experimentalMounterRootfsPath,omitempty"`
 	// rktApiEndpoint is the endpoint of the rkt API service to communicate with.
 	// +optional
 	RktAPIEndpoint string `json:"rktAPIEndpoint,omitempty"`
@@ -446,10 +459,68 @@ type KubeletConfiguration struct {
 	// Whitelist of unsafe sysctls or sysctl patterns (ending in *).
 	// +optional
 	AllowedUnsafeSysctls []string `json:"experimentalAllowedUnsafeSysctls,omitempty"`
-	// How to integrate with runtime. If set to cri, kubelet will switch to
-	// using the new Container Runtine Interface.
+	// featureGates is a string of comma-separated key=value pairs that describe feature
+	// gates for alpha/experimental features.
+	FeatureGates string `json:"featureGates"`
+	// Enable Container Runtime Interface (CRI) integration.
 	// +optional
-	ExperimentalRuntimeIntegrationType string `json:"experimentalRuntimeIntegrationType,omitempty"`
+	EnableCRI bool `json:"enableCRI,omitempty"`
+}
+
+type KubeletAuthorizationMode string
+
+const (
+	// KubeletAuthorizationModeAlwaysAllow authorizes all authenticated requests
+	KubeletAuthorizationModeAlwaysAllow KubeletAuthorizationMode = "AlwaysAllow"
+	// KubeletAuthorizationModeWebhook uses the SubjectAccessReview API to determine authorization
+	KubeletAuthorizationModeWebhook KubeletAuthorizationMode = "Webhook"
+)
+
+type KubeletAuthorization struct {
+	// mode is the authorization mode to apply to requests to the kubelet server.
+	// Valid values are AlwaysAllow and Webhook.
+	// Webhook mode uses the SubjectAccessReview API to determine authorization.
+	Mode KubeletAuthorizationMode `json:"mode"`
+
+	// webhook contains settings related to Webhook authorization.
+	Webhook KubeletWebhookAuthorization `json:"webhook"`
+}
+
+type KubeletWebhookAuthorization struct {
+	// cacheAuthorizedTTL is the duration to cache 'authorized' responses from the webhook authorizer.
+	CacheAuthorizedTTL unversioned.Duration `json:"cacheAuthorizedTTL"`
+	// cacheUnauthorizedTTL is the duration to cache 'unauthorized' responses from the webhook authorizer.
+	CacheUnauthorizedTTL unversioned.Duration `json:"cacheUnauthorizedTTL"`
+}
+
+type KubeletAuthentication struct {
+	// x509 contains settings related to x509 client certificate authentication
+	X509 KubeletX509Authentication `json:"x509"`
+	// webhook contains settings related to webhook bearer token authentication
+	Webhook KubeletWebhookAuthentication `json:"webhook"`
+	// anonymous contains settings related to anonymous authentication
+	Anonymous KubeletAnonymousAuthentication `json:"anonymous"`
+}
+
+type KubeletX509Authentication struct {
+	// clientCAFile is the path to a PEM-encoded certificate bundle. If set, any request presenting a client certificate
+	// signed by one of the authorities in the bundle is authenticated with a username corresponding to the CommonName,
+	// and groups corresponding to the Organization in the client certificate.
+	ClientCAFile string `json:"clientCAFile"`
+}
+
+type KubeletWebhookAuthentication struct {
+	// enabled allows bearer token authentication backed by the tokenreviews.authentication.k8s.io API
+	Enabled bool `json:"enabled"`
+	// cacheTTL enables caching of authentication results
+	CacheTTL unversioned.Duration `json:"cacheTTL"`
+}
+
+type KubeletAnonymousAuthentication struct {
+	// enabled allows anonymous requests to the kubelet server.
+	// Requests that are not rejected by another authentication method are treated as anonymous requests.
+	// Anonymous requests have a username of system:anonymous, and a group name of system:unauthenticated.
+	Enabled bool `json:"enabled"`
 }
 
 type KubeSchedulerConfiguration struct {
@@ -517,6 +588,9 @@ type KubeControllerManagerConfiguration struct {
 	Port int32 `json:"port"`
 	// address is the IP address to serve on (set to 0.0.0.0 for all interfaces).
 	Address string `json:"address"`
+	// useServiceAccountCredentials indicates whether controllers should be run with
+	// individual service account credentials.
+	UseServiceAccountCredentials bool `json:"useServiceAccountCredentials"`
 	// cloudProvider is the provider for cloud services.
 	CloudProvider string `json:"cloudProvider"`
 	// cloudConfigFile is the path to the cloud provider configuration file.

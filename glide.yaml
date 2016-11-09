@@ -1,7 +1,7 @@
 package: github.com/kubernetes-incubator/rktlet
 import:
 - package: k8s.io/kubernetes
-  version: b23798d4b5841b3e5dacf0e7b7e91f00c74482fa
+  version: 9b32a5d1423282f4363bf3e9ad1fadce633aabbd
   subpackages:
   - pkg/kubelet/api/v1alpha1/runtime
   - pkg/kubelet/container
@@ -27,7 +27,7 @@ import:
   - assert
   - mock
 - package: github.com/coreos/rkt
-  version: cri
+  version: 4444fe17ac194c27bea01a213d46ea2914884bce 
   subpackages:
   - lib
 - package: github.com/appc/spec

@@ -25,6 +25,7 @@ go_library(
         "namespace.go",
         "namespace_expansion.go",
         "node.go",
+        "node_expansion.go",
         "persistentvolume.go",
         "persistentvolumeclaim.go",
         "pod.go",
@@ -40,6 +41,7 @@ go_library(
     tags = ["automanaged"],
     deps = [
         "//pkg/api:go_default_library",
+        "//pkg/api/unversioned:go_default_library",
         "//pkg/api/v1:go_default_library",
         "//pkg/apimachinery/registered:go_default_library",
         "//pkg/apis/policy/v1alpha1:go_default_library",

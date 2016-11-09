@@ -39,26 +39,26 @@ The `kube-build` container image is built by first creating a "context" director
 
 There are 3 different containers instances that are run from this image.  The first is a "data" container to store all data that needs to persist across to support incremental builds. Next there is an "rsync" container that is used to transfer data in and out to the data container.  Lastly there is a "build" container that is used for actually doing build actions.  The data container persists across runs while the rsync and build containers are deleted after each use.
 
-`rsync` is used transparently behind the scenes to efficiently move data in and and of the container.  This will use an ephemeral port picked by Docker.  You can modify this by setting the `KUBE_RSYNC_PORT` env variable.
+`rsync` is used transparently behind the scenes to efficiently move data in and out of the container.  This will use an ephemeral port picked by Docker.  You can modify this by setting the `KUBE_RSYNC_PORT` env variable.
 
 All Docker names are suffixed with a hash derived from the file path (to allow concurrent usage on things like CI machines) and a version number.  When the version number changes all state is cleared and clean build is started.  This allows the build infrastructure to be changed and signal to CI systems that old artifacts need to be deleted.
 
 ## Proxy Settings
 
-If you are behind a proxy and you are letting these scripts use `docker-machine` to set up your local VM for you on macOS, you need to export proxy settings for kubernetes build, the following environment variables should be defined.
+If you are behind a proxy and you are letting these scripts use `docker-machine` to set up your local VM for you on macOS, you need to export proxy settings for Kubernetes build, the following environment variables should be defined.
 
 ```
 export KUBERNETES_HTTP_PROXY=http://username:password@proxyaddr:proxyport
 export KUBERNETES_HTTPS_PROXY=https://username:password@proxyaddr:proxyport
 ```
 
-Optionally, you can specify addresses of no proxy for kubernetes build, for example
+Optionally, you can specify addresses of no proxy for Kubernetes build, for example
 
 ```
 export KUBERNETES_NO_PROXY=127.0.0.1
 ```
 
-If you are using sudo to make kubernetes build for example make quick-release, you need run `sudo -E make quick-release` to pass the environment variables.
+If you are using sudo to make Kubernetes build for example make quick-release, you need run `sudo -E make quick-release` to pass the environment variables.
 
 ## Really Remote Docker Engine
 

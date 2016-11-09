@@ -33,9 +33,8 @@ import (
 	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/client/restclient"
+	"k8s.io/kubernetes/pkg/client/restclient/fake"
 	"k8s.io/kubernetes/pkg/client/typed/discovery"
-	client "k8s.io/kubernetes/pkg/client/unversioned"
-	"k8s.io/kubernetes/pkg/client/unversioned/fake"
 	"k8s.io/kubernetes/pkg/kubectl"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
@@ -134,6 +133,17 @@ func newExternalScheme() (*runtime.Scheme, meta.RESTMapper, runtime.Codec) {
 	return scheme, mapper, codec
 }
 
+type fakeCachedDiscoveryClient struct {
+	discovery.DiscoveryInterface
+}
+
+func (d *fakeCachedDiscoveryClient) Fresh() bool {
+	return true
+}
+
+func (d *fakeCachedDiscoveryClient) Invalidate() {
+}
+
 type TestFactory struct {
 	Mapper       meta.RESTMapper
 	Typer        runtime.ObjectTyper
@@ -158,13 +168,19 @@ func NewTestFactory() (cmdutil.Factory, *TestFactory, runtime.Codec, runtime.Neg
 		Mapper:    mapper,
 		Typer:     scheme,
 	}
-	negotiatedSerializer := serializer.NegotiatedSerializerWrapper(
-		runtime.SerializerInfo{Serializer: codec},
-		runtime.StreamSerializerInfo{})
+	negotiatedSerializer := serializer.NegotiatedSerializerWrapper(runtime.SerializerInfo{Serializer: codec})
 	return &FakeFactory{
 		tf:    t,
 		Codec: codec,
 	}, t, codec, negotiatedSerializer
+}
+
+func (f *FakeFactory) DiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(f.tf.ClientConfig)
+	if err != nil {
+		return nil, err
+	}
+	return &fakeCachedDiscoveryClient{DiscoveryInterface: discoveryClient}, nil
 }
 
 func (f *FakeFactory) FlagSet() *pflag.FlagSet {
@@ -185,7 +201,11 @@ func (f *FakeFactory) Object() (meta.RESTMapper, runtime.ObjectTyper) {
 }
 
 func (f *FakeFactory) UnstructuredObject() (meta.RESTMapper, runtime.ObjectTyper, error) {
-	return nil, nil, nil
+	groupResources := testDynamicResources()
+	mapper := discovery.NewRESTMapper(groupResources, meta.InterfacesForUnstructured)
+	typer := discovery.NewUnstructuredObjectTyper(groupResources)
+
+	return cmdutil.NewShortcutExpander(mapper, nil), typer, nil
 }
 
 func (f *FakeFactory) Decoder(bool) runtime.Decoder {
@@ -264,11 +284,11 @@ func (f *FakeFactory) LogsForObject(object, options runtime.Object) (*restclient
 	return nil, nil
 }
 
-func (f *FakeFactory) PauseObject(runtime.Object) (bool, error) {
+func (f *FakeFactory) Pauser(info *resource.Info) (bool, error) {
 	return false, nil
 }
 
-func (f *FakeFactory) ResumeObject(runtime.Object) (bool, error) {
+func (f *FakeFactory) Resumer(info *resource.Info) (bool, error) {
 	return false, nil
 }
 
@@ -284,8 +304,15 @@ func (f *FakeFactory) DefaultNamespace() (string, bool, error) {
 	return f.tf.Namespace, false, f.tf.Err
 }
 
-func (f *FakeFactory) Generators(string) map[string]kubectl.Generator {
-	return nil
+func (f *FakeFactory) Generators(cmdName string) map[string]kubectl.Generator {
+	var generator map[string]kubectl.Generator
+	switch cmdName {
+	case "run":
+		generator = map[string]kubectl.Generator{
+			cmdutil.DeploymentV1Beta1GeneratorName: kubectl.DeploymentV1Beta1{},
+		}
+	}
+	return generator
 }
 
 func (f *FakeFactory) CanBeExposed(unversioned.GroupKind) error {
@@ -341,6 +368,10 @@ func (f *FakeFactory) DefaultResourceFilterFunc() kubectl.Filters {
 	return nil
 }
 
+func (f *FakeFactory) SuggestedPodTemplateResources() []unversioned.GroupResource {
+	return []unversioned.GroupResource{}
+}
+
 type fakeMixedFactory struct {
 	cmdutil.Factory
 	tf        *TestFactory
@@ -371,7 +402,7 @@ func (f *fakeMixedFactory) ClientForMapping(m *meta.RESTMapping) (resource.RESTC
 }
 
 func NewMixedFactory(apiClient resource.RESTClient) (cmdutil.Factory, *TestFactory, runtime.Codec) {
-	f, t, c, _ := NewTestFactory()
+	f, t, c, _ := NewAPIFactory()
 	return &fakeMixedFactory{
 		Factory:   f,
 		tf:        t,
@@ -405,14 +436,23 @@ func (f *fakeAPIFactory) JSONEncoder() runtime.Encoder {
 }
 
 func (f *fakeAPIFactory) ClientSet() (*internalclientset.Clientset, error) {
-	// Swap out the HTTP client out of the client with the fake's version.
+	// Swap the HTTP client out of the REST client with the fake
+	// version.
 	fakeClient := f.tf.Client.(*fake.RESTClient)
-	restClient, err := restclient.RESTClientFor(f.tf.ClientConfig)
-	if err != nil {
-		panic(err)
-	}
-	restClient.Client = fakeClient.Client
-	return internalclientset.New(restClient), f.tf.Err
+	clientset := internalclientset.NewForConfigOrDie(f.tf.ClientConfig)
+	clientset.CoreClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	clientset.AuthenticationClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	clientset.AuthorizationClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	clientset.AutoscalingClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	clientset.BatchClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	clientset.CertificatesClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	clientset.ExtensionsClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	clientset.RbacClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	clientset.StorageClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	clientset.AppsClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	clientset.PolicyClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	clientset.DiscoveryClient.RESTClient().(*restclient.RESTClient).Client = fakeClient.Client
+	return clientset, f.tf.Err
 }
 
 func (f *fakeAPIFactory) RESTClient() (*restclient.RESTClient, error) {
@@ -447,9 +487,10 @@ func (f *fakeAPIFactory) Printer(mapping *meta.RESTMapping, options kubectl.Prin
 }
 
 func (f *fakeAPIFactory) LogsForObject(object, options runtime.Object) (*restclient.Request, error) {
-	fakeClient := f.tf.Client.(*fake.RESTClient)
-	c := client.NewOrDie(f.tf.ClientConfig)
-	c.Client = fakeClient.Client
+	c, err := f.ClientSet()
+	if err != nil {
+		panic(err)
+	}
 
 	switch t := object.(type) {
 	case *api.Pod:
@@ -457,7 +498,7 @@ func (f *fakeAPIFactory) LogsForObject(object, options runtime.Object) (*restcli
 		if !ok {
 			return nil, errors.New("provided options object is not a PodLogOptions")
 		}
-		return c.Pods(f.tf.Namespace).GetLogs(t.Name, opts), nil
+		return c.Core().Pods(f.tf.Namespace).GetLogs(t.Name, opts), nil
 	default:
 		fqKinds, _, err := api.Scheme.ObjectKinds(object)
 		if err != nil {
@@ -507,6 +548,10 @@ func (f *fakeAPIFactory) NewBuilder() *resource.Builder {
 	return resource.NewBuilder(mapper, typer, resource.ClientMapperFunc(f.ClientForMapping), f.Decoder(true))
 }
 
+func (f *fakeAPIFactory) SuggestedPodTemplateResources() []unversioned.GroupResource {
+	return []unversioned.GroupResource{}
+}
+
 func NewAPIFactory() (cmdutil.Factory, *TestFactory, runtime.Codec, runtime.NegotiatedSerializer) {
 	t := &TestFactory{
 		Validator: validation.NullSchema{},
@@ -532,6 +577,9 @@ func testDynamicResources() []*discovery.APIGroupResources {
 					{Name: "pods", Namespaced: true, Kind: "Pod"},
 					{Name: "services", Namespaced: true, Kind: "Service"},
 					{Name: "replicationcontrollers", Namespaced: true, Kind: "ReplicationController"},
+					{Name: "componentstatuses", Namespaced: false, Kind: "ComponentStatus"},
+					{Name: "nodes", Namespaced: false, Kind: "Node"},
+					{Name: "type", Namespaced: false, Kind: "Type"},
 				},
 			},
 		},

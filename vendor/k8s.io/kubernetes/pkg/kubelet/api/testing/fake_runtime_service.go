@@ -18,7 +18,6 @@ package testing
 
 import (
 	"fmt"
-	"io"
 	"reflect"
 	"sync"
 	"time"
@@ -51,6 +50,7 @@ type FakeRuntimeService struct {
 
 	Called []string
 
+	FakeStatus *runtimeApi.RuntimeStatus
 	Containers map[string]*FakeContainer
 	Sandboxes  map[string]*FakePodSandbox
 }
@@ -110,6 +110,15 @@ func (r *FakeRuntimeService) Version(apiVersion string) (*runtimeApi.VersionResp
 	}, nil
 }
 
+func (r *FakeRuntimeService) Status() (*runtimeApi.RuntimeStatus, error) {
+	r.Lock()
+	defer r.Unlock()
+
+	r.Called = append(r.Called, "Status")
+
+	return r.FakeStatus, nil
+}
+
 func (r *FakeRuntimeService) RunPodSandbox(config *runtimeApi.PodSandboxConfig) (string, error) {
 	r.Lock()
 	defer r.Unlock()
@@ -120,7 +129,7 @@ func (r *FakeRuntimeService) RunPodSandbox(config *runtimeApi.PodSandboxConfig) 
 	// fixed name from BuildSandboxName() for easily making fake sandboxes.
 	podSandboxID := BuildSandboxName(config.Metadata)
 	createdAt := time.Now().Unix()
-	readyState := runtimeApi.PodSandBoxState_READY
+	readyState := runtimeApi.PodSandboxState_SANDBOX_READY
 	r.Sandboxes[podSandboxID] = &FakePodSandbox{
 		PodSandboxStatus: runtimeApi.PodSandboxStatus{
 			Id:        &podSandboxID,
@@ -144,7 +153,7 @@ func (r *FakeRuntimeService) StopPodSandbox(podSandboxID string) error {
 
 	r.Called = append(r.Called, "StopPodSandbox")
 
-	notReadyState := runtimeApi.PodSandBoxState_NOTREADY
+	notReadyState := runtimeApi.PodSandboxState_SANDBOX_NOTREADY
 	if s, ok := r.Sandboxes[podSandboxID]; ok {
 		s.State = &notReadyState
 	} else {
@@ -214,6 +223,14 @@ func (r *FakeRuntimeService) ListPodSandbox(filter *runtimeApi.PodSandboxFilter)
 	return result, nil
 }
 
+func (r *FakeRuntimeService) PortForward(*runtimeApi.PortForwardRequest) (*runtimeApi.PortForwardResponse, error) {
+	r.Lock()
+	defer r.Unlock()
+
+	r.Called = append(r.Called, "PortForward")
+	return &runtimeApi.PortForwardResponse{}, nil
+}
+
 func (r *FakeRuntimeService) CreateContainer(podSandboxID string, config *runtimeApi.ContainerConfig, sandboxConfig *runtimeApi.PodSandboxConfig) (string, error) {
 	r.Lock()
 	defer r.Unlock()
@@ -224,7 +241,7 @@ func (r *FakeRuntimeService) CreateContainer(podSandboxID string, config *runtim
 	// fixed BuildContainerName() for easily making fake containers.
 	containerID := BuildContainerName(config.Metadata, podSandboxID)
 	createdAt := time.Now().Unix()
-	createdState := runtimeApi.ContainerState_CREATED
+	createdState := runtimeApi.ContainerState_CONTAINER_CREATED
 	imageRef := config.Image.GetImage()
 	r.Containers[containerID] = &FakeContainer{
 		ContainerStatus: runtimeApi.ContainerStatus{
@@ -256,7 +273,7 @@ func (r *FakeRuntimeService) StartContainer(containerID string) error {
 
 	// Set container to running.
 	startedAt := time.Now().Unix()
-	runningState := runtimeApi.ContainerState_RUNNING
+	runningState := runtimeApi.ContainerState_CONTAINER_RUNNING
 	c.State = &runningState
 	c.StartedAt = &startedAt
 
@@ -276,7 +293,7 @@ func (r *FakeRuntimeService) StopContainer(containerID string, timeout int64) er
 
 	// Set container to exited state.
 	finishedAt := time.Now().Unix()
-	exitedState := runtimeApi.ContainerState_EXITED
+	exitedState := runtimeApi.ContainerState_CONTAINER_EXITED
 	c.State = &exitedState
 	c.FinishedAt = &finishedAt
 
@@ -349,12 +366,28 @@ func (r *FakeRuntimeService) ContainerStatus(containerID string) (*runtimeApi.Co
 	return &status, nil
 }
 
-func (r *FakeRuntimeService) Exec(containerID string, cmd []string, tty bool, stdin io.Reader, stdout, stderr io.WriteCloser) error {
+func (r *FakeRuntimeService) ExecSync(containerID string, cmd []string, timeout time.Duration) (stdout []byte, stderr []byte, err error) {
+	r.Lock()
+	defer r.Unlock()
+
+	r.Called = append(r.Called, "ExecSync")
+	return nil, nil, nil
+}
+
+func (r *FakeRuntimeService) Exec(*runtimeApi.ExecRequest) (*runtimeApi.ExecResponse, error) {
 	r.Lock()
 	defer r.Unlock()
 
 	r.Called = append(r.Called, "Exec")
-	return nil
+	return &runtimeApi.ExecResponse{}, nil
+}
+
+func (r *FakeRuntimeService) Attach(req *runtimeApi.AttachRequest) (*runtimeApi.AttachResponse, error) {
+	r.Lock()
+	defer r.Unlock()
+
+	r.Called = append(r.Called, "Attach")
+	return &runtimeApi.AttachResponse{}, nil
 }
 
 func (r *FakeRuntimeService) UpdateRuntimeConfig(runtimeCOnfig *runtimeApi.RuntimeConfig) error {

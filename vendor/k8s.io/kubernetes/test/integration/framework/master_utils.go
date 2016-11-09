@@ -180,6 +180,7 @@ func startMasterOrDie(masterConfig *master.Config, incomingServer *httptest.Serv
 	if masterConfig == nil {
 		masterConfig = NewMasterConfig()
 		masterConfig.GenericConfig.EnableProfiling = true
+		masterConfig.GenericConfig.EnableMetrics = true
 		masterConfig.GenericConfig.EnableSwaggerSupport = true
 		masterConfig.GenericConfig.EnableOpenAPISupport = true
 		masterConfig.GenericConfig.OpenAPIConfig.Info = &spec.Info{
@@ -235,6 +236,12 @@ func startMasterOrDie(masterConfig *master.Config, incomingServer *httptest.Serv
 		masterReceiver.SetMaster(m)
 	}
 
+	// TODO have this start method actually use the normal start sequence for the API server
+	// this method never actually calls the `Run` method for the API server
+	// fire the post hooks ourselves
+	m.GenericAPIServer.PrepareRun()
+	m.GenericAPIServer.RunPostStartHooks()
+
 	cfg := *masterConfig.GenericConfig.LoopbackClientConfig
 	cfg.ContentConfig.GroupVersion = &unversioned.GroupVersion{}
 	privilegedClient, err := restclient.RESTClientFor(&cfg)
@@ -253,12 +260,6 @@ func startMasterOrDie(masterConfig *master.Config, incomingServer *httptest.Serv
 	if err != nil {
 		glog.Fatal(err)
 	}
-
-	// TODO have this start method actually use the normal start sequence for the API server
-	// this method never actually calls the `Run` method for the API server
-	// fire the post hooks ourselves
-	m.GenericAPIServer.PrepareRun()
-	m.GenericAPIServer.RunPostStartHooks()
 
 	// wait for services to be ready
 	if masterConfig.EnableCoreControllers {
@@ -303,45 +304,46 @@ func NewMasterConfig() *master.Config {
 		Prefix: uuid.New(),
 	}
 
-	negotiatedSerializer := NewSingleContentTypeSerializer(api.Scheme, testapi.Default.Codec(), runtime.ContentTypeJSON)
+	info, _ := runtime.SerializerInfoForMediaType(api.Codecs.SupportedMediaTypes(), runtime.ContentTypeJSON)
+	ns := NewSingleContentTypeSerializer(api.Scheme, info)
 
-	storageFactory := genericapiserver.NewDefaultStorageFactory(config, runtime.ContentTypeJSON, negotiatedSerializer, genericapiserver.NewDefaultResourceEncodingConfig(), master.DefaultAPIResourceConfigSource())
+	storageFactory := genericapiserver.NewDefaultStorageFactory(config, runtime.ContentTypeJSON, ns, genericapiserver.NewDefaultResourceEncodingConfig(), master.DefaultAPIResourceConfigSource())
 	storageFactory.SetSerializer(
 		unversioned.GroupResource{Group: api.GroupName, Resource: genericapiserver.AllResources},
 		"",
-		NewSingleContentTypeSerializer(api.Scheme, testapi.Default.Codec(), runtime.ContentTypeJSON))
+		ns)
 	storageFactory.SetSerializer(
 		unversioned.GroupResource{Group: autoscaling.GroupName, Resource: genericapiserver.AllResources},
 		"",
-		NewSingleContentTypeSerializer(api.Scheme, testapi.Autoscaling.Codec(), runtime.ContentTypeJSON))
+		ns)
 	storageFactory.SetSerializer(
 		unversioned.GroupResource{Group: batch.GroupName, Resource: genericapiserver.AllResources},
 		"",
-		NewSingleContentTypeSerializer(api.Scheme, testapi.Batch.Codec(), runtime.ContentTypeJSON))
+		ns)
 	storageFactory.SetSerializer(
 		unversioned.GroupResource{Group: apps.GroupName, Resource: genericapiserver.AllResources},
 		"",
-		NewSingleContentTypeSerializer(api.Scheme, testapi.Apps.Codec(), runtime.ContentTypeJSON))
+		ns)
 	storageFactory.SetSerializer(
 		unversioned.GroupResource{Group: extensions.GroupName, Resource: genericapiserver.AllResources},
 		"",
-		NewSingleContentTypeSerializer(api.Scheme, testapi.Extensions.Codec(), runtime.ContentTypeJSON))
+		ns)
 	storageFactory.SetSerializer(
 		unversioned.GroupResource{Group: policy.GroupName, Resource: genericapiserver.AllResources},
 		"",
-		NewSingleContentTypeSerializer(api.Scheme, testapi.Policy.Codec(), runtime.ContentTypeJSON))
+		ns)
 	storageFactory.SetSerializer(
 		unversioned.GroupResource{Group: rbac.GroupName, Resource: genericapiserver.AllResources},
 		"",
-		NewSingleContentTypeSerializer(api.Scheme, testapi.Rbac.Codec(), runtime.ContentTypeJSON))
+		ns)
 	storageFactory.SetSerializer(
 		unversioned.GroupResource{Group: certificates.GroupName, Resource: genericapiserver.AllResources},
 		"",
-		NewSingleContentTypeSerializer(api.Scheme, testapi.Certificates.Codec(), runtime.ContentTypeJSON))
+		ns)
 	storageFactory.SetSerializer(
 		unversioned.GroupResource{Group: storage.GroupName, Resource: genericapiserver.AllResources},
 		"",
-		NewSingleContentTypeSerializer(api.Scheme, testapi.Storage.Codec(), runtime.ContentTypeJSON))
+		ns)
 
 	genericConfig := genericapiserver.NewConfig()
 	kubeVersion := version.Get()
@@ -349,6 +351,7 @@ func NewMasterConfig() *master.Config {
 	genericConfig.APIResourceConfigSource = master.DefaultAPIResourceConfigSource()
 	genericConfig.Authorizer = authorizer.NewAlwaysAllowAuthorizer()
 	genericConfig.AdmissionControl = admit.NewAlwaysAdmit()
+	genericConfig.EnableMetrics = true
 
 	return &master.Config{
 		GenericConfig:         genericConfig,
@@ -356,6 +359,8 @@ func NewMasterConfig() *master.Config {
 		EnableCoreControllers: true,
 		EnableWatchCache:      true,
 		KubeletClientConfig:   kubeletclient.KubeletClientConfig{Port: 10250},
+		APIServerServicePort:  443,
+		MasterCount:           1,
 	}
 }
 
@@ -449,6 +454,7 @@ func RunAMaster(masterConfig *master.Config) (*master.Master, *httptest.Server) 
 	if masterConfig == nil {
 		masterConfig = NewMasterConfig()
 		masterConfig.GenericConfig.EnableProfiling = true
+		masterConfig.GenericConfig.EnableMetrics = true
 	}
 	return startMasterOrDie(masterConfig, nil, nil)
 }

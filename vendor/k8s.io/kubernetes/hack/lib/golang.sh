@@ -95,6 +95,7 @@ fi
 # The set of client targets that we are building for all platforms
 readonly KUBE_CLIENT_TARGETS=(
   cmd/kubectl
+  federation/cmd/kubefed
 )
 readonly KUBE_CLIENT_BINARIES=("${KUBE_CLIENT_TARGETS[@]##*/}")
 readonly KUBE_CLIENT_BINARIES_WIN=("${KUBE_CLIENT_BINARIES[@]/%/.exe}")
@@ -383,7 +384,7 @@ kube::golang::place_bins() {
     if [[ -d "${full_binpath_src}" ]]; then
       mkdir -p "${KUBE_OUTPUT_BINPATH}/${platform}"
       find "${full_binpath_src}" -maxdepth 1 -type f -exec \
-        rsync -pt {} "${KUBE_OUTPUT_BINPATH}/${platform}" \;
+        rsync -ptc {} "${KUBE_OUTPUT_BINPATH}/${platform}" \;
     fi
   done
 }

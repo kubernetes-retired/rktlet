@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"syscall"
 	"testing"
 	"time"
 
@@ -36,8 +37,10 @@ import (
 	commontest "k8s.io/kubernetes/test/e2e/common"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e_node/services"
+	"k8s.io/kubernetes/test/e2e_node/system"
 
 	"github.com/golang/glog"
+	"github.com/kardianos/osext"
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/config"
 	more_reporters "github.com/onsi/ginkgo/reporters"
@@ -47,7 +50,9 @@ import (
 
 var e2es *services.E2EServices
 
+// TODO(random-liu): Change the following modes to sub-command.
 var runServicesMode = flag.Bool("run-services-mode", false, "If true, only run services (etcd, apiserver) in current process, and not run test.")
+var systemValidateMode = flag.Bool("system-validate-mode", false, "If true, only run system validation in current process, and not run test.")
 
 func init() {
 	framework.RegisterCommonFlags()
@@ -59,7 +64,7 @@ func init() {
 	// It seems that someone is using flag.Parse() after init() and TestMain().
 	// TODO(random-liu): Find who is using flag.Parse() and cause errors and move the following logic
 	// into TestContext.
-	pflag.CommandLine.MarkHidden("runtime-integration-type")
+	pflag.CommandLine.MarkHidden("enable-cri")
 }
 
 func TestMain(m *testing.M) {
@@ -67,10 +72,30 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// When running the containerized conformance test, we'll mount the
+// host root filesystem as readonly to /rootfs.
+const rootfs = "/rootfs"
+
 func TestE2eNode(t *testing.T) {
 	if *runServicesMode {
 		// If run-services-mode is specified, only run services in current process.
 		services.RunE2EServices()
+		return
+	}
+	if *systemValidateMode {
+		// If system-validate-mode is specified, only run system validation in current process.
+		if framework.TestContext.NodeConformance {
+			// Chroot to /rootfs to make system validation can check system
+			// as in the root filesystem.
+			// TODO(random-liu): Consider to chroot the whole test process to make writing
+			// test easier.
+			if err := syscall.Chroot(rootfs); err != nil {
+				glog.Exitf("chroot %q failed: %v", rootfs, err)
+			}
+		}
+		if err := system.Validate(); err != nil {
+			glog.Exitf("system validation failed: %v", err)
+		}
 		return
 	}
 	// If run-services-mode is not specified, run test.
@@ -100,6 +125,10 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 		Expect(err).NotTo(HaveOccurred(), "should be able to get node name")
 		framework.TestContext.NodeName = hostname
 	}
+
+	// Run system validation test.
+	Expect(validateSystem()).To(Succeed(), "system validation")
+
 	// Pre-pull the images tests depend on so we can fail immediately if there is an image pull issue
 	// This helps with debugging test flakes since it is hard to tell when a test failure is due to image pulling.
 	if framework.TestContext.PrepullImages {
@@ -151,6 +180,22 @@ var _ = SynchronizedAfterSuite(func() {}, func() {
 	glog.Infof("Tests Finished")
 })
 
+// validateSystem runs system validation in a separate process and returns error if validation fails.
+func validateSystem() error {
+	testBin, err := osext.Executable()
+	if err != nil {
+		return fmt.Errorf("can't get current binary: %v", err)
+	}
+	// Pass all flags into the child process, so that it will see the same flag set.
+	output, err := exec.Command(testBin, append([]string{"--system-validate-mode"}, os.Args[1:]...)...).CombinedOutput()
+	// The output of system validation should have been formatted, directly print here.
+	fmt.Print(string(output))
+	if err != nil {
+		return fmt.Errorf("system validation failed: %v", err)
+	}
+	return nil
+}
+
 func maskLocksmithdOnCoreos() {
 	data, err := ioutil.ReadFile("/etc/os-release")
 	if err != nil {
@@ -159,7 +204,7 @@ func maskLocksmithdOnCoreos() {
 		return
 	}
 	if bytes.Contains(data, []byte("ID=coreos")) {
-		output, err := exec.Command("sudo", "systemctl", "mask", "--now", "locksmithd").CombinedOutput()
+		output, err := exec.Command("systemctl", "mask", "--now", "locksmithd").CombinedOutput()
 		Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("should be able to mask locksmithd - output: %q", string(output)))
 		glog.Infof("Locksmithd is masked successfully")
 	}
