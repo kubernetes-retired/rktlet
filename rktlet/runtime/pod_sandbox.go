@@ -87,7 +87,7 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 		if err == nil {
 			break
 		}
-		if status.GetStatus().GetState() != runtimeApi.PodSandBoxState_READY {
+		if status.GetStatus().GetState() != runtimeApi.PodSandboxState_SANDBOX_READY {
 			continue
 		}
 		time.Sleep(100 * time.Millisecond)

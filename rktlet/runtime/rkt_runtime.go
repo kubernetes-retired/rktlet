@@ -208,3 +208,30 @@ func (r *RktRuntime) UpdateRuntimeConfig(ctx context.Context, req *runtimeApi.Up
 	// TODO, use the PodCIDR passed in once we have network plugins setup
 	return &runtimeApi.UpdateRuntimeConfigResponse{}, nil
 }
+
+func (r *RktRuntime) Status(ctx context.Context, req *runtimeApi.StatusRequest) (*runtimeApi.StatusResponse, error) {
+	// TODO: implement
+
+	//Need to copy the consts to get pointers
+	runtimeReady := runtimeApi.RuntimeReady
+	networkReady := runtimeApi.NetworkReady
+	tv := true
+
+	conditions := []*runtimeApi.RuntimeCondition{
+		&runtimeApi.RuntimeCondition{
+			Type:   &runtimeReady,
+			Status: &tv,
+		},
+		&runtimeApi.RuntimeCondition{
+			Type:   &networkReady,
+			Status: &tv,
+		},
+	}
+	resp := runtimeApi.StatusResponse{
+		Status: &runtimeApi.RuntimeStatus{
+			Conditions: conditions,
+		},
+	}
+
+	return &resp, nil
+}

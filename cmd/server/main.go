@@ -53,6 +53,7 @@ func main() {
 	defer sock.Close()
 
 	execer := exec.New()
+	os.Setenv("RKT_EXPERIMENT_APP", "true")
 	rktPath, err := execer.LookPath("rkt")
 	if err != nil {
 		glog.Fatalf("Must have rkt installed: %v", err)

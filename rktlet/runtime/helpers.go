@@ -103,18 +103,18 @@ func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, 
 		Attempt: &attempt,
 	}
 
-	state := runtimeApi.ContainerState_UNKNOWN
+	state := runtimeApi.ContainerState_CONTAINER_UNKNOWN
 	switch app.State {
 	case rkt.AppStateUnknown:
-		state = runtimeApi.ContainerState_UNKNOWN
+		state = runtimeApi.ContainerState_CONTAINER_UNKNOWN
 	case rkt.AppStateCreated:
-		state = runtimeApi.ContainerState_CREATED
+		state = runtimeApi.ContainerState_CONTAINER_CREATED
 	case rkt.AppStateRunning:
-		state = runtimeApi.ContainerState_RUNNING
+		state = runtimeApi.ContainerState_CONTAINER_RUNNING
 	case rkt.AppStateExited:
-		state = runtimeApi.ContainerState_EXITED
+		state = runtimeApi.ContainerState_CONTAINER_EXITED
 	default:
-		state = runtimeApi.ContainerState_UNKNOWN
+		state = runtimeApi.ContainerState_CONTAINER_UNKNOWN
 	}
 
 	status.State = &state
@@ -198,7 +198,7 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 	}
 
 	// Add Linux options. (resources, caps, uid, gid).
-	if linux := config.Linux; linux != nil {
+	if linux := config.GetLinux(); linux != nil {
 
 		// Add resources.
 		if resources := linux.Resources; resources != nil {
@@ -229,36 +229,43 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 		// See https://github.com/kubernetes/kubernetes/pull/33614.
 		var caplist []string
 		var err error
-		if config.GetPrivileged() {
-			caplist = getAllCapabilites()
-		} else {
-			capabilities := linux.Capabilities
-			if capabilities != nil {
-				caplist, err = tweakCapabilities(defaultCapabilities, capabilities.AddCapabilities, capabilities.DropCapabilities)
-				if err != nil {
-					return nil, err
+		if secContext := linux.GetSecurityContext(); secContext != nil {
+			if secContext.GetPrivileged() {
+				caplist = getAllCapabilites()
+			} else {
+				if capabilities := secContext.GetCapabilities(); capabilities != nil {
+					caplist, err = tweakCapabilities(defaultCapabilities, capabilities.AddCapabilities, capabilities.DropCapabilities)
+					if err != nil {
+						return nil, err
+					}
 				}
 			}
-		}
-		if len(caplist) > 0 {
-			cmd = append(cmd, "--caps-retain="+strings.Join(caplist, ","))
+			if len(caplist) > 0 {
+				cmd = append(cmd, "--caps-retain="+strings.Join(caplist, ","))
+			}
+
+			// Add uid, addtional gids.
+			if uid := secContext.RunAsUser; uid != nil {
+				cmd = append(cmd, fmt.Sprintf("--user=%d", *uid))
+			}
+
+			if addGids := secContext.GetSupplementalGroups(); len(addGids) > 0 {
+				var gids []string
+				for _, gid := range addGids {
+					gids = append(gids, fmt.Sprintf("%d", gid))
+				}
+				cmd = append(cmd, "--supplementary-gids="+strings.Join(gids, ","))
+			}
+
+			// Add ReadOnlyRootFs.
+			if secContext.GetReadonlyRootfs() {
+				cmd = append(cmd, "--readonly-rootfs=true")
+			}
 		}
 
 		// TODO(yifan): Figure out selinux,
 		// https://github.com/kubernetes/kubernetes/issues/33139
 
-		// Add uid, gid, addtional gids.
-		if user := linux.User; user != nil {
-			cmd = append(cmd, fmt.Sprintf("--user=%d", user.GetUid()))
-			cmd = append(cmd, fmt.Sprintf("--group=%d", user.GetGid()))
-			if len(user.AdditionalGids) > 0 {
-				var gids []string
-				for _, gid := range user.AdditionalGids {
-					gids = append(gids, fmt.Sprintf("%d", gid))
-				}
-				cmd = append(cmd, "--supplementary-gids="+strings.Join(gids, ","))
-			}
-		}
 	}
 
 	// Add working dir
@@ -275,11 +282,6 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 		}
 		volumeName := uuid.NewUUID()
 		cmd = append(cmd, fmt.Sprintf("--mnt-volume=name=%s,kind=host,source=%s,target=%s,readOnly=%t", volumeName, mnt.GetHostPath(), mnt.GetContainerPath(), mnt.GetReadonly()))
-	}
-
-	// Add ReadOnlyRootFs.
-	if config.GetReadonlyRootfs() {
-		cmd = append(cmd, "--readonly-rootfs=true")
 	}
 
 	// Add app commands and args.
@@ -323,7 +325,7 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 	}
 
 	// Add port mappings only if it's not hostnetwork.
-	if !req.GetConfig().GetLinux().GetNamespaceOptions().GetHostNetwork() {
+	if !hasHostNetwork(req.GetConfig()) {
 		for _, portMapping := range req.Config.PortMappings {
 			if portMapping.GetHostPort() == 0 {
 				// If no host port is specified, then ignore.
@@ -390,9 +392,9 @@ func toPodSandboxStatus(pod *rkt.Pod) (*runtimeApi.PodSandboxStatus, error) {
 		startedAt = *pod.StartedAt
 	}
 
-	state := runtimeApi.PodSandBoxState_NOTREADY
+	state := runtimeApi.PodSandboxState_SANDBOX_NOTREADY
 	if pod.State == "running" {
-		state = runtimeApi.PodSandBoxState_READY
+		state = runtimeApi.PodSandboxState_SANDBOX_READY
 	}
 
 	ip := getIP(pod.Networks)
@@ -486,4 +488,15 @@ func generatePortArgs(port *runtimeApi.PortMapping) string {
 	name := fmt.Sprintf("%s-%d-%d", protocol, containerPort, hostPort)
 
 	return fmt.Sprintf("--port=%s:%s:%d:%s:%d", name, protocol, containerPort, hostIP, hostPort)
+}
+
+func hasHostNetwork(req *runtimeApi.PodSandboxConfig) bool {
+	if linux := req.GetLinux(); linux != nil {
+		if secContext := linux.GetSecurityContext(); secContext != nil {
+			if nsOpts := secContext.GetNamespaceOptions(); nsOpts != nil {
+				return nsOpts.GetHostNetwork()
+			}
+		}
+	}
+	return false
 }
