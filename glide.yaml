@@ -7,6 +7,8 @@ import:
   - pkg/kubelet/container
   - pkg/api/resource
   - pkg/util/exec
+  - pkg/util/flag
+  - pkg/util/logs
 - package: golang.org/x/net
   version: e90d6d0afc4c315a0d87a568ae68577cc15149a0
   subpackages:
@@ -16,7 +18,7 @@ import:
 - package: google.golang.org/grpc
   version: 231b4cfea0e79843053a33f5fe90bd4d84b23cd3
 - package: github.com/golang/glog
-  version: 23def4e6c14b4da8ac2ed8007337bc5eb5007998
+  version: 44145f04b68cf362d9c4df2182967c2275eaefed
 - package: github.com/vektra/mockery
   version: 50e94ccca3830b02af862920ec59f3dab0794901
   subpackages:
@@ -33,3 +35,5 @@ import:
 - package: github.com/appc/spec
   version: cri
 - package: github.com/docker/docker/daemon/caps
+- package: github.com/spf13/pflag
+  version: 5ccb023bc27df288a957c5e994cd44fd19619465
