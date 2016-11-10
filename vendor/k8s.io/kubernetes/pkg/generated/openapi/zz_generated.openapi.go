@@ -2676,13 +2676,6 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 							Format:      "",
 						},
 					},
-					"experimentalMounterRootfsPath": {
-						SchemaProps: spec.SchemaProps{
-							Description: "experimentalMounterRootfsPath is the absolute path to root filesystem for the mounter binary.",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
 					"rktAPIEndpoint": {
 						SchemaProps: spec.SchemaProps{
 							Description: "rktApiEndpoint is the endpoint of the rkt API service to communicate with.",
@@ -3003,8 +2996,15 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 							Format:      "",
 						},
 					},
+					"experimentalFailSwapOn": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Tells the Kubelet to fail to start if swap is enabled on the node.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
 				},
-				Required: []string{"TypeMeta", "podManifestPath", "syncFrequency", "fileCheckFrequency", "httpCheckFrequency", "manifestURL", "manifestURLHeader", "enableServer", "address", "port", "readOnlyPort", "tlsCertFile", "tlsPrivateKeyFile", "certDirectory", "authentication", "authorization", "hostnameOverride", "podInfraContainerImage", "dockerEndpoint", "rootDirectory", "seccompProfileRoot", "allowPrivileged", "hostNetworkSources", "hostPIDSources", "hostIPCSources", "registryPullQPS", "registryBurst", "eventRecordQPS", "eventBurst", "enableDebuggingHandlers", "minimumGCAge", "maxPerPodContainerCount", "maxContainerCount", "cAdvisorPort", "healthzPort", "healthzBindAddress", "oomScoreAdj", "registerNode", "clusterDomain", "masterServiceNamespace", "clusterDNS", "streamingConnectionIdleTimeout", "nodeStatusUpdateFrequency", "imageMinimumGCAge", "imageGCHighThresholdPercent", "imageGCLowThresholdPercent", "lowDiskSpaceThresholdMB", "volumeStatsAggPeriod", "networkPluginName", "networkPluginMTU", "networkPluginDir", "cniConfDir", "cniBinDir", "volumePluginDir", "containerRuntime", "remoteRuntimeEndpoint", "remoteImageEndpoint", "experimentalMounterPath", "experimentalMounterRootfsPath", "lockFilePath", "exitOnLockContention", "hairpinMode", "babysitDaemons", "maxPods", "nvidiaGPUs", "dockerExecHandlerName", "podCIDR", "resolvConf", "cpuCFSQuota", "containerized", "maxOpenFiles", "reconcileCIDR", "registerSchedulable", "contentType", "kubeAPIQPS", "kubeAPIBurst", "serializeImagePulls", "nodeLabels", "nonMasqueradeCIDR", "enableCustomMetrics", "podsPerCore", "enableControllerAttachDetach", "systemReserved", "kubeReserved", "protectKernelDefaults", "makeIPTablesUtilChains", "iptablesMasqueradeBit", "iptablesDropBit", "featureGates"},
+				Required: []string{"TypeMeta", "podManifestPath", "syncFrequency", "fileCheckFrequency", "httpCheckFrequency", "manifestURL", "manifestURLHeader", "enableServer", "address", "port", "readOnlyPort", "tlsCertFile", "tlsPrivateKeyFile", "certDirectory", "authentication", "authorization", "hostnameOverride", "podInfraContainerImage", "dockerEndpoint", "rootDirectory", "seccompProfileRoot", "allowPrivileged", "hostNetworkSources", "hostPIDSources", "hostIPCSources", "registryPullQPS", "registryBurst", "eventRecordQPS", "eventBurst", "enableDebuggingHandlers", "minimumGCAge", "maxPerPodContainerCount", "maxContainerCount", "cAdvisorPort", "healthzPort", "healthzBindAddress", "oomScoreAdj", "registerNode", "clusterDomain", "masterServiceNamespace", "clusterDNS", "streamingConnectionIdleTimeout", "nodeStatusUpdateFrequency", "imageMinimumGCAge", "imageGCHighThresholdPercent", "imageGCLowThresholdPercent", "lowDiskSpaceThresholdMB", "volumeStatsAggPeriod", "networkPluginName", "networkPluginMTU", "networkPluginDir", "cniConfDir", "cniBinDir", "volumePluginDir", "containerRuntime", "remoteRuntimeEndpoint", "remoteImageEndpoint", "experimentalMounterPath", "lockFilePath", "exitOnLockContention", "hairpinMode", "babysitDaemons", "maxPods", "nvidiaGPUs", "dockerExecHandlerName", "podCIDR", "resolvConf", "cpuCFSQuota", "containerized", "maxOpenFiles", "reconcileCIDR", "registerSchedulable", "contentType", "kubeAPIQPS", "kubeAPIBurst", "serializeImagePulls", "nodeLabels", "nonMasqueradeCIDR", "enableCustomMetrics", "podsPerCore", "enableControllerAttachDetach", "systemReserved", "kubeReserved", "protectKernelDefaults", "makeIPTablesUtilChains", "iptablesMasqueradeBit", "iptablesDropBit", "featureGates", "experimentalFailSwapOn"},
 			},
 		},
 		Dependencies: []string{
@@ -5212,6 +5212,26 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 			SchemaProps: spec.SchemaProps{
 				Description: "PodDisruptionBudgetStatus represents information about the status of a PodDisruptionBudget. Status may trail the actual state of a system.",
 				Properties: map[string]spec.Schema{
+					"observedGeneration": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Most recent generation observed when updating this PDB status. PodDisruptionsAllowed and other status informatio is valid only if observedGeneration equals to PDB's object generation.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"disruptedPods": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DisruptedPods contains information about pods whose eviction was processed by the API server eviction subresource handler but has not yet been observed by the PodDisruptionBudget controller. A pod will be in this map from the time when the API server processed the eviction request to the time when the pod is seen by PDB controller as having been marked for deletion (or after a timeout). The key in the map is the name of the pod and the value is the time when the API server processed the eviction request. If the deletion didn't occur and a pod is still there it will be removed from the list automatically by PodDisruptionBudget controller after some time. If everything goes smooth this map should be empty for the most of the time. Large number of entries in the map may indicate problems with pod deletions.",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: spec.MustCreateRef("#/definitions/unversioned.Time"),
+									},
+								},
+							},
+						},
+					},
 					"disruptionsAllowed": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Number of pod disruptions that are currently allowed.",
@@ -5240,21 +5260,8 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 							Format:      "int32",
 						},
 					},
-					"disruptedPods": {
-						SchemaProps: spec.SchemaProps{
-							Description: "DisruptedPods contains information about pods whose eviction was processed by the API server eviction subresource handler but has not yet been observed by the PodDisruptionBudget controller. A pod will be in this map from the time when the API server processed the eviction request to the time when the pod is seen by PDB controller as having been marked for deletion (or after a timeout). The key in the map is the name of the pod and the value is the time when the API server processed the eviction request. If the deletion didn't occur and a pod is still there it will be removed from the list automatically by PodDisruptionBudget controller after some time. If everything goes smooth this map should be empty for the most of the time. Large number of entries in the map may indicate problems with pod deletions.",
-							Type:        []string{"object"},
-							AdditionalProperties: &spec.SchemaOrBool{
-								Schema: &spec.Schema{
-									SchemaProps: spec.SchemaProps{
-										Ref: spec.MustCreateRef("#/definitions/unversioned.Time"),
-									},
-								},
-							},
-						},
-					},
 				},
-				Required: []string{"disruptionsAllowed", "currentHealthy", "desiredHealthy", "expectedPods", "disruptedPods"},
+				Required: []string{"disruptedPods", "disruptionsAllowed", "currentHealthy", "desiredHealthy", "expectedPods"},
 			},
 		},
 		Dependencies: []string{
@@ -10556,11 +10563,18 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 							Ref:         spec.MustCreateRef("#/definitions/v1.AzureDiskVolumeSource"),
 						},
 					},
+					"photonPersistentDisk": {
+						SchemaProps: spec.SchemaProps{
+							Description: "PhotonPersistentDisk represents a PhotonController persistent disk attached and mounted on kubelets host machine",
+							Ref:         spec.MustCreateRef("#/definitions/v1.PhotonPersistentDiskVolumeSource"),
+						},
+					},
 				},
+				Required: []string{"photonPersistentDisk"},
 			},
 		},
 		Dependencies: []string{
-			"v1.AWSElasticBlockStoreVolumeSource", "v1.AzureDiskVolumeSource", "v1.AzureFileVolumeSource", "v1.CephFSVolumeSource", "v1.CinderVolumeSource", "v1.FCVolumeSource", "v1.FlexVolumeSource", "v1.FlockerVolumeSource", "v1.GCEPersistentDiskVolumeSource", "v1.GlusterfsVolumeSource", "v1.HostPathVolumeSource", "v1.ISCSIVolumeSource", "v1.NFSVolumeSource", "v1.QuobyteVolumeSource", "v1.RBDVolumeSource", "v1.VsphereVirtualDiskVolumeSource"},
+			"v1.AWSElasticBlockStoreVolumeSource", "v1.AzureDiskVolumeSource", "v1.AzureFileVolumeSource", "v1.CephFSVolumeSource", "v1.CinderVolumeSource", "v1.FCVolumeSource", "v1.FlexVolumeSource", "v1.FlockerVolumeSource", "v1.GCEPersistentDiskVolumeSource", "v1.GlusterfsVolumeSource", "v1.HostPathVolumeSource", "v1.ISCSIVolumeSource", "v1.NFSVolumeSource", "v1.PhotonPersistentDiskVolumeSource", "v1.QuobyteVolumeSource", "v1.RBDVolumeSource", "v1.VsphereVirtualDiskVolumeSource"},
 	},
 	"v1.PersistentVolumeSpec": {
 		Schema: spec.Schema{
@@ -10640,6 +10654,31 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 						},
 					},
 				},
+			},
+		},
+		Dependencies: []string{},
+	},
+	"v1.PhotonPersistentDiskVolumeSource": {
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "Represents a Photon Controller persistent disk resource.",
+				Properties: map[string]spec.Schema{
+					"pdID": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ID that identifies Photon Controller persistent disk",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"fsType": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Filesystem type to mount. Must be a filesystem type supported by the host operating system. Ex. \"ext4\", \"xfs\", \"ntfs\". Implicitly inferred to be \"ext4\" if unspecified.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"pdID", "fsType"},
 			},
 		},
 		Dependencies: []string{},
@@ -13145,11 +13184,18 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 							Ref:         spec.MustCreateRef("#/definitions/v1.AzureDiskVolumeSource"),
 						},
 					},
+					"photonPersistentDisk": {
+						SchemaProps: spec.SchemaProps{
+							Description: "PhotonPersistentDisk represents a PhotonController persistent disk attached and mounted on kubelets host machine",
+							Ref:         spec.MustCreateRef("#/definitions/v1.PhotonPersistentDiskVolumeSource"),
+						},
+					},
 				},
+				Required: []string{"photonPersistentDisk"},
 			},
 		},
 		Dependencies: []string{
-			"v1.AWSElasticBlockStoreVolumeSource", "v1.AzureDiskVolumeSource", "v1.AzureFileVolumeSource", "v1.CephFSVolumeSource", "v1.CinderVolumeSource", "v1.ConfigMapVolumeSource", "v1.DownwardAPIVolumeSource", "v1.EmptyDirVolumeSource", "v1.FCVolumeSource", "v1.FlexVolumeSource", "v1.FlockerVolumeSource", "v1.GCEPersistentDiskVolumeSource", "v1.GitRepoVolumeSource", "v1.GlusterfsVolumeSource", "v1.HostPathVolumeSource", "v1.ISCSIVolumeSource", "v1.NFSVolumeSource", "v1.PersistentVolumeClaimVolumeSource", "v1.QuobyteVolumeSource", "v1.RBDVolumeSource", "v1.SecretVolumeSource", "v1.VsphereVirtualDiskVolumeSource"},
+			"v1.AWSElasticBlockStoreVolumeSource", "v1.AzureDiskVolumeSource", "v1.AzureFileVolumeSource", "v1.CephFSVolumeSource", "v1.CinderVolumeSource", "v1.ConfigMapVolumeSource", "v1.DownwardAPIVolumeSource", "v1.EmptyDirVolumeSource", "v1.FCVolumeSource", "v1.FlexVolumeSource", "v1.FlockerVolumeSource", "v1.GCEPersistentDiskVolumeSource", "v1.GitRepoVolumeSource", "v1.GlusterfsVolumeSource", "v1.HostPathVolumeSource", "v1.ISCSIVolumeSource", "v1.NFSVolumeSource", "v1.PersistentVolumeClaimVolumeSource", "v1.PhotonPersistentDiskVolumeSource", "v1.QuobyteVolumeSource", "v1.RBDVolumeSource", "v1.SecretVolumeSource", "v1.VsphereVirtualDiskVolumeSource"},
 	},
 	"v1.VsphereVirtualDiskVolumeSource": {
 		Schema: spec.Schema{
@@ -14430,13 +14476,6 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 							Format:      "",
 						},
 					},
-					"experimentalMounterRootfsPath": {
-						SchemaProps: spec.SchemaProps{
-							Description: "experimentalMounterRootfsPath is the absolute path to root filesystem for the mounter binary.",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
 					"rktAPIEndpoint": {
 						SchemaProps: spec.SchemaProps{
 							Description: "rktApiEndpoint is the endpoint of the rkt API service to communicate with.",
@@ -14757,8 +14796,15 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 							Format:      "",
 						},
 					},
+					"experimentalFailSwapOn": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Tells the Kubelet to fail to start if swap is enabled on the node.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
 				},
-				Required: []string{"TypeMeta", "podManifestPath", "syncFrequency", "fileCheckFrequency", "httpCheckFrequency", "manifestURL", "manifestURLHeader", "enableServer", "address", "port", "readOnlyPort", "tlsCertFile", "tlsPrivateKeyFile", "certDirectory", "authentication", "authorization", "hostnameOverride", "podInfraContainerImage", "dockerEndpoint", "rootDirectory", "seccompProfileRoot", "allowPrivileged", "hostNetworkSources", "hostPIDSources", "hostIPCSources", "registryPullQPS", "registryBurst", "eventRecordQPS", "eventBurst", "enableDebuggingHandlers", "minimumGCAge", "maxPerPodContainerCount", "maxContainerCount", "cAdvisorPort", "healthzPort", "healthzBindAddress", "oomScoreAdj", "registerNode", "clusterDomain", "masterServiceNamespace", "clusterDNS", "streamingConnectionIdleTimeout", "nodeStatusUpdateFrequency", "imageMinimumGCAge", "imageGCHighThresholdPercent", "imageGCLowThresholdPercent", "lowDiskSpaceThresholdMB", "volumeStatsAggPeriod", "networkPluginName", "networkPluginDir", "cniConfDir", "cniBinDir", "networkPluginMTU", "volumePluginDir", "cloudProvider", "cloudConfigFile", "kubeletCgroups", "runtimeCgroups", "systemCgroups", "cgroupRoot", "containerRuntime", "remoteRuntimeEndpoint", "remoteImageEndpoint", "runtimeRequestTimeout", "rktPath", "experimentalMounterPath", "experimentalMounterRootfsPath", "rktAPIEndpoint", "rktStage1Image", "lockFilePath", "exitOnLockContention", "hairpinMode", "babysitDaemons", "maxPods", "nvidiaGPUs", "dockerExecHandlerName", "podCIDR", "resolvConf", "cpuCFSQuota", "containerized", "maxOpenFiles", "reconcileCIDR", "registerSchedulable", "contentType", "kubeAPIQPS", "kubeAPIBurst", "serializeImagePulls", "outOfDiskTransitionFrequency", "nodeIP", "nodeLabels", "nonMasqueradeCIDR", "enableCustomMetrics", "evictionHard", "evictionSoft", "evictionSoftGracePeriod", "evictionPressureTransitionPeriod", "evictionMaxPodGracePeriod", "evictionMinimumReclaim", "podsPerCore", "enableControllerAttachDetach", "systemReserved", "kubeReserved", "protectKernelDefaults", "makeIPTablesUtilChains", "iptablesMasqueradeBit", "iptablesDropBit", "featureGates"},
+				Required: []string{"TypeMeta", "podManifestPath", "syncFrequency", "fileCheckFrequency", "httpCheckFrequency", "manifestURL", "manifestURLHeader", "enableServer", "address", "port", "readOnlyPort", "tlsCertFile", "tlsPrivateKeyFile", "certDirectory", "authentication", "authorization", "hostnameOverride", "podInfraContainerImage", "dockerEndpoint", "rootDirectory", "seccompProfileRoot", "allowPrivileged", "hostNetworkSources", "hostPIDSources", "hostIPCSources", "registryPullQPS", "registryBurst", "eventRecordQPS", "eventBurst", "enableDebuggingHandlers", "minimumGCAge", "maxPerPodContainerCount", "maxContainerCount", "cAdvisorPort", "healthzPort", "healthzBindAddress", "oomScoreAdj", "registerNode", "clusterDomain", "masterServiceNamespace", "clusterDNS", "streamingConnectionIdleTimeout", "nodeStatusUpdateFrequency", "imageMinimumGCAge", "imageGCHighThresholdPercent", "imageGCLowThresholdPercent", "lowDiskSpaceThresholdMB", "volumeStatsAggPeriod", "networkPluginName", "networkPluginDir", "cniConfDir", "cniBinDir", "networkPluginMTU", "volumePluginDir", "cloudProvider", "cloudConfigFile", "kubeletCgroups", "runtimeCgroups", "systemCgroups", "cgroupRoot", "containerRuntime", "remoteRuntimeEndpoint", "remoteImageEndpoint", "runtimeRequestTimeout", "rktPath", "experimentalMounterPath", "rktAPIEndpoint", "rktStage1Image", "lockFilePath", "exitOnLockContention", "hairpinMode", "babysitDaemons", "maxPods", "nvidiaGPUs", "dockerExecHandlerName", "podCIDR", "resolvConf", "cpuCFSQuota", "containerized", "maxOpenFiles", "reconcileCIDR", "registerSchedulable", "contentType", "kubeAPIQPS", "kubeAPIBurst", "serializeImagePulls", "outOfDiskTransitionFrequency", "nodeIP", "nodeLabels", "nonMasqueradeCIDR", "enableCustomMetrics", "evictionHard", "evictionSoft", "evictionSoftGracePeriod", "evictionPressureTransitionPeriod", "evictionMaxPodGracePeriod", "evictionMinimumReclaim", "podsPerCore", "enableControllerAttachDetach", "systemReserved", "kubeReserved", "protectKernelDefaults", "makeIPTablesUtilChains", "iptablesMasqueradeBit", "iptablesDropBit", "featureGates", "experimentalFailSwapOn"},
 			},
 		},
 		Dependencies: []string{
@@ -16436,7 +16482,7 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 	"v1beta1.Job": {
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "Job represents the configuration of a single job.",
+				Description: "Job represents the configuration of a single job. DEPRECATED: extensions/v1beta1.Job is deprecated, use batch/v1.Job instead.",
 				Properties: map[string]spec.Schema{
 					"metadata": {
 						SchemaProps: spec.SchemaProps{
@@ -16517,7 +16563,7 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 	"v1beta1.JobList": {
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "JobList is a collection of jobs.",
+				Description: "JobList is a collection of jobs. DEPRECATED: extensions/v1beta1.JobList is deprecated, use batch/v1.JobList instead.",
 				Properties: map[string]spec.Schema{
 					"metadata": {
 						SchemaProps: spec.SchemaProps{
@@ -16959,6 +17005,26 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 			SchemaProps: spec.SchemaProps{
 				Description: "PodDisruptionBudgetStatus represents information about the status of a PodDisruptionBudget. Status may trail the actual state of a system.",
 				Properties: map[string]spec.Schema{
+					"observedGeneration": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Most recent generation observed when updating this PDB status. PodDisruptionsAllowed and other status informatio is valid only if observedGeneration equals to PDB's object generation.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"disruptedPods": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DisruptedPods contains information about pods whose eviction was processed by the API server eviction subresource handler but has not yet been observed by the PodDisruptionBudget controller. A pod will be in this map from the time when the API server processed the eviction request to the time when the pod is seen by PDB controller as having been marked for deletion (or after a timeout). The key in the map is the name of the pod and the value is the time when the API server processed the eviction request. If the deletion didn't occur and a pod is still there it will be removed from the list automatically by PodDisruptionBudget controller after some time. If everything goes smooth this map should be empty for the most of the time. Large number of entries in the map may indicate problems with pod deletions.",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: spec.MustCreateRef("#/definitions/unversioned.Time"),
+									},
+								},
+							},
+						},
+					},
 					"disruptionsAllowed": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Number of pod disruptions that are currently allowed.",
@@ -16987,21 +17053,8 @@ var OpenAPIDefinitions *common.OpenAPIDefinitions = &common.OpenAPIDefinitions{
 							Format:      "int32",
 						},
 					},
-					"disruptedPods": {
-						SchemaProps: spec.SchemaProps{
-							Description: "DisruptedPods contains information about pods whose eviction was processed by the API server eviction subresource handler but has not yet been observed by the PodDisruptionBudget controller. A pod will be in this map from the time when the API server processed the eviction request to the time when the pod is seen by PDB controller as having been marked for deletion (or after a timeout). The key in the map is the name of the pod and the value is the time when the API server processed the eviction request. If the deletion didn't occur and a pod is still there it will be removed from the list automatically by PodDisruptionBudget controller after some time. If everything goes smooth this map should be empty for the most of the time. Large number of entries in the map may indicate problems with pod deletions.",
-							Type:        []string{"object"},
-							AdditionalProperties: &spec.SchemaOrBool{
-								Schema: &spec.Schema{
-									SchemaProps: spec.SchemaProps{
-										Ref: spec.MustCreateRef("#/definitions/unversioned.Time"),
-									},
-								},
-							},
-						},
-					},
 				},
-				Required: []string{"disruptionsAllowed", "currentHealthy", "desiredHealthy", "expectedPods", "disruptedPods"},
+				Required: []string{"disruptedPods", "disruptionsAllowed", "currentHealthy", "desiredHealthy", "expectedPods"},
 			},
 		},
 		Dependencies: []string{

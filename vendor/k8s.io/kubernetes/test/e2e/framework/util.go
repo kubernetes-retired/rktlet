@@ -916,7 +916,10 @@ func CreateTestingNS(baseName string, c clientset.Interface, labels map[string]s
 
 	if TestContext.VerifyServiceAccount {
 		if err := WaitForDefaultServiceAccountInNamespace(c, got.Name); err != nil {
-			return nil, err
+			// Even if we fail to create serviceAccount in the namespace,
+			// we have successfully create a namespace.
+			// So, return the created namespace.
+			return got, err
 		}
 	}
 	return got, nil
@@ -2803,7 +2806,7 @@ func DeleteRCAndWaitForGC(c clientset.Interface, ns, name string) error {
 func podStoreForRC(c clientset.Interface, rc *api.ReplicationController) (*testutils.PodStore, error) {
 	labels := labels.SelectorFromSet(rc.Spec.Selector)
 	ps := testutils.NewPodStore(c, rc.Namespace, labels, fields.Everything())
-	err := wait.Poll(1*time.Second, 1*time.Minute, func() (bool, error) {
+	err := wait.Poll(1*time.Second, 2*time.Minute, func() (bool, error) {
 		if len(ps.Reflector.LastSyncResourceVersion()) != 0 {
 			return true, nil
 		}
