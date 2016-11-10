@@ -19,6 +19,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 
@@ -150,5 +151,10 @@ func (c *cli) Command(subcmd string, args ...string) []string {
 
 // TODO(tmrts): implement CLI with timeout
 func NewRktCLI(rktPath string, exec utilexec.Interface, cfg CLIConfig) CLI {
+	// this can be removed once 'app' is stable in rkt
+	err := os.Setenv("RKT_EXPERIMENT_APP", "true")
+	if err != nil {
+		panic(err)
+	}
 	return &cli{rktPath: rktPath, config: cfg, execer: exec}
 }

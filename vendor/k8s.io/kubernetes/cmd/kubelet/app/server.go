@@ -118,7 +118,7 @@ func UnsecuredKubeletDeps(s *options.KubeletServer) (*kubelet.KubeletDeps, error
 		return nil, err
 	}
 
-	mounter := mount.NewCustomMounter(s.ExperimentalMounterPath, s.ExperimentalMounterRootfsPath)
+	mounter := mount.New(s.ExperimentalMounterPath)
 	var writer kubeio.Writer = &kubeio.StdWriter{}
 	if s.Containerized {
 		glog.V(2).Info("Running kubelet in containerized mode (experimental)")
@@ -434,17 +434,22 @@ func run(s *options.KubeletServer, kubeDeps *kubelet.KubeletDeps) (err error) {
 		if s.SystemCgroups != "" && s.CgroupRoot == "" {
 			return fmt.Errorf("invalid configuration: system container was specified and cgroup root was not specified")
 		}
-		kubeDeps.ContainerManager, err = cm.NewContainerManager(kubeDeps.Mounter, kubeDeps.CAdvisorInterface, cm.NodeConfig{
-			RuntimeCgroupsName:    s.RuntimeCgroups,
-			SystemCgroupsName:     s.SystemCgroups,
-			KubeletCgroupsName:    s.KubeletCgroups,
-			ContainerRuntime:      s.ContainerRuntime,
-			CgroupsPerQOS:         s.CgroupsPerQOS,
-			CgroupRoot:            s.CgroupRoot,
-			CgroupDriver:          s.CgroupDriver,
-			ProtectKernelDefaults: s.ProtectKernelDefaults,
-			EnableCRI:             s.EnableCRI,
-		})
+		kubeDeps.ContainerManager, err = cm.NewContainerManager(
+			kubeDeps.Mounter,
+			kubeDeps.CAdvisorInterface,
+			cm.NodeConfig{
+				RuntimeCgroupsName:    s.RuntimeCgroups,
+				SystemCgroupsName:     s.SystemCgroups,
+				KubeletCgroupsName:    s.KubeletCgroups,
+				ContainerRuntime:      s.ContainerRuntime,
+				CgroupsPerQOS:         s.CgroupsPerQOS,
+				CgroupRoot:            s.CgroupRoot,
+				CgroupDriver:          s.CgroupDriver,
+				ProtectKernelDefaults: s.ProtectKernelDefaults,
+				EnableCRI:             s.EnableCRI,
+			},
+			s.ExperimentalFailSwapOn)
+
 		if err != nil {
 			return err
 		}

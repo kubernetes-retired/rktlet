@@ -473,6 +473,7 @@ function start-kubelet {
   flags+=" --cluster-dns=${DNS_SERVER_IP}"
   flags+=" --cluster-domain=${DNS_DOMAIN}"
   flags+=" --config=/etc/kubernetes/manifests"
+  flags+=" --experimental-mounter-path=${KUBE_HOME}/bin/mounter"
 
   if [[ -n "${KUBELET_PORT:-}" ]]; then
     flags+=" --port=${KUBELET_PORT}"
@@ -737,6 +738,10 @@ function start-kube-apiserver {
     params+=" --enable-garbage-collector=${ENABLE_GARBAGE_COLLECTOR}"
   fi
   if [[ -n "${NUM_NODES:-}" ]]; then
+    # If the cluster is large, increase max-requests-inflight limit in apiserver.
+    if [[ "${NUM_NODES}" -ge 1000 ]]; then
+      params+=" --max-requests-inflight=1500"
+    fi
     # Set amount of memory available for apiserver based on number of nodes.
     # TODO: Once we start setting proper requests and limits for apiserver
     # we should reuse the same logic here instead of current heuristic.
@@ -1174,7 +1179,13 @@ EOF
 }
 
 function override-kubectl {
+    echo "overriding kubectl"
     echo "export PATH=${KUBE_HOME}/bin:\$PATH" > /etc/profile.d/kube_env.sh
+}
+
+function pre-warm-mounter {
+    echo "prewarming mounter"
+    ${KUBE_HOME}/bin/mounter &> /dev/null
 }
 
 ########### Main Function ###########
@@ -1211,6 +1222,8 @@ else
 fi
 
 override-kubectl
+# Run the containerized mounter once to pre-cache the container image.
+pre-warm-mounter
 assemble-docker-flags
 load-docker-images
 start-kubelet

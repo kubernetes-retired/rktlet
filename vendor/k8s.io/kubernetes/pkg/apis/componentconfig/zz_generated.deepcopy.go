@@ -319,7 +319,6 @@ func DeepCopy_componentconfig_KubeletConfiguration(in interface{}, out interface
 		out.RuntimeRequestTimeout = in.RuntimeRequestTimeout
 		out.RktPath = in.RktPath
 		out.ExperimentalMounterPath = in.ExperimentalMounterPath
-		out.ExperimentalMounterRootfsPath = in.ExperimentalMounterRootfsPath
 		out.RktAPIEndpoint = in.RktAPIEndpoint
 		out.RktStage1Image = in.RktStage1Image
 		out.LockFilePath = in.LockFilePath
@@ -392,6 +391,7 @@ func DeepCopy_componentconfig_KubeletConfiguration(in interface{}, out interface
 		}
 		out.FeatureGates = in.FeatureGates
 		out.EnableCRI = in.EnableCRI
+		out.ExperimentalFailSwapOn = in.ExperimentalFailSwapOn
 		return nil
 	}
 }

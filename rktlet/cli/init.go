@@ -40,7 +40,7 @@ func NewSystemd(systemdRunPath string, execer utilexec.Interface) Init {
 func (s *systemd) StartProcess(cgroupParent, command string, args ...string) (id string, err error) {
 	unitName := fmt.Sprintf("rktlet-%s", uuid.New())
 
-	cmdList := []string{s.systemdRunPath, "--unit=" + unitName}
+	cmdList := []string{s.systemdRunPath, "--unit=" + unitName, "--setenv=RKT_EXPERIMENT_APP=true"}
 	if cgroupParent != "" {
 		// The cgroup parent must have a suffix of .slice.
 		// If cgroupParent doesn't exist in some of the subsystems,
