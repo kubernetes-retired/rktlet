@@ -18,7 +18,7 @@ all:
 	go build -o bin/rktlet ./cmd/server/main.go
 
 glide:
-	glide update --delete --update-vendored --strip-vcs --strip-vendor
+	glide update --strip-vendor
 
 generate: ./hack/bin/mockery
 	go generate -x ./rktlet/...
