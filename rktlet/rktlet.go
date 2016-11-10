@@ -54,14 +54,14 @@ func New(config *Config) (ContainerAndImageService, error) {
 	})
 	init := cli.NewSystemd(systemdRunPath, execer)
 
-	rktRuntime, err := runtime.New(cli, init)
+	rktRuntime, err := runtime.New(rktCli, init, config.StreamServerAddress)
 	if err != nil {
 		return nil, err
 	}
 
 	return combinedRuntimes{
 		RuntimeServiceServer: rktRuntime,
-		ImageServiceServer:   image.NewImageStore(image.ImageStoreConfig{CLI: cli}),
+		ImageServiceServer:   image.NewImageStore(image.ImageStoreConfig{CLI: rktCli}),
 	}, nil
 }
 
@@ -69,11 +69,17 @@ type Config struct {
 	RktDatadir string
 	RktPath    string
 
+	// StreamServerAddress is the address the rktlet stream server should listen on.
+	// This address must be accessible by the api-server. However, it also allows
+	// arbitrary code execution within pods and must be secured.
+	StreamServerAddress string
+
 	// TODO, podcidr, networkdir, etc for cni
 }
 
 var DefaultConfig = &Config{
-	RktDatadir: "/var/lib/rktlet/data",
+	RktDatadir:          "/var/lib/rktlet/data",
+	StreamServerAddress: "0.0.0.0:10241",
 }
 
 type ContainerAndImageService interface {

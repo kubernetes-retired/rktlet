@@ -39,7 +39,7 @@ type RktRuntime struct {
 }
 
 // New creates a new RuntimeServiceServer backed by rkt
-func New(cli cli.CLI, init cli.Init) (runtimeApi.RuntimeServiceServer, error) {
+func New(cli cli.CLI, init cli.Init, streamServerAddr string) (runtimeApi.RuntimeServiceServer, error) {
 	runtime := &RktRuntime{
 		CLI:      cli,
 		Init:     init,
@@ -48,7 +48,7 @@ func New(cli cli.CLI, init cli.Init) (runtimeApi.RuntimeServiceServer, error) {
 
 	var err error
 	streamConfig := streaming.DefaultConfig
-	streamConfig.Addr = "0.0.0.0:10241"
+	streamConfig.Addr = streamServerAddr
 	runtime.streamServer, err = streaming.NewServer(streamConfig, runtime.execShim)
 	if err != nil {
 		return nil, err
