@@ -38,3 +38,7 @@ import:
 - package: github.com/docker/docker/daemon/caps
 - package: github.com/spf13/pflag
   version: 5ccb023bc27df288a957c5e994cd44fd19619465
+- package: github.com/coreos/go-systemd
+  version: v13
+  subpackages:
+    - sdjournal
