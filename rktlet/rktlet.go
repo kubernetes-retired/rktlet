@@ -20,6 +20,7 @@ package rktlet
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
 	"github.com/kubernetes-incubator/rktlet/rktlet/image"
@@ -27,6 +28,48 @@ import (
 	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/util/exec"
 )
+
+func New(config *Config) (ContainerAndImageService, error) {
+	execer := exec.New()
+
+	if config.RktPath == "" {
+		rktPath, err := execer.LookPath("rkt")
+		if err != nil {
+			return nil, fmt.Errorf("must have rkt installed: %v", err)
+		}
+		config.RktPath = rktPath
+	}
+
+	if _, err := os.Stat(config.RktPath); err != nil {
+		return nil, fmt.Errorf("rkt binary did not exist at %q: %v", config.RktPath, err)
+	}
+
+	systemdRunPath, err := execer.LookPath("systemd-run")
+	if err != nil {
+		return nil, fmt.Errorf("must have systemd-run installed: %v", err)
+	}
+
+	rktCli := cli.NewRktCLI(config.RktPath, execer, cli.CLIConfig{
+		Dir: config.RktDatadir,
+	})
+	init := cli.NewSystemd(systemdRunPath, execer)
+
+	return combinedRuntimes{
+		RuntimeServiceServer: runtime.New(rktCli, init),
+		ImageServiceServer:   image.NewImageStore(image.ImageStoreConfig{CLI: rktCli}),
+	}, nil
+}
+
+type Config struct {
+	RktDatadir string
+	RktPath    string
+
+	// TODO, podcidr, networkdir, etc for cni
+}
+
+var DefaultConfig = &Config{
+	RktDatadir: "/var/lib/rktlet/data",
+}
 
 type ContainerAndImageService interface {
 	runtimeapi.RuntimeServiceServer
@@ -36,24 +79,4 @@ type ContainerAndImageService interface {
 type combinedRuntimes struct {
 	runtimeapi.RuntimeServiceServer
 	runtimeapi.ImageServiceServer
-}
-
-func New() (ContainerAndImageService, error) {
-	execer := exec.New()
-	rktPath, err := execer.LookPath("rkt")
-	if err != nil {
-		return nil, fmt.Errorf("must have rkt installed: %v", err)
-	}
-
-	systemdRunPath, err := execer.LookPath("systemd-run")
-	if err != nil {
-		return nil, fmt.Errorf("must have systemd-run installed: %v", err)
-	}
-
-	cli, init := cli.NewRktCLI(rktPath, execer, cli.CLIConfig{}), cli.NewSystemd(systemdRunPath, execer)
-
-	return combinedRuntimes{
-		RuntimeServiceServer: runtime.New(cli, init),
-		ImageServiceServer:   image.NewImageStore(image.ImageStoreConfig{CLI: cli}),
-	}, nil
 }

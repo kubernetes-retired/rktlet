@@ -7,7 +7,7 @@
 $ make
 go build -o bin/rktlet ./cmd/server/main.go
 
-$ sudo ./bin/rktlet -v=4 -alsologtostderr
+$ sudo ./bin/rktlet -v=4
 ...
 ```
 

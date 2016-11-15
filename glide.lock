@@ -1,5 +1,5 @@
-hash: 985be6ae0447d6cb867a6dd0a6a858f3c4912dd991d5fab55545efa7fb87ebbe
-updated: 2016-11-09T18:23:24.306015022-08:00
+hash: 49352fa82b80b41231069a01ca36dfb83733b35441b8245f9a6bd7aa9d08fd6d
+updated: 2016-11-09T18:59:35.836995886-08:00
 imports:
 - name: github.com/appc/spec
   version: 3fddc8f00a9e8db1e1a8fe23180e7869ebaadc57
@@ -87,7 +87,7 @@ imports:
   - vanity
   - vanity/command
 - name: github.com/golang/glog
-  version: 23def4e6c14b4da8ac2ed8007337bc5eb5007998
+  version: 44145f04b68cf362d9c4df2182967c2275eaefed
 - name: github.com/golang/protobuf
   version: 4bd1920723d7b7c925de087aa32e2187708897f7
   subpackages:
@@ -185,4 +185,6 @@ imports:
   - pkg/kubelet/api/v1alpha1/runtime
   - pkg/kubelet/container
   - pkg/util/exec
+  - pkg/util/flag
+  - pkg/util/logs
 testImports: []
