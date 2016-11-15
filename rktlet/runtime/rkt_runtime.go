@@ -19,6 +19,7 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/coreos/rkt/lib"
 	"github.com/golang/glog"
@@ -32,11 +33,13 @@ import (
 type RktRuntime struct {
 	cli.CLI
 	cli.Init
-	imageStore runtimeApi.ImageServiceServer
 
 	execShim     *execShim
 	streamServer streaming.Server
+	imageStore   runtimeApi.ImageServiceServer
 }
+
+const internalAppPrefix = "rktletinternal-"
 
 // New creates a new RuntimeServiceServer backed by rkt
 func New(cli cli.CLI, init cli.Init, imageStore runtimeApi.ImageServiceServer, streamServerAddr string) (runtimeApi.RuntimeServiceServer, error) {
@@ -63,7 +66,8 @@ func New(cli cli.CLI, init cli.Init, imageStore runtimeApi.ImageServiceServer, s
 			glog.Fatalf("error serving execs: %v", err)
 		}
 	}()
-	return runtime, nil
+	err = runtime.initializeLoggingAppImage(context.TODO())
+	return runtime, err
 }
 
 func (r *RktRuntime) Version(ctx context.Context, req *runtimeApi.VersionRequest) (*runtimeApi.VersionResponse, error) {
@@ -106,7 +110,6 @@ func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.Contai
 }
 
 func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.CreateContainerRequest) (*runtimeApi.CreateContainerResponse, error) {
-
 	imageName := req.GetConfig().GetImage().GetImage()
 	imageID, err := r.getImageHash(ctx, imageName)
 	if err != nil {
@@ -174,6 +177,9 @@ func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListCon
 	var containers []*runtimeApi.Container
 	for _, p := range pods {
 		for _, appName := range p.AppNames {
+			if strings.HasPrefix(appName, internalAppPrefix) {
+				continue
+			}
 			containerID := buildContainerID(p.UUID, appName)
 			resp, err := r.ContainerStatus(ctx, &runtimeApi.ContainerStatusRequest{
 				ContainerId: &containerID,
