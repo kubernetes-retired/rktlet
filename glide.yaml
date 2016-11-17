@@ -9,6 +9,7 @@ import:
   - pkg/util/exec
   - pkg/util/flag
   - pkg/util/logs
+  - pkg/kubelet/server/streaming
 - package: golang.org/x/net
   version: e90d6d0afc4c315a0d87a568ae68577cc15149a0
   subpackages:

@@ -36,4 +36,5 @@ func NewRktletServer() *RktletServer {
 func (s *RktletServer) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&s.RktPath, "rkt-path", s.RktPath, "Path of rkt binary. Leave empty to use the first rkt in $PATH.")
 	fs.StringVar(&s.RktDatadir, "rkt-data-dir", s.RktPath, "Path to rkt's data directory. Defaults to '/var/lib/rktlet/data'.")
+	fs.StringVar(&s.StreamServerAddress, "stream-server-address", s.StreamServerAddress, "Address to listen on for api-server streaming requests. MUST BE SECURED BY SOME EXTERNAL MECHANISM.")
 }

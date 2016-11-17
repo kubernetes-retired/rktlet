@@ -1,5 +1,5 @@
-hash: 49352fa82b80b41231069a01ca36dfb83733b35441b8245f9a6bd7aa9d08fd6d
-updated: 2016-11-09T18:59:35.836995886-08:00
+hash: ead373f62496303ca9bfd2eadabd0258e51976bd62acc43de5aa4ac8a6424e9f
+updated: 2016-11-09T19:10:21.668618168-08:00
 imports:
 - name: github.com/appc/spec
   version: 3fddc8f00a9e8db1e1a8fe23180e7869ebaadc57
@@ -10,6 +10,10 @@ imports:
   - schema
   - schema/common
   - schema/types
+- name: github.com/Azure/go-ansiterm
+  version: 70b2c90b260171e829f1ebd7c17f600c11858dbe
+  subpackages:
+  - winterm
 - name: github.com/containernetworking/cni
   version: 9d5e6e60e79491207834ae8439e80c943db65a69
   subpackages:
@@ -45,11 +49,22 @@ imports:
   - daemon/caps
   - pkg/random
   - pkg/stringutils
+  - pkg/system
+  - pkg/term
+  - pkg/term/windows
+- name: github.com/docker/go-units
+  version: 0bbddae09c5a5419a8c6dcdd7ff90da3d450393b
+- name: github.com/docker/spdystream
+  version: 449fdfce4d962303d702fec724ef0ad181c92528
+  subpackages:
+  - spdy
 - name: github.com/emicklei/go-restful
   version: 89ef8af493ab468a45a42bb0d89a06fccdd2fb22
   subpackages:
   - log
   - swagger
+- name: github.com/ghodss/yaml
+  version: 73d445a93680fa1a78ae23a5839bad48f32ba1ee
 - name: github.com/go-openapi/jsonpointer
   version: 46af16f9f7b149af66e5d1bd010e3574dc06de98
 - name: github.com/go-openapi/jsonreference
@@ -92,14 +107,20 @@ imports:
   version: 4bd1920723d7b7c925de087aa32e2187708897f7
   subpackages:
   - proto
+- name: github.com/google/gofuzz
+  version: bbcb9da2d746f8bdbd6a936686a0a6067ada0ec5
 - name: github.com/hashicorp/errwrap
   version: 7554cd9344cec97297fa6649b055a8c98c2a1e55
+- name: github.com/kr/pty
+  version: f7ee69f31298ecbe5d2b349c711e2547a617d398
 - name: github.com/mailru/easyjson
   version: d5b7844b561a7bc640052f1b935f7b800330d7e0
   subpackages:
   - buffer
   - jlexer
   - jwriter
+- name: github.com/mitchellh/go-wordwrap
+  version: ad45545899c7b13c020ea92b2072220eefad42b8
 - name: github.com/pborman/uuid
   version: ca53cad383cad2479bbba7f7a1a05797ec1386e4
 - name: github.com/pmezard/go-difflib
@@ -110,6 +131,8 @@ imports:
   version: 8a290539e2e8629dbc4e6bad948158f790ec31f4
 - name: github.com/PuerkitoBio/urlesc
   version: 5bd2802263f21d8788851d5305584c82a5c75d7e
+- name: github.com/Sirupsen/logrus
+  version: 51fe59aca108dc5680109e7b2051cbdcfa5a253c
 - name: github.com/spf13/pflag
   version: 5ccb023bc27df288a957c5e994cd44fd19619465
 - name: github.com/stretchr/objx
@@ -123,6 +146,11 @@ imports:
   version: e7cb7fa329f456b3855136a2642b197bad7366ba
   subpackages:
   - capability
+- name: github.com/ugorji/go
+  version: f1f1a805ed361a0e078bb537e4ea78cd37dcf065
+  subpackages:
+  - codec
+  - codec/codecgen
 - name: github.com/vektra/errors
   version: c64d83aba85aa4392895aadeefabbd24e89f3580
 - name: github.com/vektra/mockery
@@ -144,6 +172,7 @@ imports:
   - internal/timeseries
   - lex/httplex
   - trace
+  - websocket
 - name: golang.org/x/text
   version: 2910a502d2bf9e43193af9d68ca516529614eed3
   subpackages:
@@ -177,14 +206,93 @@ imports:
   - transport
 - name: gopkg.in/inf.v0
   version: 3887ee99ecf07df5b447e9b00d9c0b2adaa9f3e4
+- name: gopkg.in/yaml.v2
+  version: 53feefa2559fb8dfa8d81baad31be332c97d6c77
+- name: k8s.io/client-go
+  version: 24b73253cdf216313fc6bcc0b459d48dc838a24f
+  subpackages:
+  - pkg/api
+  - pkg/api/meta
+  - pkg/api/meta/metatypes
+  - pkg/api/resource
+  - pkg/api/unversioned
+  - pkg/auth/user
+  - pkg/conversion
+  - pkg/conversion/queryparams
+  - pkg/fields
+  - pkg/genericapiserver/openapi/common
+  - pkg/labels
+  - pkg/runtime
+  - pkg/runtime/serializer
+  - pkg/runtime/serializer/json
+  - pkg/runtime/serializer/protobuf
+  - pkg/runtime/serializer/recognizer
+  - pkg/runtime/serializer/versioning
+  - pkg/selection
+  - pkg/third_party/forked/golang/reflect
+  - pkg/types
+  - pkg/util/errors
+  - pkg/util/framer
+  - pkg/util/intstr
+  - pkg/util/json
+  - pkg/util/labels
+  - pkg/util/rand
+  - pkg/util/runtime
+  - pkg/util/sets
+  - pkg/util/uuid
+  - pkg/util/validation
+  - pkg/util/validation/field
+  - pkg/util/yaml
 - name: k8s.io/kubernetes
   version: b392910bc7de425372fe6bf03a2c2c92fe1bae12
   subpackages:
+  - pkg/api
+  - pkg/api/errors
+  - pkg/api/meta
+  - pkg/api/meta/metatypes
   - pkg/api/resource
+  - pkg/api/unversioned
+  - pkg/auth/user
+  - pkg/conversion
+  - pkg/conversion/queryparams
+  - pkg/fields
   - pkg/genericapiserver/openapi/common
+  - pkg/httplog
   - pkg/kubelet/api/v1alpha1/runtime
   - pkg/kubelet/container
+  - pkg/kubelet/server/portforward
+  - pkg/kubelet/server/remotecommand
+  - pkg/kubelet/server/streaming
+  - pkg/labels
+  - pkg/runtime
+  - pkg/runtime/serializer
+  - pkg/runtime/serializer/json
+  - pkg/runtime/serializer/protobuf
+  - pkg/runtime/serializer/recognizer
+  - pkg/runtime/serializer/versioning
+  - pkg/selection
+  - pkg/types
+  - pkg/util/errors
   - pkg/util/exec
   - pkg/util/flag
+  - pkg/util/framer
+  - pkg/util/httpstream
+  - pkg/util/httpstream/spdy
+  - pkg/util/interrupt
+  - pkg/util/intstr
+  - pkg/util/json
+  - pkg/util/labels
   - pkg/util/logs
+  - pkg/util/rand
+  - pkg/util/runtime
+  - pkg/util/sets
+  - pkg/util/term
+  - pkg/util/uuid
+  - pkg/util/validation
+  - pkg/util/validation/field
+  - pkg/util/wait
+  - pkg/util/wsstream
+  - pkg/util/yaml
+  - third_party/forked/golang/netutil
+  - third_party/forked/golang/reflect
 testImports: []
