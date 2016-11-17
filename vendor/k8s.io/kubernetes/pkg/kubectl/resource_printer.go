@@ -1526,6 +1526,10 @@ func printNode(node *api.Node, w io.Writer, options PrintOptions) error {
 	if node.Spec.Unschedulable {
 		status = append(status, "SchedulingDisabled")
 	}
+	role := findNodeRole(node)
+	if role != "" {
+		status = append(status, role)
+	}
 
 	if _, err := fmt.Fprintf(w, "%s\t%s\t%s", name, strings.Join(status, ","), translateTimestamp(node.CreationTimestamp)); err != nil {
 		return err
@@ -1553,6 +1557,22 @@ func getNodeExternalIP(node *api.Node) string {
 	}
 
 	return "<none>"
+}
+
+// findNodeRole returns the role of a given node, or "" if none found.
+// The role is determined by looking in order for:
+// * a kubernetes.io/role label
+// * a kubeadm.alpha.kubernetes.io/role label
+// If no role is found, ("", nil) is returned
+func findNodeRole(node *api.Node) string {
+	if role := node.Labels[unversioned.NodeLabelRole]; role != "" {
+		return role
+	}
+	if role := node.Labels[unversioned.NodeLabelKubeadmAlphaRole]; role != "" {
+		return role
+	}
+	// No role found
+	return ""
 }
 
 func printNodeList(list *api.NodeList, w io.Writer, options PrintOptions) error {
@@ -2298,7 +2318,7 @@ func (h *HumanReadablePrinter) PrintObj(obj runtime.Object, output io.Writer) er
 	// check if the object is unstructured.  If so, let's attempt to convert it to a type we can understand before
 	// trying to print, since the printers are keyed by type.  This is extremely expensive.
 	switch obj.(type) {
-	case *runtime.Unstructured, *runtime.Unknown:
+	case *runtime.UnstructuredList, *runtime.Unstructured, *runtime.Unknown:
 		if objBytes, err := runtime.Encode(api.Codecs.LegacyCodec(), obj); err == nil {
 			if decodedObj, err := runtime.Decode(api.Codecs.UniversalDecoder(), objBytes); err == nil {
 				obj = decodedObj

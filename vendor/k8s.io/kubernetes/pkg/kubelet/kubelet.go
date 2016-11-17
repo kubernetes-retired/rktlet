@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"sort"
@@ -62,6 +63,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/rkt"
 	"k8s.io/kubernetes/pkg/kubelet/server"
 	"k8s.io/kubernetes/pkg/kubelet/server/stats"
+	"k8s.io/kubernetes/pkg/kubelet/server/streaming"
 	"k8s.io/kubernetes/pkg/kubelet/status"
 	"k8s.io/kubernetes/pkg/kubelet/sysctl"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
@@ -100,7 +102,7 @@ const (
 	nodeStatusUpdateRetry = 5
 
 	// Location of container logs.
-	containerLogsDir = "/var/log/containers"
+	ContainerLogsDir = "/var/log/containers"
 
 	// max backoff period, exported for the e2e test
 	MaxContainerBackOff = 300 * time.Second
@@ -433,7 +435,7 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 		nodeStatusUpdateFrequency: kubeCfg.NodeStatusUpdateFrequency.Duration,
 		os:                kubeDeps.OSInterface,
 		oomWatcher:        oomWatcher,
-		cgroupsPerQOS:     kubeCfg.CgroupsPerQOS,
+		cgroupsPerQOS:     kubeCfg.ExperimentalCgroupsPerQOS,
 		cgroupRoot:        kubeCfg.CgroupRoot,
 		mounter:           kubeDeps.Mounter,
 		writer:            kubeDeps.Writer,
@@ -448,15 +450,20 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 		containerManager:  kubeDeps.ContainerManager,
 		nodeIP:            net.ParseIP(kubeCfg.NodeIP),
 		clock:             clock.RealClock{},
-		outOfDiskTransitionFrequency: kubeCfg.OutOfDiskTransitionFrequency.Duration,
-		reservation:                  *reservation,
-		enableCustomMetrics:          kubeCfg.EnableCustomMetrics,
-		babysitDaemons:               kubeCfg.BabysitDaemons,
-		enableControllerAttachDetach: kubeCfg.EnableControllerAttachDetach,
-		iptClient:                    utilipt.New(utilexec.New(), utildbus.New(), utilipt.ProtocolIpv4),
-		makeIPTablesUtilChains:       kubeCfg.MakeIPTablesUtilChains,
-		iptablesMasqueradeBit:        int(kubeCfg.IPTablesMasqueradeBit),
-		iptablesDropBit:              int(kubeCfg.IPTablesDropBit),
+		outOfDiskTransitionFrequency:            kubeCfg.OutOfDiskTransitionFrequency.Duration,
+		reservation:                             *reservation,
+		enableCustomMetrics:                     kubeCfg.EnableCustomMetrics,
+		babysitDaemons:                          kubeCfg.BabysitDaemons,
+		enableControllerAttachDetach:            kubeCfg.EnableControllerAttachDetach,
+		iptClient:                               utilipt.New(utilexec.New(), utildbus.New(), utilipt.ProtocolIpv4),
+		makeIPTablesUtilChains:                  kubeCfg.MakeIPTablesUtilChains,
+		iptablesMasqueradeBit:                   int(kubeCfg.IPTablesMasqueradeBit),
+		iptablesDropBit:                         int(kubeCfg.IPTablesDropBit),
+		experimentalHostUserNamespaceDefaulting: utilconfig.DefaultFeatureGate.ExperimentalHostUserNamespaceDefaulting(),
+	}
+
+	if klet.experimentalHostUserNamespaceDefaulting {
+		glog.Infof("Experimental host user namespace defaulting is enabled.")
 	}
 
 	if mode, err := effectiveHairpinMode(componentconfig.HairpinMode(kubeCfg.HairpinMode), kubeCfg.ContainerRuntime, kubeCfg.NetworkPluginName); err != nil {
@@ -527,8 +534,9 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 
 		switch kubeCfg.ContainerRuntime {
 		case "docker":
+			streamingConfig := getStreamingConfig(kubeCfg, kubeDeps)
 			// Use the new CRI shim for docker.
-			ds, err := dockershim.NewDockerService(klet.dockerClient, kubeCfg.SeccompProfileRoot, kubeCfg.PodInfraContainerImage, nil, &pluginSettings, kubeCfg.RuntimeCgroups)
+			ds, err := dockershim.NewDockerService(klet.dockerClient, kubeCfg.SeccompProfileRoot, kubeCfg.PodInfraContainerImage, streamingConfig, &pluginSettings, kubeCfg.RuntimeCgroups)
 			if err != nil {
 				return nil, err
 			}
@@ -538,6 +546,7 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 				return nil, err
 			}
 
+			klet.criHandler = ds
 			rs := ds.(internalApi.RuntimeService)
 			is := ds.(internalApi.ImageManagerService)
 			// This is an internal knob to switch between grpc and non-grpc
@@ -567,13 +576,7 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 			// functions in CRI.
 			// TODO: Remove this hack after CRI is fully implemented.
 			// TODO: Move the instrumented interface wrapping into kuberuntime.
-			runtimeService = &struct {
-				internalApi.RuntimeService
-				dockershim.DockerLegacyService
-			}{
-				RuntimeService:      kuberuntime.NewInstrumentedRuntimeService(rs),
-				DockerLegacyService: ds,
-			}
+			runtimeService = kuberuntime.NewInstrumentedRuntimeService(rs)
 			imageService = is
 		case "remote":
 			runtimeService, imageService, err = getRuntimeAndImageServices(kubeCfg)
@@ -619,7 +622,7 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 				kubeCfg.PodInfraContainerImage,
 				float32(kubeCfg.RegistryPullQPS),
 				int(kubeCfg.RegistryBurst),
-				containerLogsDir,
+				ContainerLogsDir,
 				kubeDeps.OSInterface,
 				klet.networkPlugin,
 				klet,
@@ -716,6 +719,11 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 		return nil, err
 	}
 
+	// If the experimentalMounterPathFlag is set, we do not want to
+	// check node capabilities since the mount path is not the default
+	if len(kubeCfg.ExperimentalMounterPath) != 0 {
+		kubeCfg.ExperimentalCheckNodeCapabilitiesBeforeMount = false
+	}
 	// setup volumeManager
 	klet.volumeManager, err = volumemanager.NewVolumeManager(
 		kubeCfg.EnableControllerAttachDetach,
@@ -726,7 +734,8 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 		klet.containerRuntime,
 		kubeDeps.Mounter,
 		klet.getPodsDir(),
-		kubeDeps.Recorder)
+		kubeDeps.Recorder,
+		kubeCfg.ExperimentalCheckNodeCapabilitiesBeforeMount)
 
 	runtimeCache, err := kubecontainer.NewRuntimeCache(klet.containerRuntime)
 	if err != nil {
@@ -1080,6 +1089,16 @@ type Kubelet struct {
 
 	// The AppArmor validator for checking whether AppArmor is supported.
 	appArmorValidator apparmor.Validator
+
+	// The handler serving CRI streaming calls (exec/attach/port-forward).
+	criHandler http.Handler
+
+	// experimentalHostUserNamespaceDefaulting sets userns=true when users request host namespaces (pid, ipc, net),
+	// are using non-namespaced capabilities (mknod, sys_time, sys_module), the pod contains a privileged container,
+	// or using host path volumes.
+	// This should only be enabled when the container runtime is performing user remapping AND if the
+	// experimental behavior is desired.
+	experimentalHostUserNamespaceDefaulting bool
 }
 
 // setupDataDirs creates:
@@ -1149,9 +1168,9 @@ func (kl *Kubelet) initializeModules() error {
 	}
 
 	// Step 3: If the container logs directory does not exist, create it.
-	if _, err := os.Stat(containerLogsDir); err != nil {
-		if err := kl.os.MkdirAll(containerLogsDir, 0755); err != nil {
-			glog.Errorf("Failed to create directory %q: %v", containerLogsDir, err)
+	if _, err := os.Stat(ContainerLogsDir); err != nil {
+		if err := kl.os.MkdirAll(ContainerLogsDir, 0755); err != nil {
+			glog.Errorf("Failed to create directory %q: %v", ContainerLogsDir, err)
 		}
 	}
 
@@ -2070,7 +2089,7 @@ func (kl *Kubelet) ResyncInterval() time.Duration {
 
 // ListenAndServe runs the kubelet HTTP server.
 func (kl *Kubelet) ListenAndServe(address net.IP, port uint, tlsOptions *server.TLSOptions, auth server.AuthInterface, enableDebuggingHandlers bool) {
-	server.ListenAndServeKubeletServer(kl, kl.resourceAnalyzer, address, port, tlsOptions, auth, enableDebuggingHandlers, kl.containerRuntime)
+	server.ListenAndServeKubeletServer(kl, kl.resourceAnalyzer, address, port, tlsOptions, auth, enableDebuggingHandlers, kl.containerRuntime, kl.criHandler)
 }
 
 // ListenAndServeReadOnly runs the kubelet HTTP server in read-only mode.
@@ -2135,4 +2154,21 @@ func ParseReservation(kubeReserved, systemReserved utilconfig.ConfigurationMap) 
 		reservation.System = rl
 	}
 	return reservation, nil
+}
+
+// Gets the streaming server configuration to use with in-process CRI shims.
+func getStreamingConfig(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *KubeletDeps) *streaming.Config {
+	config := &streaming.Config{
+		// Use a relative redirect (no scheme or host).
+		BaseURL: &url.URL{
+			Path: "/cri/",
+		},
+		StreamIdleTimeout:     kubeCfg.StreamingConnectionIdleTimeout.Duration,
+		StreamCreationTimeout: streaming.DefaultConfig.StreamCreationTimeout,
+		SupportedProtocols:    streaming.DefaultConfig.SupportedProtocols,
+	}
+	if kubeDeps.TLSOptions != nil {
+		config.TLSConfig = kubeDeps.TLSOptions.Config
+	}
+	return config
 }
