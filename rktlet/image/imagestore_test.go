@@ -32,7 +32,7 @@ import (
 )
 
 const mockBusyboxFetchResponse = `
-image: remote fetching from URL "docker://busybox"
+image: remote fetching from URL "docker://busybox:latest"
 Downloading sha256:8ddc19f1652 [===============================] 668 KB / 668 KB
 sha512-847812d9cc2dd9e8bab70f7b77f8efe2`
 
@@ -53,8 +53,8 @@ func TestPullImage(t *testing.T) {
 		if subCommand != "fetch" {
 			t.Fatalf("Expected runCommand to be a fetch command; was %v", subCommand)
 		}
-		if image != "docker://"+testImage {
-			t.Fatalf("Expected rkt fetch to be fore image %v, was %+v", testImage, image)
+		if image != "docker://"+testImage+":latest" {
+			t.Fatalf("Expected rkt fetch to be for image %v, was %+v", testImage, image)
 		}
 	}).Return(strings.Split(mockBusyboxFetchResponse, "\n"), nil)
 

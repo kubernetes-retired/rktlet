@@ -17,6 +17,7 @@ limitations under the License.
 package image
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -25,7 +26,9 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
+	"github.com/kubernetes-incubator/rktlet/rktlet/util"
 
+	appcschema "github.com/appc/spec/schema"
 	context "golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
@@ -77,49 +80,84 @@ func (s *ImageStore) ImageStatus(ctx context.Context, req *runtime.ImageStatusRe
 		return nil, err
 	}
 
+	reqImg := req.GetImage().GetImage()
+	// TODO this should be done in kubelet (see comment on ApplyDefaultImageTag)
+	reqImg, err = util.ApplyDefaultImageTag(reqImg)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, img := range images.Images {
 		for _, name := range img.RepoTags {
-			if name == *req.Image.Image {
+			if name == reqImg {
 				return &runtime.ImageStatusResponse{Image: img}, nil
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("couldn't to find the image %v", *req.Image.Image)
+	// api expected response for "Image does not exist"
+	return &runtime.ImageStatusResponse{}, nil
+}
+
+// TODO this should be exported by rkt upstream. This is a copy of https://github.com/coreos/rkt/blob/v1.19.0/rkt/image_list.go#L81-L87
+// After https://github.com/coreos/rkt/pull/3383, the exported type can be used.
+type ImageListEntry struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	ImportTime string `json:"importtime"`
+	LastUsed   string `json:"lastused"`
+	Size       string `json:"size"`
 }
 
 // ListImages lists images in the store
 func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequest) (*runtime.ListImagesResponse, error) {
 	list, err := s.RunCommand("image", "list",
 		"--full",
-		"--no-legend",
-		"--fields=id,name,size",
+		"--format=json",
 		"--sort=importtime",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't list images: %v", err)
 	}
 
+	listEntries := []ImageListEntry{}
+
+	err = json.Unmarshal([]byte(list[0]), &listEntries)
+	if err != nil {
+		return nil, fmt.Errorf("could not unmarshal images into expected format: %v", err)
+	}
+
 	images := make([]*runtime.Image, 0, len(list))
-	for _, image := range list {
-		tokens := strings.Fields(image)
-		if len(tokens) < 2 {
-			glog.Errorf("malformed line in image list: %v", image)
-			continue
-		}
-		id, name := tokens[0], tokens[1]
-		size, err := strconv.ParseUint(tokens[2], 10, 0)
+	for _, img := range listEntries {
+		img := img
+
+		var realName, user string
+		manifest, err := s.getImageManifest(img.ID)
 		if err != nil {
-			return nil, fmt.Errorf("invalid image size format: %v", err)
+			glog.Warningf("unable to get image %q manifest: %v", img.ID, err)
+			realName = img.Name
+			user = ""
+		} else {
+			realName = s.getImageRealName(manifest, img.Name)
+			user = s.getImageUser(manifest)
+		}
+
+		sz, err := strconv.ParseUint(img.Size, 10, 64)
+		if err != nil {
+			glog.Warningf("could not parse image size: %v", err)
+			sz = 0
 		}
 
 		image := &runtime.Image{
-			Id: &id,
-			// TODO(yifan): Why not just call it name.
-			RepoTags: []string{name},
-			// TODO(yifan): Rename this field to something more generic?
-			RepoDigests: []string{id},
-			Size_:       &size,
+			Id:          &img.ID,
+			RepoTags:    []string{realName},
+			RepoDigests: []string{img.ID},
+			Size_:       &sz,
+		}
+		if uid, err := strconv.ParseInt(user, 10, 64); err != nil {
+			image.Uid = &uid
+		} else {
+			image.Username = &user
 		}
 
 		if passFilter(image, req.Filter) {
@@ -130,16 +168,59 @@ func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequ
 	return &runtime.ListImagesResponse{Images: images}, nil
 }
 
+func (s *ImageStore) getImageManifest(id string) (*appcschema.ImageManifest, error) {
+	imgManifest, err := s.RunCommand("image", "cat-manifest", id)
+	if err != nil {
+		return nil, err
+	}
+	var manifest appcschema.ImageManifest
+
+	err = json.Unmarshal([]byte(strings.Join(imgManifest, "")), &manifest)
+	if err != nil {
+		return nil, err
+	}
+	return &manifest, nil
+}
+
+func (s *ImageStore) getImageRealName(manifest *appcschema.ImageManifest, default_ string) string {
+	originalName, ok := manifest.GetAnnotation("appc.io/docker/originalname")
+	if !ok {
+		glog.Warningf("image %q does not have originalname annotation", manifest.Name.String())
+		return default_
+	}
+	// Normalize in case someone typed `rkt fetch docker://image-without-tag`
+	// because our kubelet version will have that latest tag.
+	realName, err := util.ApplyDefaultImageTag(originalName)
+	if err != nil {
+		glog.Warningf("error adding default tag to image %v, %v", originalName, err)
+		return originalName
+	}
+	return realName
+}
+
+func (s *ImageStore) getImageUser(manifest *appcschema.ImageManifest) string {
+	if manifest.App != nil {
+		return manifest.App.User
+	}
+	return ""
+}
+
 // PullImage pulls an image into the store
 func (s *ImageStore) PullImage(ctx context.Context, req *runtime.PullImageRequest) (*runtime.PullImageResponse, error) {
+
+	canonicalImageName, err := util.ApplyDefaultImageTag(req.GetImage().GetImage())
+	if err != nil {
+		return nil, fmt.Errorf("unable to default tag for img %q, %v", req.GetImage().GetImage(), err)
+	}
+
 	// TODO auth
-	output, err := s.RunCommand("image", "fetch", "--no-store=true", "--insecure-options=image,ondisk", "--full=true", "docker://"+*req.Image.Image)
+	output, err := s.RunCommand("image", "fetch", "--no-store=true", "--insecure-options=image,ondisk", "--full=true", "docker://"+canonicalImageName)
 
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch image: %v", err)
+		return nil, fmt.Errorf("unable to fetch image %q: %v", canonicalImageName, err)
 	}
 	if len(output) < 1 {
-		return nil, fmt.Errorf("malformed fetch image response; must include image id: %v", output)
+		return nil, fmt.Errorf("malformed fetch image response for %q; must include image id: %v", canonicalImageName, output)
 	}
 
 	return &runtime.PullImageResponse{}, nil

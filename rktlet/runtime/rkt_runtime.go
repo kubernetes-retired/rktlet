@@ -24,6 +24,7 @@ import (
 	"github.com/coreos/rkt/lib"
 	"github.com/golang/glog"
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
+	"github.com/kubernetes-incubator/rktlet/rktlet/util"
 	"golang.org/x/net/context"
 
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
@@ -109,6 +110,11 @@ func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.Create
 
 	// Get the image hash.
 	imageName := *req.Config.Image.Image
+	var err error
+	imageName, err = util.ApplyDefaultImageTag(imageName)
+	if err != nil {
+		return nil, fmt.Errorf("unable to apply image tag: %v", err)
+	}
 	resp, err := r.RunCommand("image", "fetch", "--store-only=true", "--full=true", "docker://"+imageName)
 	if err != nil {
 		return nil, err
