@@ -139,10 +139,8 @@ func execWithTty(execCmd *exec.Cmd, in io.Reader, out io.WriteCloser, resize <-c
 	defer out.Close()
 
 	// defensive check in case the resize stream isn't closed
-	done := make(chan struct{}, 1)
-	defer func() {
-		done <- struct{}{}
-	}()
+	done := make(chan struct{}, 0)
+	defer close(done)
 
 	go func() {
 		for {

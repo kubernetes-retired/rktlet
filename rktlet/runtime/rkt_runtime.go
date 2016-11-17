@@ -54,13 +54,14 @@ func New(cli cli.CLI, init cli.Init, streamServerAddr string) (runtimeApi.Runtim
 		return nil, err
 	}
 	go func() {
-		// TODO, ctx or somethign
+		// TODO, runtime.streamServer.Stop() for SIGTERM or any other clean
+		// shutdown of rktlet
 		glog.Infof("listening for execs on: %v", streamConfig.Addr)
-		glog.Fatalf("error serving execs: %v", runtime.streamServer.Start(true))
+		err := runtime.streamServer.Start(true)
+		if err != nil {
+			glog.Fatalf("error serving execs: %v", err)
+		}
 	}()
-	if err != nil {
-		return nil, err
-	}
 	return runtime, nil
 }
 
