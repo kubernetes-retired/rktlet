@@ -1,5 +1,5 @@
-hash: 5b8b32005a49a3423cf26eb094d426286533f0d8ae34fccf5b46c24b43f2dea4
-updated: 2016-11-17T16:00:38.50869223-08:00
+hash: 117f28ee4fca28ce2f8ad5a48955fd2835c7351eee424d1762094dfc384363cf
+updated: 2016-11-18T11:28:10.734699634-08:00
 imports:
 - name: github.com/appc/spec
   version: 3fddc8f00a9e8db1e1a8fe23180e7869ebaadc57
@@ -24,6 +24,18 @@ imports:
   version: 568e959cd89871e61434c1143528d9162da89ef2
   subpackages:
   - semver
+- name: github.com/coreos/go-systemd
+  version: 61c7ee68bddeb1e66b491c3e1045c4f72b2cd6e3
+  subpackages:
+  - sdjournal
+- name: github.com/coreos/pkg
+  version: fa29b1d70f0beaddd4c7021607cc3c3be8ce94b8
+  subpackages:
+  - capnslog
+  - dlopen
+  - health
+  - httputil
+  - timeutil
 - name: github.com/coreos/rkt
   version: 4444fe17ac194c27bea01a213d46ea2914884bce
   subpackages:
