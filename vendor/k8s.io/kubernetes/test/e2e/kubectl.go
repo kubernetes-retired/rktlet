@@ -156,9 +156,9 @@ func readTestFileOrDie(file string) []byte {
 func runKubectlRetryOrDie(args ...string) string {
 	var err error
 	var output string
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 5; i++ {
 		output, err = framework.RunKubectl(args...)
-		if err == nil || !strings.Contains(err.Error(), registry.OptimisticLockErrorMsg) {
+		if err == nil || (!strings.Contains(err.Error(), registry.OptimisticLockErrorMsg) && !strings.Contains(err.Error(), "Operation cannot be fulfilled")) {
 			break
 		}
 		time.Sleep(time.Second)
@@ -566,8 +566,15 @@ var _ = framework.KubeDescribe("Kubectl client", func() {
 			framework.SkipUnlessProviderIs("gke")
 			nsFlag := fmt.Sprintf("--namespace=%v", ns)
 			podJson := readTestFileOrDie(kubectlInPodFilename)
+
+			// Replace the host path to kubectl in json
+			podString := strings.Replace(string(podJson),
+				"$KUBECTL_PATH",
+				framework.TestContext.KubectlPath,
+				1)
+
 			By("validating api verions")
-			framework.RunKubectlOrDieInput(string(podJson), "create", "-f", "-", nsFlag)
+			framework.RunKubectlOrDieInput(podString, "create", "-f", "-", nsFlag)
 			err := wait.PollImmediate(time.Second, time.Minute, func() (bool, error) {
 				output := framework.RunKubectlOrDie("get", "pods/kubectl-in-pod", nsFlag)
 				if strings.Contains(output, "Running") {
@@ -1355,18 +1362,17 @@ var _ = framework.KubeDescribe("Kubectl client", func() {
 	framework.KubeDescribe("Kubectl taint", func() {
 		It("should update the taint on a node", func() {
 			testTaint := api.Taint{
-				Key:    fmt.Sprintf("kubernetes.io/e2e-taint-key-%s", string(uuid.NewUUID())),
+				Key:    fmt.Sprintf("kubernetes.io/e2e-taint-key-001-%s", string(uuid.NewUUID())),
 				Value:  "testing-taint-value",
 				Effect: api.TaintEffectNoSchedule,
 			}
 
-			nodes, err := c.Core().Nodes().List(api.ListOptions{})
-			Expect(err).NotTo(HaveOccurred())
-			node := nodes.Items[0]
-			nodeName := node.Name
+			nodeName := getNodeThatCanRunPod(f)
 
 			By("adding the taint " + testTaint.ToString() + " to a node")
 			runKubectlRetryOrDie("taint", "nodes", nodeName, testTaint.ToString())
+			defer framework.RemoveTaintOffNode(f.ClientSet, nodeName, testTaint)
+
 			By("verifying the node has the taint " + testTaint.ToString())
 			output := runKubectlRetryOrDie("describe", "node", nodeName)
 			requiredStrings := [][]string{
@@ -1387,18 +1393,17 @@ var _ = framework.KubeDescribe("Kubectl client", func() {
 
 		It("should remove all the taints with the same key off a node", func() {
 			testTaint := api.Taint{
-				Key:    fmt.Sprintf("kubernetes.io/e2e-taint-key-%s", string(uuid.NewUUID())),
+				Key:    fmt.Sprintf("kubernetes.io/e2e-taint-key-002-%s", string(uuid.NewUUID())),
 				Value:  "testing-taint-value",
 				Effect: api.TaintEffectNoSchedule,
 			}
 
-			nodes, err := c.Core().Nodes().List(api.ListOptions{})
-			Expect(err).NotTo(HaveOccurred())
-			node := nodes.Items[0]
-			nodeName := node.Name
+			nodeName := getNodeThatCanRunPod(f)
 
 			By("adding the taint " + testTaint.ToString() + " to a node")
 			runKubectlRetryOrDie("taint", "nodes", nodeName, testTaint.ToString())
+			defer framework.RemoveTaintOffNode(f.ClientSet, nodeName, testTaint)
+
 			By("verifying the node has the taint " + testTaint.ToString())
 			output := runKubectlRetryOrDie("describe", "node", nodeName)
 			requiredStrings := [][]string{
@@ -1415,6 +1420,8 @@ var _ = framework.KubeDescribe("Kubectl client", func() {
 			}
 			By("adding another taint " + newTestTaint.ToString() + " to the node")
 			runKubectlRetryOrDie("taint", "nodes", nodeName, newTestTaint.ToString())
+			defer framework.RemoveTaintOffNode(f.ClientSet, nodeName, newTestTaint)
+
 			By("verifying the node has the taint " + newTestTaint.ToString())
 			output = runKubectlRetryOrDie("describe", "node", nodeName)
 			requiredStrings = [][]string{

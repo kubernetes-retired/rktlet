@@ -439,7 +439,6 @@ logging_destination: '$(echo "$LOGGING_DESTINATION" | sed -e "s/'/''/g")'
 elasticsearch_replicas: '$(echo "$ELASTICSEARCH_LOGGING_REPLICAS" | sed -e "s/'/''/g")'
 enable_cluster_dns: '$(echo "$ENABLE_CLUSTER_DNS" | sed -e "s/'/''/g")'
 enable_cluster_registry: '$(echo "$ENABLE_CLUSTER_REGISTRY" | sed -e "s/'/''/g")'
-dns_replicas: '$(echo "$DNS_REPLICAS" | sed -e "s/'/''/g")'
 dns_server: '$(echo "$DNS_SERVER_IP" | sed -e "s/'/''/g")'
 dns_domain: '$(echo "$DNS_DOMAIN" | sed -e "s/'/''/g")'
 enable_dns_horizontal_autoscaler: '$(echo "$ENABLE_DNS_HORIZONTAL_AUTOSCALER" | sed -e "s/'/''/g")'
@@ -458,6 +457,7 @@ num_nodes: $(echo "${NUM_NODES:-}" | sed -e "s/'/''/g")
 e2e_storage_test_environment: '$(echo "$E2E_STORAGE_TEST_ENVIRONMENT" | sed -e "s/'/''/g")'
 kube_uid: '$(echo "${KUBE_UID}" | sed -e "s/'/''/g")'
 initial_etcd_cluster: '$(echo "${INITIAL_ETCD_CLUSTER:-}" | sed -e "s/'/''/g")'
+
 hostname: $(hostname -s)
 EOF
     if [ -n "${STORAGE_BACKEND:-}" ]; then
@@ -483,6 +483,15 @@ EOF
     if [ -n "${ETCD_VERSION:-}" ]; then
       cat <<EOF >>/srv/salt-overlay/pillar/cluster-params.sls
 etcd_version: '$(echo "$ETCD_VERSION" | sed -e "s/'/''/g")'
+EOF
+    fi
+    if [[ -n "${ETCD_CA_KEY:-}" && -n "${ETCD_CA_CERT:-}" && -n "${ETCD_PEER_KEY:-}" && -n "${ETCD_PEER_CERT:-}" ]]; then
+      cat <<EOF >>/srv/salt-overlay/pillar/cluster-params.sls
+etcd_over_ssl: 'true'
+EOF
+    else
+      cat <<EOF >>/srv/salt-overlay/pillar/cluster-params.sls
+etcd_over_ssl: 'false'
 EOF
     fi
     # Configuration changes for test clusters
@@ -1055,6 +1064,15 @@ function run-user-script() {
   fi
 }
 
+function create-salt-master-etcd-auth {
+  if [[ -n "${ETCD_CA_CERT:-}" && -n "${ETCD_PEER_KEY:-}" && -n "${ETCD_PEER_CERT:-}" ]]; then
+    local -r auth_dir="/srv/kubernetes"
+    echo "${ETCD_CA_CERT}" | base64 --decode | gunzip > "${auth_dir}/etcd-ca.crt"
+    echo "${ETCD_PEER_KEY}" | base64 --decode > "${auth_dir}/etcd-peer.key"
+    echo "${ETCD_PEER_CERT}" | base64 --decode | gunzip > "${auth_dir}/etcd-peer.crt"
+  fi
+}
+
 # This script is re-used on AWS.  Some of the above functions will be replaced.
 # The AWS kube-up script looks for this marker:
 #+AWS_OVERRIDES_HERE
@@ -1075,6 +1093,7 @@ if [[ -z "${is_push}" ]]; then
   create-salt-pillar
   if [[ "${KUBERNETES_MASTER}" == "true" ]]; then
     create-salt-master-auth
+    create-salt-master-etcd-auth
     create-salt-master-kubelet-auth
   else
     create-salt-kubelet-auth

@@ -1789,7 +1789,7 @@ func restclientConfig(kubeContext string) (*clientcmdapi.Config, error) {
 type ClientConfigGetter func() (*restclient.Config, error)
 
 func LoadConfig() (*restclient.Config, error) {
-	if TestContext.NodeName != "" {
+	if TestContext.NodeE2E {
 		// This is a node e2e test, apply the node e2e configuration
 		return &restclient.Config{Host: TestContext.Host}, nil
 	}
@@ -2163,6 +2163,10 @@ func (f *Framework) MatchContainerOutput(
 	ns := f.Namespace.Name
 
 	createdPod := podClient.Create(pod)
+	defer func() {
+		By("delete the pod")
+		podClient.DeleteSync(createdPod.Name, &api.DeleteOptions{}, podNoLongerRunningTimeout)
+	}()
 
 	// Wait for client pod to complete.
 	if err := WaitForPodSuccessInNamespace(f.ClientSet, createdPod.Name, ns); err != nil {
@@ -2638,6 +2642,36 @@ func WaitForRCPodsRunning(c clientset.Interface, ns, rcName string) error {
 	err = testutils.WaitForPodsWithLabelRunning(c, ns, selector)
 	if err != nil {
 		return fmt.Errorf("Error while waiting for replication controller %s pods to be running: %v", rcName, err)
+	}
+	return nil
+}
+
+func ScaleDeployment(clientset clientset.Interface, ns, name string, size uint, wait bool) error {
+	By(fmt.Sprintf("Scaling Deployment %s in namespace %s to %d", name, ns, size))
+	scaler, err := kubectl.ScalerFor(extensions.Kind("Deployment"), clientset)
+	if err != nil {
+		return err
+	}
+	waitForScale := kubectl.NewRetryParams(5*time.Second, 1*time.Minute)
+	waitForReplicas := kubectl.NewRetryParams(5*time.Second, 5*time.Minute)
+	if err = scaler.Scale(ns, name, size, nil, waitForScale, waitForReplicas); err != nil {
+		return fmt.Errorf("error while scaling Deployment %s to %d replicas: %v", name, size, err)
+	}
+	if !wait {
+		return nil
+	}
+	return WaitForDeploymentPodsRunning(clientset, ns, name)
+}
+
+func WaitForDeploymentPodsRunning(c clientset.Interface, ns, name string) error {
+	deployment, err := c.Extensions().Deployments(ns).Get(name)
+	if err != nil {
+		return err
+	}
+	selector := labels.SelectorFromSet(labels.Set(deployment.Spec.Selector.MatchLabels))
+	err = testutils.WaitForPodsWithLabelRunning(c, ns, selector)
+	if err != nil {
+		return fmt.Errorf("Error while waiting for Deployment %s pods to be running: %v", name, err)
 	}
 	return nil
 }

@@ -22,6 +22,7 @@ DOCKER=(docker ${DOCKER_OPTS})
 DOCKERIZE_KUBELET=${DOCKERIZE_KUBELET:-""}
 ALLOW_PRIVILEGED=${ALLOW_PRIVILEGED:-""}
 ALLOW_SECURITY_CONTEXT=${ALLOW_SECURITY_CONTEXT:-""}
+PSP_ADMISSION=${PSP_ADMISSION:-""}
 RUNTIME_CONFIG=${RUNTIME_CONFIG:-""}
 KUBELET_AUTHORIZATION_WEBHOOK=${KUBELET_AUTHORIZATION_WEBHOOK:-""}
 KUBELET_AUTHENTICATION_WEBHOOK=${KUBELET_AUTHENTICATION_WEBHOOK:-""}
@@ -32,10 +33,10 @@ NET_PLUGIN_DIR=${NET_PLUGIN_DIR:-""}
 KUBE_ROOT=$(dirname "${BASH_SOURCE}")/..
 SERVICE_CLUSTER_IP_RANGE=${SERVICE_CLUSTER_IP_RANGE:-10.0.0.0/24}
 # if enabled, must set CGROUP_ROOT
-CGROUPS_PER_QOS=${CGROUPS_PER_QOS:-false}
+EXPERIMENTAL_CGROUPS_PER_QOS=${EXPERIMENTAL_CGROUPS_PER_QOS:-false}
 # this is not defaulted to preserve backward compatibility.
-# if CGROUPS_PER_QOS is enabled, recommend setting to /
-CGROUP_ROOT=${CGROUP_ROOT:""}
+# if EXPERIMENTAL_CGROUPS_PER_QOS is enabled, recommend setting to /
+CGROUP_ROOT=${CGROUP_ROOT:-""}
 # name of the cgroup driver, i.e. cgroupfs or systemd
 CGROUP_DRIVER=${CGROUP_DRIVER:-""}
 
@@ -316,12 +317,17 @@ function set_service_accounts {
 }
 
 function start_apiserver {
-    # Admission Controllers to invoke prior to persisting objects in cluster
+    security_admission=""
     if [[ -z "${ALLOW_SECURITY_CONTEXT}" ]]; then
-      ADMISSION_CONTROL=NamespaceLifecycle,LimitRanger,SecurityContextDeny,ServiceAccount,ResourceQuota,DefaultStorageClass
-    else
-      ADMISSION_CONTROL=NamespaceLifecycle,LimitRanger,ServiceAccount,ResourceQuota,DefaultStorageClass
+      security_admission=",SecurityContextDeny"
     fi
+    if [[ -n "${PSP_ADMISSION}" ]]; then
+      security_admission=",PodSecurityPolicy"
+    fi
+
+    # Admission Controllers to invoke prior to persisting objects in cluster
+    ADMISSION_CONTROL=NamespaceLifecycle,LimitRanger,ServiceAccount${security_admission},ResourceQuota,DefaultStorageClass
+
     # This is the default dir and filename where the apiserver will generate a self-signed cert
     # which should be able to be used as the CA to verify itself
 
@@ -496,7 +502,7 @@ function start_kubelet {
         --feature-gates="${FEATURE_GATES}" \
         --cpu-cfs-quota=${CPU_CFS_QUOTA} \
         --enable-controller-attach-detach="${ENABLE_CONTROLLER_ATTACH_DETACH}" \
-        --cgroups-per-qos=${CGROUPS_PER_QOS} \
+        --experimental-cgroups-per-qos=${EXPERIMENTAL_CGROUPS_PER_QOS} \
         --cgroup-driver=${CGROUP_DRIVER} \
         --cgroup-root=${CGROUP_ROOT} \
         ${auth_args} \

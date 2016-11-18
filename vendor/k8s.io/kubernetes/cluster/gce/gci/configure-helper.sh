@@ -375,6 +375,15 @@ current-context: service-account-context
 EOF
 }
 
+function create-master-etcd-auth {
+  if [[ -n "${ETCD_CA_CERT:-}" && -n "${ETCD_PEER_KEY:-}" && -n "${ETCD_PEER_CERT:-}" ]]; then
+    local -r auth_dir="/etc/srv/kubernetes"
+    echo "${ETCD_CA_CERT}" | base64 --decode | gunzip > "${auth_dir}/etcd-ca.crt"
+    echo "${ETCD_PEER_KEY}" | base64 --decode > "${auth_dir}/etcd-peer.key"
+    echo "${ETCD_PEER_CERT}" | base64 --decode | gunzip > "${auth_dir}/etcd-peer.crt"
+  fi
+}
+
 function assemble-docker-flags {
   echo "Assemble docker command line flags"
   local docker_opts="-p /var/run/docker.pid --iptables=false --ip-masq=false"
@@ -474,6 +483,7 @@ function start-kubelet {
   flags+=" --cluster-domain=${DNS_DOMAIN}"
   flags+=" --config=/etc/kubernetes/manifests"
   flags+=" --experimental-mounter-path=${KUBE_HOME}/bin/mounter"
+  flags+=" --experimental-check-node-capabilities-before-mount=true"
 
   if [[ -n "${KUBELET_PORT:-}" ]]; then
     flags+=" --port=${KUBELET_PORT}"
@@ -605,14 +615,23 @@ function prepare-etcd-manifest {
   local host_name=$(hostname)
   local etcd_cluster=""
   local cluster_state="new"
+  local etcd_protocol="http"
+  local etcd_creds=""
+
+  if [[ -n "${ETCD_CA_KEY:-}" && -n "${ETCD_CA_CERT:-}" && -n "${ETCD_PEER_KEY:-}" && -n "${ETCD_PEER_CERT:-}" ]]; then
+    etcd_creds=" --peer-trusted-ca-file /etc/srv/kubernetes/etcd-ca.crt --peer-cert-file /etc/srv/kubernetes/etcd-peer.crt --peer-key-file /etc/srv/kubernetes/etcd-peer.key -peer-client-cert-auth "
+    etcd_protocol="https"
+  fi
+
   for host in $(echo "${INITIAL_ETCD_CLUSTER:-${host_name}}" | tr "," "\n"); do
-    etcd_host="etcd-${host}=http://${host}:$3"
+    etcd_host="etcd-${host}=${etcd_protocol}://${host}:$3"
     if [[ -n "${etcd_cluster}" ]]; then
       etcd_cluster+=","
       cluster_state="existing"
     fi
     etcd_cluster+="${etcd_host}"
   done
+
   local -r temp_file="/tmp/$5"
   cp "${KUBE_HOME}/kube-manifests/kubernetes/gci-trusty/etcd.manifest" "${temp_file}"
   remove-salt-config-comments "${temp_file}"
@@ -621,6 +640,7 @@ function prepare-etcd-manifest {
   sed -i -e "s@{{ *server_port *}}@$3@g" "${temp_file}"
   sed -i -e "s@{{ *cpulimit *}}@\"$4\"@g" "${temp_file}"
   sed -i -e "s@{{ *hostname *}}@$host_name@g" "${temp_file}"
+  sed -i -e "s@{{ *srv_kube_path *}}@/etc/srv/kubernetes@g" "${temp_file}"
   sed -i -e "s@{{ *etcd_cluster *}}@$etcd_cluster@g" "${temp_file}"
   sed -i -e "s@{{ *storage_backend *}}@${STORAGE_BACKEND:-}@g" "${temp_file}"
   if [[ "${STORAGE_BACKEND:-}" == "etcd3" ]]; then
@@ -634,6 +654,8 @@ function prepare-etcd-manifest {
   else
     sed -i -e "s@{{ *pillar\.get('etcd_docker_tag', '\(.*\)') *}}@\1@g" "${temp_file}"
   fi
+  sed -i -e "s@{{ *etcd_protocol *}}@$etcd_protocol@g" "${temp_file}"
+  sed -i -e "s@{{ *etcd_creds *}}@$etcd_creds@g" "${temp_file}"
   if [[ -n "${ETCD_VERSION:-}" ]]; then
     sed -i -e "s@{{ *pillar\.get('etcd_version', '\(.*\)') *}}@${ETCD_VERSION}@g" "${temp_file}"
   else
@@ -782,6 +804,8 @@ function start-kube-apiserver {
     params+=" --advertise-address=${vm_external_ip}"
     params+=" --ssh-user=${PROXY_SSH_USER}"
     params+=" --ssh-keyfile=/etc/srv/sshproxy/.sshkeyfile"
+  else [ -n "${MASTER_ADVERTISE_ADDRESS:-}" ]
+    params="${params} --advertise-address=${MASTER_ADVERTISE_ADDRESS}"
   fi
 
   local webhook_authn_config_mount=""
@@ -989,11 +1013,8 @@ function start-kube-addons {
     setup-addon-manifests "addons" "${file_dir}"
     # Replace the salt configurations with variable values.
     base_metrics_memory="140Mi"
-    metrics_memory="${base_metrics_memory}"
     base_eventer_memory="190Mi"
     base_metrics_cpu="80m"
-    metrics_cpu="${base_metrics_cpu}"
-    eventer_memory="${base_eventer_memory}"
     nanny_memory="90Mi"
     local -r metrics_memory_per_node="4"
     local -r metrics_cpu_per_node="0.5"
@@ -1001,10 +1022,7 @@ function start-kube-addons {
     local -r nanny_memory_per_node="200"
     if [[ -n "${NUM_NODES:-}" && "${NUM_NODES}" -ge 1 ]]; then
       num_kube_nodes="$((${NUM_NODES}+1))"
-      metrics_memory="$((${num_kube_nodes} * ${metrics_memory_per_node} + 200))Mi"
-      eventer_memory="$((${num_kube_nodes} * ${eventer_memory_per_node} + 200 * 1024))Ki"
       nanny_memory="$((${num_kube_nodes} * ${nanny_memory_per_node} + 90 * 1024))Ki"
-      metrics_cpu=$(echo - | awk "{print ${num_kube_nodes} * ${metrics_cpu_per_node} + 80}")m
     fi
     controller_yaml="${dst_dir}/${file_dir}"
     if [[ "${ENABLE_CLUSTER_MONITORING:-}" == "googleinfluxdb" ]]; then
@@ -1014,11 +1032,8 @@ function start-kube-addons {
     fi
     remove-salt-config-comments "${controller_yaml}"
     sed -i -e "s@{{ *base_metrics_memory *}}@${base_metrics_memory}@g" "${controller_yaml}"
-    sed -i -e "s@{{ *metrics_memory *}}@${metrics_memory}@g" "${controller_yaml}"
     sed -i -e "s@{{ *base_metrics_cpu *}}@${base_metrics_cpu}@g" "${controller_yaml}"
-    sed -i -e "s@{{ *metrics_cpu *}}@${metrics_cpu}@g" "${controller_yaml}"
     sed -i -e "s@{{ *base_eventer_memory *}}@${base_eventer_memory}@g" "${controller_yaml}"
-    sed -i -e "s@{{ *eventer_memory *}}@${eventer_memory}@g" "${controller_yaml}"
     sed -i -e "s@{{ *metrics_memory_per_node *}}@${metrics_memory_per_node}@g" "${controller_yaml}"
     sed -i -e "s@{{ *eventer_memory_per_node *}}@${eventer_memory_per_node}@g" "${controller_yaml}"
     sed -i -e "s@{{ *nanny_memory *}}@${nanny_memory}@g" "${controller_yaml}"
@@ -1031,7 +1046,6 @@ function start-kube-addons {
     mv "${dst_dir}/dns/skydns-rc.yaml.in" "${dns_rc_file}"
     mv "${dst_dir}/dns/skydns-svc.yaml.in" "${dns_svc_file}"
     # Replace the salt configurations with variable values.
-    sed -i -e "s@{{ *pillar\['dns_replicas'\] *}}@${DNS_REPLICAS}@g" "${dns_rc_file}"
     sed -i -e "s@{{ *pillar\['dns_domain'\] *}}@${DNS_DOMAIN}@g" "${dns_rc_file}"
     sed -i -e "s@{{ *pillar\['dns_server'\] *}}@${DNS_SERVER_IP}@g" "${dns_svc_file}"
 
@@ -1216,6 +1230,7 @@ if [[ "${KUBERNETES_MASTER:-}" == "true" ]]; then
   mount-master-pd
   create-master-auth
   create-master-kubelet-auth
+  create-master-etcd-auth
 else
   create-kubelet-kubeconfig
   create-kubeproxy-kubeconfig

@@ -21,7 +21,6 @@ go_library(
         "docker_service.go",
         "docker_streaming.go",
         "helpers.go",
-        "legacy.go",
         "naming.go",
         "security_context.go",
     ],
@@ -85,5 +84,6 @@ go_test(
         "//vendor:github.com/docker/engine-api/types/container",
         "//vendor:github.com/golang/mock/gomock",
         "//vendor:github.com/stretchr/testify/assert",
+        "//vendor:github.com/stretchr/testify/require",
     ],
 )

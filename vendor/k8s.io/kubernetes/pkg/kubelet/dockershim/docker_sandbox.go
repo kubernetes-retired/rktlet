@@ -68,6 +68,8 @@ func (ds *dockerService) RunPodSandbox(config *runtimeApi.PodSandboxConfig) (str
 		return "", fmt.Errorf("failed to make sandbox docker config for pod %q: %v", config.Metadata.GetName(), err)
 	}
 	createResp, err := ds.client.CreateContainer(*createConfig)
+	recoverFromConflictIfNeeded(ds.client, err)
+
 	if err != nil || createResp == nil {
 		return "", fmt.Errorf("failed to create a sandbox for pod %q: %v", config.Metadata.GetName(), err)
 	}
@@ -368,7 +370,7 @@ func sharesHostNetwork(container *dockertypes.ContainerJSON) bool {
 
 func setSandboxResources(hc *dockercontainer.HostConfig) {
 	hc.Resources = dockercontainer.Resources{
-		MemorySwap: -1, // Always disable memory swap.
+		MemorySwap: -1,
 		CPUShares:  defaultSandboxCPUshares,
 		// Use docker's default cpu quota/period.
 	}
