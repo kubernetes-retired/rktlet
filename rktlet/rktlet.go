@@ -50,7 +50,8 @@ func New(config *Config) (ContainerAndImageService, error) {
 	}
 
 	rktCli := cli.NewRktCLI(config.RktPath, execer, cli.CLIConfig{
-		Dir: config.RktDatadir,
+		InsecureOptions: []string{"image", "ondisk"},
+		Dir:             config.RktDatadir,
 	})
 	init := cli.NewSystemd(systemdRunPath, execer)
 

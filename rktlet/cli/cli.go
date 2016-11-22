@@ -42,7 +42,7 @@ func getLongFlagFormOfField(fieldValue reflect.Value, fieldType reflect.StructFi
 		return "", errFlagTagNotFound
 	}
 
-	if fieldValue.IsValid() {
+	if !fieldValue.IsValid() {
 		return "", errStructFieldNotInitialized
 	}
 
@@ -50,12 +50,20 @@ func getLongFlagFormOfField(fieldValue reflect.Value, fieldType reflect.StructFi
 	case reflect.Array:
 		fallthrough
 	case reflect.Slice:
+		if fieldValue.Len() == 0 {
+			return "", nil
+		}
+
 		var args []string
 		for i := 0; i < fieldValue.Len(); i++ {
 			args = append(args, fieldValue.Index(i).String())
 		}
 
 		return fmt.Sprintf("--%v=%v", flagTag, strings.Join(args, ",")), nil
+	case reflect.String:
+		if fieldValue.Len() == 0 {
+			return "", nil
+		}
 	}
 
 	return fmt.Sprintf("--%v=%v", flagTag, fieldValue), nil
@@ -72,6 +80,9 @@ func getArgumentFormOfStruct(strt interface{}) (flags []string) {
 
 		flagFormOfField, err := getLongFlagFormOfField(fieldValue, fieldType)
 		if err != nil {
+			continue
+		}
+		if flagFormOfField == "" {
 			continue
 		}
 
@@ -93,7 +104,7 @@ type CLIConfig struct {
 	UserConfigDir   string `flag:"user-config"`
 	SystemConfigDir string `flag:"system-config"`
 
-	InsecureOptions string `flag:"insecure-options"`
+	InsecureOptions []string `flag:"insecure-options"`
 }
 
 func (cfg *CLIConfig) Merge(newCfg CLIConfig) {
@@ -118,6 +129,8 @@ type cli struct {
 	rktPath string
 	config  CLIConfig
 	execer  utilexec.Interface
+
+	globalFlags []string
 }
 
 func (c *cli) With(cfg CLIConfig) CLI {
@@ -145,8 +158,7 @@ func (c *cli) RunCommand(subcmd string, args ...string) ([]string, error) {
 // Command returns the final rkt command that will be executed by RunCommand.
 // e.g. `rkt status --debug=true $UUID`.
 func (c *cli) Command(subcmd string, args ...string) []string {
-	globalFlags := getFlagFormOfStruct(c.config)
-	return append(append([]string{c.rktPath, subcmd}, globalFlags...), args...)
+	return append(append([]string{c.rktPath, subcmd}, c.globalFlags...), args...)
 }
 
 // TODO(tmrts): implement CLI with timeout
@@ -156,5 +168,5 @@ func NewRktCLI(rktPath string, exec utilexec.Interface, cfg CLIConfig) CLI {
 	if err != nil {
 		panic(err)
 	}
-	return &cli{rktPath: rktPath, config: cfg, execer: exec}
+	return &cli{rktPath: rktPath, config: cfg, execer: exec, globalFlags: getFlagFormOfStruct(cfg)}
 }

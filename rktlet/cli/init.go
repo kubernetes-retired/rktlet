@@ -59,7 +59,7 @@ func (s *systemd) StartProcess(cgroupParent, command string, args ...string) (id
 	cmd := s.execer.Command(cmdList[0], cmdList[1:]...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		glog.Warningf("rkt: systemd-run %v %v errored with %v", command, args, err)
+		glog.Warningf("rkt: %v errored with %v", cmdList, err)
 		return "", fmt.Errorf("failed to run systemd-run %v %v: %v\noutput: %s", command, args, err, out)
 	}
 	return unitName, nil
