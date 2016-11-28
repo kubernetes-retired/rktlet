@@ -1,3 +1,65 @@
+## 1.20.0
+
+This release contains additional bug fixes for the new experimental `app` subcommand, following the path towards the Container Runtime Interface (CRI).
+It also adds first step towards OCI by introducing an internal concept called "distribution points", which will allow rkt to recognize multiple image formats internally.
+Finally the rkt fly flavor gained support for `rkt enter`.
+
+### New features and UX changes
+- stage1/fly: Add a working `rkt enter` implementation ([#3377](https://github.com/coreos/rkt/pull/3377)).
+
+### Bug fixes:
+- tests/build-and-run-test.sh: fix systemd revision parameter ([#3395](https://github.com/coreos/rkt/pull/3395)).
+- namefetcher: Use ETag in fetchVerifiedURL() ([#3374](https://github.com/coreos/rkt/pull/3374)).
+- rkt/run: validates pod manifest to make sure it contains at least one app ([#3363](https://github.com/coreos/rkt/pull/3363)).
+- rkt/app: multiple bugfixes ([#3405](https://github.com/coreos/rkt/pull/3405)).
+
+### Other changes
+- glide: deduplicate cni entries and update go-systemd ([#3372](https://github.com/coreos/rkt/pull/3372)).
+- stage0: improve list --format behavior and flags ([#3403](https://github.com/coreos/rkt/pull/3403)).
+- pkg/pod: flatten the pod state if-ladders ([#3404](https://github.com/coreos/rkt/pull/3404)).
+- tests: adjust security tests for systemd v232 ([#3401](https://github.com/coreos/rkt/pull/3401)).
+- image: export `ImageListEntry` type for image list ([#3383](https://github.com/coreos/rkt/pull/3383)).
+- glide: bump gopsutil to v2.16.10 ([#3400](https://github.com/coreos/rkt/pull/3400)).
+- stage1: update coreos base to alpha 1235.0.0 ([#3388](https://github.com/coreos/rkt/pull/3388)).
+- rkt: Implement distribution points ([#3369](https://github.com/coreos/rkt/pull/3369)). This is the implementation of the distribution concept proposed in [#2953](https://github.com/coreos/rkt/pull/2953).
+- build: add --with-stage1-systemd-revision option for src build ([#3362](https://github.com/coreos/rkt/pull/3362)).
+- remove isReallyNil() ([#3381](https://github.com/coreos/rkt/pull/3381)). This is cleanup PR, removing some reflection based code.
+- vendor: update appc/spec to 0.8.9 ([#3384](https://github.com/coreos/rkt/pull/3384)).
+- vendor: Remove direct k8s dependency ([#3312](https://github.com/coreos/rkt/pull/3312)).
+- Documentation updates: [#3366](https://github.com/coreos/rkt/pull/3366), [#3376](https://github.com/coreos/rkt/pull/3376), [#3379](https://github.com/coreos/rkt/pull/3379), [#3406](https://github.com/coreos/rkt/pull/3406), [#3410](https://github.com/coreos/rkt/pull/3410).
+
+## 1.19.0
+
+This release contains multiple changes to rkt core, bringing it more in line with the new Container Runtime Interface (CRI) from Kubernetes.
+
+A new experimental `app` subcommand has been introduced, which allows creating a "pod sandbox" and dynamically mutating it at runtime. This feature is not yet completely stabilized, and is currently gated behind an experimental flag.
+
+### New features and UX changes
+- rkt: experimental support for pod sandbox ([#3318](https://github.com/coreos/rkt/pull/3318)). This PR introduces an experimental `app` subcommand and many additional app-level options.
+- rkt/image: align image selection behavior for the rm subcommand ([#3353](https://github.com/coreos/rkt/pull/3353)).
+- stage1/init: leave privileged pods without stage2 mount-ns ([#3290](https://github.com/coreos/rkt/pull/3290)).
+- stage0/image: list images output in JSON format ([#3334](https://github.com/coreos/rkt/pull/3334)).
+- stage0/arch: initial support for ppc64le platform ([#3315](https://github.com/coreos/rkt/pull/3315)).
+
+### Bug fixes:
+- gc: make sure `CNI_PATH` is same for gc and init ([#3348](https://github.com/coreos/rkt/pull/3348)).
+- gc: clean up some GC leaks ([#3317](https://github.com/coreos/rkt/pull/3317)).
+- stage0: minor wording fixes ([#3351](https://github.com/coreos/rkt/pull/3351)).
+- setup-data-dir.sh: fallback to the `mkdir/chmod`s if the rkt.conf doesn't exist ([#3335](https://github.com/coreos/rkt/pull/3335)).
+- scripts: add gpg to Debian dependencies ([#3339](https://github.com/coreos/rkt/pull/3339)).
+- kvm: fix for breaking change in Debian Sid GCC default options ([#3354](https://github.com/coreos/rkt/pull/3354)).
+- image/list: bring back field filtering in plaintext mode ([#3361](https://github.com/coreos/rkt/pull/3361)).
+
+### Other changes
+- cgroup/v1: introduce mount flags to mountFsRO ([#3350](https://github.com/coreos/rkt/pull/3350)).
+- kvm: update QEMU version to 2.7.0 ([#3341](https://github.com/coreos/rkt/pull/3341)).
+- kvm: bump kernel version to 4.8.6, updated config ([#3342](https://github.com/coreos/rkt/pull/3342)). 
+- vendor: introduce kr/pretty and bump go-systemd ([#3333](https://github.com/coreos/rkt/pull/3333)).
+- vendor: update docker2aci to 0.14.0 ([#3356](https://github.com/coreos/rkt/pull/3356)).
+- tests: add the --debug option to more tests ([#3340](https://github.com/coreos/rkt/pull/3340)).
+- scripts/build-rir: bump rkt-builder version to 1.1.1 ([#3360](https://github.com/coreos/rkt/pull/3360)).
+- Documentation updates: [#3321](https://github.com/coreos/rkt/pull/3321), [#3331](https://github.com/coreos/rkt/pull/3331), [#3325](https://github.com/coreos/rkt/pull/3325).
+
 ## 1.18.0
 
 This minor release contains bugfixes, UX enhancements, and other improvements.

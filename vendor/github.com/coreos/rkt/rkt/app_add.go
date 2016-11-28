@@ -18,7 +18,6 @@ import (
 	"fmt"
 
 	"github.com/coreos/rkt/common"
-	"github.com/coreos/rkt/common/apps"
 	pkgPod "github.com/coreos/rkt/pkg/pod"
 	"github.com/coreos/rkt/rkt/image"
 	"github.com/coreos/rkt/stage0"
@@ -32,7 +31,7 @@ var (
 	cmdAppAdd = &cobra.Command{
 		Use:   "add UUID IMAGEID ...",
 		Short: "Add an app to a pod",
-		Long:  `This allows addin an app that's present on the store to a running pod`,
+		Long:  "This adds an application available in the local image store to a running mutable pod.",
 		Run:   runWrapper(runAppAdd),
 	}
 )
@@ -101,7 +100,7 @@ func runAppAdd(cmd *cobra.Command, args []string) (exit int) {
 		NoStore:   false,
 	}
 
-	img, err := fn.FindImage(args[1], "", apps.AppImageGuess)
+	img, err := fn.FindImage(args[1], "")
 	if err != nil {
 		stderr.PrintE("error finding images", err)
 		return 1

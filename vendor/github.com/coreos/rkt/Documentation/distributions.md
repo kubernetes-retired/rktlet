@@ -46,12 +46,6 @@ rkt is currently packaged in [Debian sid][pkg-debian] (unstable).
 sudo apt-get install rkt
 ```
 
-Note that due to an [outstanding bug][debian-823322] one has to use the "coreos" stage1 image:
-
-```
-sudo rkt run --insecure-options=image --stage1-name=coreos.com/rkt/stage1-coreos:1.16.0 docker://nginx
-```
-
 If you don't run sid, or wish for a newer version, you can [install manually](#deb-based).
 
 ## Fedora
@@ -143,19 +137,19 @@ upgrade manually.
 ### rpm-based 
 ```
 gpg --recv-key 18AD5014C99EF7E3BA5F6CE950BDD3E0FC8A365E
-wget https://github.com/coreos/rkt/releases/download/v1.18.0/rkt-1.18.0-1.x86_64.rpm
-wget https://github.com/coreos/rkt/releases/download/v1.18.0/rkt-1.18.0-1.x86_64.rpm.asc
-gpg --verify rkt-1.18.0-1.x86_64.rpm.asc
-sudo rpm -Uvh rkt-1.18.0-1.x86_64.rpm
+wget https://github.com/coreos/rkt/releases/download/v1.20.0/rkt-1.20.0-1.x86_64.rpm
+wget https://github.com/coreos/rkt/releases/download/v1.20.0/rkt-1.20.0-1.x86_64.rpm.asc
+gpg --verify rkt-1.20.0-1.x86_64.rpm.asc
+sudo rpm -Uvh rkt-1.20.0-1.x86_64.rpm
 ```
 
 ### deb-based
 ```
 gpg --recv-key 18AD5014C99EF7E3BA5F6CE950BDD3E0FC8A365E
-wget https://github.com/coreos/rkt/releases/download/v1.18.0/rkt_1.18.0-1_amd64.deb
-wget https://github.com/coreos/rkt/releases/download/v1.18.0/rkt_1.18.0-1_amd64.deb.asc
-gpg --verify rkt_1.18.0-1_amd64.deb.asc
-sudo dpkg -i rkt_1.18.0-1_amd64.deb
+wget https://github.com/coreos/rkt/releases/download/v1.20.0/rkt_1.20.0-1_amd64.deb
+wget https://github.com/coreos/rkt/releases/download/v1.20.0/rkt_1.20.0-1_amd64.deb.asc
+gpg --verify rkt_1.20.0-1_amd64.deb.asc
+sudo dpkg -i rkt_1.20.0-1_amd64.deb
 ```
 
 [coreos-install-rkt]: install-rkt-in-coreos.md

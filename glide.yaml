@@ -30,7 +30,7 @@ import:
   - assert
   - mock
 - package: github.com/coreos/rkt
-  version: 4444fe17ac194c27bea01a213d46ea2914884bce 
+  version: v1.20.0
   subpackages:
   - lib
 - package: github.com/appc/spec

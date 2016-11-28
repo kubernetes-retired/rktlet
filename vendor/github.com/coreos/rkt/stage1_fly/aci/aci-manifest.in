@@ -1,6 +1,6 @@
 {
     "acKind": "ImageManifest",
-    "acVersion": "0.8.8",
+    "acVersion": "0.8.9",
     "name": "coreos.com/rkt/stage1-fly",
     "labels": [
         {
@@ -35,7 +35,7 @@
         },
         {
             "name": "coreos.com/rkt/stage1/interface-version",
-            "value": "4"
+            "value": "5"
         }
     ]
 }
