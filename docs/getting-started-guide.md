@@ -43,3 +43,19 @@ $ kubectl get pods
 NAME      READY     STATUS    RESTARTS   AGE
 nginx     1/1       Running   0          57s
 ```
+
+### Using the rkt cli
+
+By default, `rktlet` will configure rkt to use a data directory in
+`/var/lib/rktlet/data`. It may be convenient to create a wrapper script to
+interact with this data directory.
+
+To view `rktlet` started pods and applications, the following commands might help
+
+```shell
+$ export RKT_EXPERIMENT_APP=true
+$ sudo -E rkt --dir=/var/lib/rktlet/data list
+....
+$ sudo -E rkt --dir=/var/lib/rktlet/data app list $uuid
+...
+```
