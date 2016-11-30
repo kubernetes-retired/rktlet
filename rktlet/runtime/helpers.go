@@ -343,6 +343,13 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 		}
 	}
 
+	// Add hostnetwork
+	if hasHostNetwork(req.GetConfig()) {
+		cmd = append(cmd, "--net=host", "--dns=host")
+		// TODO --hosts-entry=host should be available in rkt 1.21.0, and should be
+		// used here
+	}
+
 	// Generate annotations.
 	var labels, annotations []string
 	for k, v := range req.Config.Labels {
