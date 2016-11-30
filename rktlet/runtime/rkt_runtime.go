@@ -19,12 +19,10 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/coreos/rkt/lib"
 	"github.com/golang/glog"
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
-	"github.com/kubernetes-incubator/rktlet/rktlet/util"
 	"golang.org/x/net/context"
 
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
@@ -34,17 +32,19 @@ import (
 type RktRuntime struct {
 	cli.CLI
 	cli.Init
+	imageStore runtimeApi.ImageServiceServer
 
 	execShim     *execShim
 	streamServer streaming.Server
 }
 
 // New creates a new RuntimeServiceServer backed by rkt
-func New(cli cli.CLI, init cli.Init, streamServerAddr string) (runtimeApi.RuntimeServiceServer, error) {
+func New(cli cli.CLI, init cli.Init, imageStore runtimeApi.ImageServiceServer, streamServerAddr string) (runtimeApi.RuntimeServiceServer, error) {
 	runtime := &RktRuntime{
-		CLI:      cli,
-		Init:     init,
-		execShim: NewExecShim(cli),
+		CLI:        cli,
+		Init:       init,
+		imageStore: imageStore,
+		execShim:   NewExecShim(cli),
 	}
 
 	var err error
@@ -106,28 +106,11 @@ func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.Contai
 }
 
 func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.CreateContainerRequest) (*runtimeApi.CreateContainerResponse, error) {
-	var imageID string
 
-	// Get the image hash.
-	imageName := *req.Config.Image.Image
-	var err error
-	imageName, err = util.ApplyDefaultImageTag(imageName)
+	imageName := req.GetConfig().GetImage().GetImage()
+	imageID, err := r.getImageHash(ctx, imageName)
 	if err != nil {
-		return nil, fmt.Errorf("unable to apply image tag: %v", err)
-	}
-	resp, err := r.RunCommand("image", "fetch", "--store-only=true", "--full=true", "docker://"+imageName)
-	if err != nil {
-		return nil, err
-	}
-	for _, line := range resp {
-		if strings.HasPrefix(line, "sha512") {
-			imageID = line
-			break
-		}
-	}
-
-	if imageID == "" {
-		return nil, fmt.Errorf("failed to get image ID for image %q", imageName)
+		return nil, fmt.Errorf("could not resolve image %q: %v", imageName, err)
 	}
 
 	command, err := generateAppAddCommand(req, imageID)

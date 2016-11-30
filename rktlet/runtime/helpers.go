@@ -25,6 +25,7 @@ import (
 	"github.com/coreos/rkt/networking/netinfo"
 	"github.com/golang/glog"
 	"github.com/pborman/uuid"
+	"golang.org/x/net/context"
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
 
@@ -501,4 +502,14 @@ func hasHostNetwork(req *runtimeApi.PodSandboxConfig) bool {
 		}
 	}
 	return false
+}
+
+func (r *RktRuntime) getImageHash(ctx context.Context, imageName string) (string, error) {
+	resp, err := r.imageStore.ImageStatus(ctx, &runtimeApi.ImageStatusRequest{
+		Image: &runtimeApi.ImageSpec{
+			Image: &imageName,
+		},
+	})
+
+	return resp.GetImage().GetId(), err
 }
