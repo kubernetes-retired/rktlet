@@ -121,7 +121,7 @@ func (f *nameFetcher) fetchImageFromSingleEndpoint(app *discovery.App, aciURL st
 	if err != nil {
 		return "", err
 	}
-	defer func() { maybeClose(aciFile) }()
+	defer aciFile.Close()
 
 	if key := maybeUseCached(rem, cd); key != "" {
 		return key, nil
@@ -170,10 +170,13 @@ func (f *nameFetcher) fetch(app *discovery.App, aciURL string, a *asc, etag stri
 		return aciFile, cd, nil
 	}
 
-	return f.fetchVerifiedURL(app, u, a)
+	return f.fetchVerifiedURL(app, u, a, etag)
 }
 
-func (f *nameFetcher) fetchVerifiedURL(app *discovery.App, u *url.URL, a *asc) (readSeekCloser, *cacheData, error) {
+func (f *nameFetcher) fetchVerifiedURL(app *discovery.App, u *url.URL, a *asc, etag string) (readSeekCloser, *cacheData, error) {
+	var aciFile readSeekCloser // closed on error
+	var errClose error         // error signaling to close aciFile
+
 	appName := app.Name.String()
 	f.maybeFetchPubKeys(appName)
 
@@ -182,7 +185,7 @@ func (f *nameFetcher) fetchVerifiedURL(app *discovery.App, u *url.URL, a *asc) (
 	if err != nil {
 		return nil, nil, err
 	}
-	defer func() { maybeClose(ascFile) }()
+	defer ascFile.Close()
 
 	if !retry {
 		if err := f.checkIdentity(appName, ascFile); err != nil {
@@ -190,25 +193,37 @@ func (f *nameFetcher) fetchVerifiedURL(app *discovery.App, u *url.URL, a *asc) (
 		}
 	}
 
-	aciFile, cd, err := o.DownloadImage(u)
+	aciFile, cd, err := o.DownloadImageWithETag(u, etag)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer func() { maybeClose(aciFile) }()
+
+	defer func() {
+		if errClose != nil {
+			aciFile.Close()
+		}
+	}()
+
+	if cd.UseCached {
+		aciFile.Close()
+		return nil, cd, nil
+	}
 
 	if retry {
-		ascFile, err = o.DownloadSignatureAgain(a)
-		if err != nil {
-			return nil, nil, err
+		ascFile.Close()
+		ascFile, errClose = o.DownloadSignatureAgain(a)
+		if errClose != nil {
+			ascFile = NopReadSeekCloser(nil)
+			return nil, nil, errClose
 		}
 	}
 
-	if err := f.validate(app, aciFile, ascFile); err != nil {
-		return nil, nil, err
+	errClose = f.validate(app, aciFile, ascFile)
+	if errClose != nil {
+		return nil, nil, errClose
 	}
-	retAciFile := aciFile
-	aciFile = nil
-	return retAciFile, cd, nil
+
+	return aciFile, cd, nil
 }
 
 func (f *nameFetcher) maybeFetchPubKeys(appName string) {

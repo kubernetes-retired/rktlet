@@ -29,6 +29,7 @@ import (
 	"github.com/kubernetes-incubator/rktlet/rktlet/util"
 
 	appcschema "github.com/appc/spec/schema"
+	rktlib "github.com/coreos/rkt/lib"
 	context "golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
@@ -99,16 +100,6 @@ func (s *ImageStore) ImageStatus(ctx context.Context, req *runtime.ImageStatusRe
 	return &runtime.ImageStatusResponse{}, nil
 }
 
-// TODO this should be exported by rkt upstream. This is a copy of https://github.com/coreos/rkt/blob/v1.19.0/rkt/image_list.go#L81-L87
-// After https://github.com/coreos/rkt/pull/3383, the exported type can be used.
-type ImageListEntry struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	ImportTime string `json:"importtime"`
-	LastUsed   string `json:"lastused"`
-	Size       string `json:"size"`
-}
-
 // ListImages lists images in the store
 func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequest) (*runtime.ListImagesResponse, error) {
 	list, err := s.RunCommand("image", "list",
@@ -120,7 +111,7 @@ func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequ
 		return nil, fmt.Errorf("couldn't list images: %v", err)
 	}
 
-	listEntries := []ImageListEntry{}
+	listEntries := []rktlib.ImageListEntry{}
 
 	err = json.Unmarshal([]byte(list[0]), &listEntries)
 	if err != nil {
@@ -128,8 +119,8 @@ func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequ
 	}
 
 	images := make([]*runtime.Image, 0, len(list))
-	for _, img := range listEntries {
-		img := img
+	for i, _ := range listEntries {
+		img := listEntries[i]
 
 		var realName, user string
 		manifest, err := s.getImageManifest(img.ID)
@@ -142,12 +133,7 @@ func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequ
 			user = s.getImageUser(manifest)
 		}
 
-		sz, err := strconv.ParseUint(img.Size, 10, 64)
-		if err != nil {
-			glog.Warningf("could not parse image size: %v", err)
-			sz = 0
-		}
-
+		sz := uint64(img.Size)
 		image := &runtime.Image{
 			Id:          &img.ID,
 			RepoTags:    []string{realName},

@@ -1,8 +1,8 @@
-hash: 3db4d7c6fc89de6c3454b8a74846d0286ab1a3eeb281322010055cea8a12fa4f
-updated: 2016-11-01T08:47:55.25498114+01:00
+hash: 9c5ba5b4d8b105b7abb52deedfdc16c33f0e0449cbb130202dac3cf2bed88748
+updated: 2016-11-22T16:37:00.043435766+01:00
 imports:
 - name: github.com/appc/docker2aci
-  version: 0cac1a3ecc114941cf643ec25f4daaeee8c3d538
+  version: 64543c1e0a7306b17d0d214549ec08049b234abc
   subpackages:
   - lib
   - lib/common
@@ -20,7 +20,7 @@ imports:
   subpackages:
   - proj2aci
 - name: github.com/appc/spec
-  version: 2a251f75b2520d7a1c6c10562a1ea4e303af3e67
+  version: d7de4875ad542ca48f4ff1f1f0a487764a825fbd
   subpackages:
   - ace
   - aci
@@ -50,35 +50,22 @@ imports:
   - pkg/invoke
   - pkg/ip
   - pkg/ipam
-  - pkg/ipam
   - pkg/ns
   - pkg/skel
-  - pkg/skel
-  - pkg/testutils
   - pkg/testutils
   - pkg/types
   - pkg/utils
-  - pkg/utils/sysctl
+  - pkg/utils/hwaddr
   - pkg/utils/sysctl
   - plugins/ipam/dhcp
-  - plugins/ipam/dhcp
-  - plugins/ipam/host-local
   - plugins/ipam/host-local
   - plugins/ipam/host-local/backend
-  - plugins/ipam/host-local/backend
-  - plugins/ipam/host-local/backend/disk
   - plugins/ipam/host-local/backend/disk
   - plugins/main/bridge
-  - plugins/main/bridge
-  - plugins/main/ipvlan
   - plugins/main/ipvlan
   - plugins/main/macvlan
-  - plugins/main/macvlan
-  - plugins/main/ptp
   - plugins/main/ptp
   - plugins/meta/flannel
-  - plugins/meta/flannel
-  - plugins/meta/tuning
   - plugins/meta/tuning
 - name: github.com/coreos/gexpect
   version: ca42424d18c76d0d51a4cccd830d11878e9e5c17
@@ -91,7 +78,7 @@ imports:
   subpackages:
   - semver
 - name: github.com/coreos/go-systemd
-  version: 61c7ee68bddeb1e66b491c3e1045c4f72b2cd6e3
+  version: 48702e0da86bd25e76cfef347e2adeb434a0d0a6
   subpackages:
   - activation
   - daemon
@@ -212,17 +199,22 @@ imports:
 - name: github.com/kr/pty
   version: f7ee69f31298ecbe5d2b349c711e2547a617d398
 - name: github.com/opencontainers/image-spec
-  version: b472d5f4067ddca5cfbfea148dfaf7b42d43c5f0
+  version: 6e820ec55259e89ccd7092f3131c63e8419a349b
   subpackages:
   - specs-go
+  - specs-go/v1
 - name: github.com/pborman/uuid
   version: cccd189d45f7ac3368a0d127efb7f4d08ae0b655
 - name: github.com/peterbourgon/diskv
   version: 937c5a91d7fb1477fa6d2bb71410b2ae7a0f2143
+- name: github.com/PuerkitoBio/purell
+  version: 0bcb03f4b4d0a9428594752bd2a3b9aa0a9d4bd4
+- name: github.com/PuerkitoBio/urlesc
+  version: 5bd2802263f21d8788851d5305584c82a5c75d7e
 - name: github.com/russross/blackfriday
   version: 300106c228d52c8941d4b3de6054a6062a86dda3
 - name: github.com/shirou/gopsutil
-  version: 22a03b5be3f384f558742929065778aa26471033
+  version: 1516eb9ddc5e61ba58874047a98f8b44b5e585e8
   subpackages:
   - cpu
   - host
@@ -274,6 +266,7 @@ imports:
   - html/atom
   - http2
   - http2/hpack
+  - idna
   - internal/timeseries
   - lex/httplex
   - trace
@@ -281,6 +274,12 @@ imports:
   version: b44883b474ffefa37335017174e397412b633a4f
   subpackages:
   - unix
+- name: golang.org/x/text
+  version: 2910a502d2bf9e43193af9d68ca516529614eed3
+  subpackages:
+  - transform
+  - unicode/norm
+  - width
 - name: golang.org/x/tools
   version: 27e692e6ec36d8f48be794f32553e1400c70dbf2
   subpackages:
@@ -295,15 +294,15 @@ imports:
   - metadata
   - naming
   - peer
+  - stats
+  - tap
   - transport
 - name: gopkg.in/inf.v0
   version: 3887ee99ecf07df5b447e9b00d9c0b2adaa9f3e4
 - name: k8s.io/kubernetes
-  version: 283137936a498aed572ee22af6774b6fb6e9fd94
+  version: fd8fac83034df346529c6e11aabceea2db48d663
   subpackages:
   - pkg/api/resource
-  - pkg/conversion
-  - third_party/forked/reflect
 testImports:
 - name: github.com/kr/text
   version: 7cafcd837844e784b526369c9bce262804aebc60

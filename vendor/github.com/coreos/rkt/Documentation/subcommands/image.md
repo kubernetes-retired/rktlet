@@ -7,7 +7,7 @@ For debugging or inspection you may want to extract an ACI manifest to stdout.
 ```
 # rkt image cat-manifest coreos.com/etcd
 {
-  "acVersion": "0.8.8",
+  "acVersion": "0.8.9",
   "acKind": "ImageManifest",
 ...
 ```
@@ -132,7 +132,7 @@ sha512-96323da393621d846c632e71551b77089ac0b004ceb5c2362be4f5ced2212db9   regist
 
 ## rkt image rm
 
-Given an image ID or image name you can remove it from the local store.
+Given multiple image IDs or image names you can remove them from the local store.
 
 ```
 # rkt image rm sha512-a03f6bad952b coreos.com/etcd

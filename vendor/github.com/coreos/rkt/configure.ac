@@ -1,5 +1,5 @@
 AC_PREREQ([2.63])
-AC_INIT([rkt], [1.18.0+git], [https://github.com/coreos/rkt/issues])
+AC_INIT([rkt], [1.20.0], [https://github.com/coreos/rkt/issues])
 
 AC_PROG_CC
 AC_PROG_CXX
@@ -114,6 +114,12 @@ AC_ARG_WITH([stage1-systemd-version],
                             [systemd version to build, used in 'src' stage1 flavor (default: 'v229', should be in format 'v<number>', like v229)])],
             [RKT_STAGE1_SYSTEMD_VER="${withval}"],
             [RKT_STAGE1_SYSTEMD_VER='auto'])
+
+AC_ARG_WITH([stage1-systemd-revision],
+            [AS_HELP_STRING([--with-stage1-systemd-revision],
+                            [systemd revision to check out to build, used in 'src' stage1 flavor (default: the same value as --stage1-systemd-version)])],
+            [RKT_STAGE1_SYSTEMD_REV="${withval}"],
+            [RKT_STAGE1_SYSTEMD_REV='auto'])
 
 # STAGE1 - kvm hypervisor. lkvm or/and qemu can be chosen
 AC_ARG_WITH([stage1-kvm-hypervisors],
@@ -410,8 +416,13 @@ RKT_IF_HAS_VALUE([${RKT_STAGE1_FLAVORS}],[src],
                              [:])
                    AS_VAR_IF([RKT_STAGE1_SYSTEMD_VER], [auto],
                              dnl systemd version not specified, use default
-                             [RKT_STAGE1_SYSTEMD_VER='v229'],
+                             [RKT_STAGE1_SYSTEMD_VER='v999'],
                              dnl systemd version specified, use it
+                             [:])
+                   AS_VAR_IF([RKT_STAGE1_SYSTEMD_REV], [auto],
+                             dnl systemd revision not specified, use default
+                             [RKT_STAGE1_SYSTEMD_REV="master"],
+                             dnl systemd revision specified, use it
                              [:])],
                   dnl we are not building src flavor
                   [AS_VAR_IF([RKT_STAGE1_SYSTEMD_SRC], [auto],
@@ -419,6 +430,11 @@ RKT_IF_HAS_VALUE([${RKT_STAGE1_FLAVORS}],[src],
                              [RKT_STAGE1_SYSTEMD_SRC=''],
                              dnl systemd source specified, warn about it being ignored
                              [AC_MSG_WARN([* --with-stage1-systemd-src is ignored, src flavor is not built])])
+                   AS_VAR_IF([RKT_STAGE1_SYSTEMD_REV], [auto],
+                             dnl systemd source not specified, alright, zero the value just in case
+                             [RKT_STAGE1_SYSTEMD_REV=''],
+                             dnl systemd source specified, warn about it being ignored
+                             [AC_MSG_WARN([* --with-stage1-systemd-revision is ignored, src flavor is not built])])
                    AS_VAR_IF([RKT_STAGE1_SYSTEMD_VER], [auto],
                              dnl systemd version not specified, alright, zero the value just in case
                              [RKT_STAGE1_SYSTEMD_VER=''],
@@ -772,6 +788,7 @@ AC_SUBST(RKT_STAGE1_DEFAULT_IMAGE_FILENAME_IN_RKT_DIRECTORY)
 
 AC_SUBST(RKT_STAGE1_SYSTEMD_SRC)
 AC_SUBST(RKT_STAGE1_SYSTEMD_VER)
+AC_SUBST(RKT_STAGE1_SYSTEMD_REV)
 
 AC_SUBST(RKT_LOCAL_COREOS_PXE_IMAGE_PATH)
 AC_SUBST(RKT_LOCAL_COREOS_PXE_IMAGE_SYSTEMD_VER)
@@ -845,6 +862,7 @@ RKT_IF_HAS_VALUE([${RKT_STAGE1_FLAVORS}], [src],
         src flavor specific build parameters
 
         systemd git repo:                       '${RKT_STAGE1_SYSTEMD_SRC}'
+        systemd git revision:                   '${RKT_STAGE1_SYSTEMD_REV}'
         systemd version:                        '${RKT_STAGE1_SYSTEMD_VER}'])])
 
 RKT_IF_HAS_VALUE([${RKT_STAGE1_FLAVORS}], [kvm],

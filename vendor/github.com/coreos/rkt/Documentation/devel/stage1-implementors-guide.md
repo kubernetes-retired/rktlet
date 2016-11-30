@@ -132,6 +132,10 @@ For example, it removes the network namespace of a pod.
 * `--debug` to activate debugging
 * UUID of the pod
 
+
+#### Arguments added in interface version 5
+* `--local-config`: The rkt configuration directory - defaults to `/etc/rkt` if not supplied.
+
 ### rkt stop
 
 `coreos.com/rkt/stage1/stop`
@@ -243,7 +247,7 @@ If the annotation is not present, rkt assumes the version is 1.
 ```json
 {
     "acKind": "ImageManifest",
-    "acVersion": "0.8.8",
+    "acVersion": "0.8.9",
     "name": "foo.com/rkt/stage1",
     "labels": [
         {

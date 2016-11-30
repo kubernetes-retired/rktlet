@@ -1,5 +1,5 @@
-hash: 117f28ee4fca28ce2f8ad5a48955fd2835c7351eee424d1762094dfc384363cf
-updated: 2016-11-18T11:28:10.734699634-08:00
+hash: 7d20676cf70732e4026c12bac6841af45c13f8e8880dbc27a2dcc08bb734b228
+updated: 2016-11-28T15:51:55.285848387-08:00
 imports:
 - name: github.com/appc/spec
   version: 3fddc8f00a9e8db1e1a8fe23180e7869ebaadc57
@@ -37,7 +37,7 @@ imports:
   - httputil
   - timeutil
 - name: github.com/coreos/rkt
-  version: 4444fe17ac194c27bea01a213d46ea2914884bce
+  version: 1e6e9cd4e669c47e21b269a0c4a01f740172619b
   subpackages:
   - common
   - lib

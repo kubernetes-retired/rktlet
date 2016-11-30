@@ -191,43 +191,38 @@ func getPod(dataDir string, uuid *types.UUID) (*Pod, error) {
 
 	p := &Pod{UUID: uuid, dataDir: dataDir}
 
-	// we try open the pod in all possible directories, in the same order the states occur
-	l, err := lock.NewLock(p.embryoPath(), lock.Dir)
-	if err == nil {
-		p.isEmbryo = true
-	} else if err == lock.ErrNotExist {
-		l, err = lock.NewLock(p.preparePath(), lock.Dir)
-		if err == nil {
-			// treat as aborted prepare until lock is tested
-			p.isAbortedPrepare = true
-		} else if err == lock.ErrNotExist {
-			l, err = lock.NewLock(p.preparedPath(), lock.Dir)
-			if err == nil {
-				p.isPrepared = true
-			} else if err == lock.ErrNotExist {
-				l, err = lock.NewLock(p.runPath(), lock.Dir)
-				if err == nil {
-					// treat as exited until lock is tested
-					p.isExited = true
-				} else if err == lock.ErrNotExist {
-					l, err = lock.NewLock(p.exitedGarbagePath(), lock.Dir)
-					if err == lock.ErrNotExist {
-						l, err = lock.NewLock(p.garbagePath(), lock.Dir)
-						if err == nil {
-							p.isGarbage = true
-						} else {
-							return nil, fmt.Errorf("pod %q not found", uuid)
-						}
-					} else if err == nil {
-						p.isExitedGarbage = true
-						p.isExited = true // ExitedGarbage is _always_ implicitly exited
-					}
-				}
-			}
-		}
+	// dirStates is a list of directories -> state that directory existing
+	// implies.
+	// Its order matches the order states occur.
+	dirStates := []struct {
+		dir           string
+		impliedStates []*bool
+	}{
+		{dir: p.embryoPath(), impliedStates: []*bool{&p.isEmbryo}},
+		// For prepare, assume it's aborted prepare until it gets updated below
+		{dir: p.preparePath(), impliedStates: []*bool{&p.isAbortedPrepare}},
+		{dir: p.preparedPath(), impliedStates: []*bool{&p.isPrepared}},
+		// For run, assume exited until the lock is tested
+		{dir: p.runPath(), impliedStates: []*bool{&p.isExited}},
+		// Exited garbage implies exited
+		{dir: p.exitedGarbagePath(), impliedStates: []*bool{&p.isExitedGarbage, &p.isExited}},
+		{dir: p.garbagePath(), impliedStates: []*bool{&p.isGarbage}},
 	}
 
-	if err != nil && err != lock.ErrNotExist {
+	var l *lock.FileLock
+	var err error
+	for _, dirState := range dirStates {
+		l, err = lock.NewLock(dirState.dir, lock.Dir)
+		if err == nil {
+			for _, s := range dirState.impliedStates {
+				*s = true
+			}
+			break
+		}
+		if err == lock.ErrNotExist {
+			continue
+		}
+		// unexpected lock error
 		return nil, errwrap.Wrap(fmt.Errorf("error opening pod %q", uuid), err)
 	}
 
@@ -322,7 +317,7 @@ func (p *Pod) garbagePath() string {
 }
 
 // ToPrepare transitions a pod from embryo -> preparing, leaves the pod locked in the prepare directory.
-// only the creator of the pod (via newPod()) may do this, nobody to race with.
+// only the creator of the pod (via NewPod()) may do this, nobody to race with.
 func (p *Pod) ToPreparing() error {
 	if !p.createdByMe {
 		return fmt.Errorf("bug: only pods created by me may transition to preparing")
@@ -356,7 +351,7 @@ func (p *Pod) ToPreparing() error {
 }
 
 // ToPrepared transitions a pod from preparing -> prepared, leaves the pod unlocked in the prepared directory.
-// only the creator of the pod (via newPod()) may do this, nobody to race with.
+// only the creator of the pod (via NewPod()) may do this, nobody to race with.
 func (p *Pod) ToPrepared() error {
 	if !p.createdByMe {
 		return fmt.Errorf("bug: only pods created by me may transition to prepared")
@@ -389,7 +384,7 @@ func (p *Pod) ToPrepared() error {
 }
 
 // ToRun transitions a pod from prepared -> run, leaves the pod locked in the run directory.
-// the creator of the pod (via newPod()) may also jump directly from preparing -> run
+// the creator of the pod (via NewPod()) may also jump directly from preparing -> run
 func (p *Pod) ToRun() error {
 	if !p.createdByMe && !p.isPrepared {
 		return fmt.Errorf("bug: only prepared pods may transition to run")
@@ -550,7 +545,6 @@ func listPodsFromDir(cdir string) ([]string, error) {
 // refreshState() updates the cached members of c to reflect current reality
 // assumes p.FileLock is currently unlocked, and always returns with it unlocked.
 func (p *Pod) refreshState() error {
-	//  TODO(vc): this overlaps substantially with newPod(), could probably unify.
 	p.isEmbryo = false
 	p.isPreparing = false
 	p.isAbortedPrepare = false
@@ -562,72 +556,77 @@ func (p *Pod) refreshState() error {
 	p.isDeleting = false
 	p.isGone = false
 
-	// we try open the pod in all possible directories, in the same order the states occur
-	_, err := os.Stat(p.embryoPath())
-	if err == nil {
-		p.isEmbryo = true
-	} else if os.IsNotExist(err) {
-		_, err := os.Stat(p.preparePath())
-		if err == nil {
-			// treat as aborted prepare until lock is tested
-			p.isAbortedPrepare = true
-		} else if os.IsNotExist(err) {
-			_, err := os.Stat(p.preparedPath())
-			if err == nil {
-				p.isPrepared = true
-			} else if os.IsNotExist(err) {
-				_, err := os.Stat(p.runPath())
-				if err == nil {
-					// treat as exited until lock is tested
-					p.isExited = true
-				} else if os.IsNotExist(err) {
-					_, err := os.Stat(p.exitedGarbagePath())
-					if os.IsNotExist(err) {
-						_, err := os.Stat(p.garbagePath())
-						if os.IsNotExist(err) {
-							// XXX: note this is unique to refreshState(), getPod() errors when it can't find a uuid.
-							p.isGone = true
-						} else if err == nil {
-							p.isGarbage = true
-						}
-					} else if err == nil {
-						p.isExitedGarbage = true
-						p.isExited = true // exitedGarbage is _always_ implicitly exited
-					}
-				}
-			}
-		}
+	// dirStates is a list of directories -> state that directory existing
+	// implies.
+	// Its order matches the order states occur.
+	dirStates := []struct {
+		dir           string
+		impliedStates []*bool
+	}{
+		{dir: p.embryoPath(), impliedStates: []*bool{&p.isEmbryo}},
+		// For prepare, assume it's aborted prepare until it gets updated below
+		{dir: p.preparePath(), impliedStates: []*bool{&p.isAbortedPrepare}},
+		{dir: p.preparedPath(), impliedStates: []*bool{&p.isPrepared}},
+		// For run, assume exited until the lock is tested
+		{dir: p.runPath(), impliedStates: []*bool{&p.isExited}},
+		// Exited garbage implies exited
+		{dir: p.exitedGarbagePath(), impliedStates: []*bool{&p.isExitedGarbage, &p.isExited}},
+		{dir: p.garbagePath(), impliedStates: []*bool{&p.isGarbage}},
 	}
 
-	if err != nil && !os.IsNotExist(err) {
+	anyMatched := false
+	for _, dirState := range dirStates {
+		_, err := os.Stat(dirState.dir)
+		if err == nil {
+			for _, s := range dirState.impliedStates {
+				*s = true
+			}
+			anyMatched = true
+			break
+		}
+		if os.IsNotExist(err) {
+			// just try the next one if it didn't exist
+			continue
+		}
+		// Unknown error statting directory
 		return errwrap.Wrap(fmt.Errorf("error refreshing state of pod %q", p.UUID.String()), err)
 	}
 
-	if !p.isPrepared && !p.isEmbryo && !p.isGone {
-		// preparing, run, and exitedGarbage dirs use exclusive locks to indicate preparing/aborted, running/exited, and deleting/marked
-		if err = p.TrySharedLock(); err != nil {
-			if err != lock.ErrLocked {
-				p.Close()
-				return errwrap.Wrap(errors.New("unexpected lock error"), err)
-			}
-			if p.isExitedGarbage {
-				// locked exitedGarbage is also being deleted
-				p.isExitedDeleting = true
-			} else if p.isExited {
-				// locked exited and !exitedGarbage is not exited (default in the run dir)
-				p.isExited = false
-			} else if p.isAbortedPrepare {
-				// locked in preparing is preparing, not aborted (default in the preparing dir)
-				p.isAbortedPrepare = false
-				p.isPreparing = true
-			} else if p.isGarbage {
-				// locked in non-exited garbage is deleting
-				p.isDeleting = true
-			}
-			err = nil
-		} else {
-			p.Unlock()
-		}
+	if !anyMatched {
+		// default to isGone if nothing else matched
+		p.isGone = true
+		return nil
+	}
+
+	if p.isPrepared || p.isEmbryo {
+		// no need to try a shared lock for these; our state is already accurate
+		return nil
+	}
+
+	// preparing, run, and exitedGarbage dirs use exclusive locks to indicate preparing/aborted, running/exited, and deleting/marked
+	err := p.TrySharedLock()
+	if err == nil {
+		// if the lock isn't held, then the impliedState above is accurate so we can just return
+		p.Unlock()
+		return nil
+	}
+	if err != lock.ErrLocked {
+		p.Close()
+		return errwrap.Wrap(errors.New("unexpected lock error"), err)
+	}
+	if p.isExitedGarbage {
+		// locked exitedGarbage is also being deleted
+		p.isExitedDeleting = true
+	} else if p.isExited {
+		// locked exited and !exitedGarbage is not exited (default in the run dir)
+		p.isExited = false
+	} else if p.isAbortedPrepare {
+		// locked in preparing is preparing, not aborted (default in the preparing dir)
+		p.isAbortedPrepare = false
+		p.isPreparing = true
+	} else if p.isGarbage {
+		// locked in non-exited garbage is deleting
+		p.isDeleting = true
 	}
 
 	return nil
@@ -980,24 +979,29 @@ func (p *Pod) CreationTime() (time.Time, error) {
 // StartTime returns the time when the pod was started.
 func (p *Pod) StartTime() (time.Time, error) {
 	var (
-		t   time.Time
-		err error
+		t      time.Time
+		retErr error
 	)
-	if p.isRunning() || p.AfterRun() {
-		// check pid and ppid files, since stage1 implementations can choose
-		// which one to implement.
-		t, err = p.getModTime("pid")
-		if os.IsNotExist(err) {
-			t, err = p.getModTime("ppid")
-			// if there's an error starting the pod, it can be "exited" without
-			// the "ppid" (or "pid") files being created, return an error only
-			// if it's different than ENOENT.
-			if os.IsNotExist(err) {
-				err = nil
-			}
+
+	if !p.isRunning() && !p.AfterRun() {
+		// hasn't started
+		return t, nil
+	}
+
+	// check pid and ppid since stage1s can choose one xor the other
+	for _, ctimeFile := range []string{"pid", "ppid"} {
+		t, err := p.getModTime(ctimeFile)
+		if err == nil {
+			return t, nil
+		}
+		// if there's an error starting the pod, it can go to "exited" without
+		// creating a ppid/pid file, so ignore not-exist errors.
+		if !os.IsNotExist(err) {
+			retErr = err
 		}
 	}
-	return t, err
+
+	return t, retErr
 }
 
 // GCMarkedTime returns the time when the pod is marked by gc.
@@ -1154,6 +1158,17 @@ func (p *Pod) isRunning() bool {
 	// when none of these things, running!
 	return !p.isEmbryo && !p.isAbortedPrepare && !p.isPreparing && !p.isPrepared &&
 		!p.isExited && !p.isExitedGarbage && !p.isExitedDeleting && !p.isGarbage && !p.isDeleting && !p.isGone
+}
+
+// PodManifestAvailable returns whether the caller should reasonably expect
+// PodManifest to function in the pod's current state.
+// Namely, in Preparing, AbortedPrepare, and Deleting it's possible for the
+// manifest to not be present
+func (p *Pod) PodManifestAvailable() bool {
+	if p.isPreparing || p.isAbortedPrepare || p.isDeleting {
+		return false
+	}
+	return true
 }
 
 // AfterRun returns true if the pod is in a post-running state, otherwise it returns false.
