@@ -40,16 +40,12 @@ const (
 )
 
 // List of reserved keys in the annotations.
-var kubernetesReservedAnnoKeys []string
-
-func init() {
-	kubernetesReservedAnnoKeys = []string{
-		kubernetesReservedAnnoImageNameKey,
-		kubernetesReservedAnnoPodUid,
-		kubernetesReservedAnnoPodName,
-		kubernetesReservedAnnoPodNamespace,
-		kubernetesReservedAnnoPodAttempt,
-	}
+var kubernetesReservedAnnoKeys = []string{
+	kubernetesReservedAnnoImageNameKey,
+	kubernetesReservedAnnoPodUid,
+	kubernetesReservedAnnoPodName,
+	kubernetesReservedAnnoPodNamespace,
+	kubernetesReservedAnnoPodAttempt,
 }
 
 // parseContainerID parses the container ID string into "uuid" + "appname".
