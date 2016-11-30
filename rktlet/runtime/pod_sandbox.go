@@ -21,10 +21,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/coreos/rkt/lib"
 	"github.com/golang/glog"
+	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
 	"golang.org/x/net/context"
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 )
@@ -97,14 +99,33 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 	return &runtimeApi.RunPodSandboxResponse{PodSandboxId: &rktUUID}, err
 }
 
-func (r *RktRuntime) StopPodSandbox(ctx context.Context, req *runtimeApi.StopPodSandboxRequest) (*runtimeApi.StopPodSandboxResponse, error) {
-	if _, err := r.RunCommand("stop", req.GetPodSandboxId()); err != nil {
-		return nil, err
+func (r *RktRuntime) stopPodSandbox(ctx context.Context, id string, force bool) error {
+	_, err := r.RunCommand(
+		"stop",
+		"--force="+strconv.FormatBool(force),
+		id,
+	)
+	if err == nil {
+		return nil
 	}
-	return &runtimeApi.StopPodSandboxResponse{}, nil
+
+	if cli.RktStopIsAlreadyStoppedError(err) || cli.RktStopIsNotExistError(err) {
+		glog.V(4).Infof("ignoring stop error for idempotency: %v", err)
+		return nil
+	}
+	return err
+}
+
+func (r *RktRuntime) StopPodSandbox(ctx context.Context, req *runtimeApi.StopPodSandboxRequest) (*runtimeApi.StopPodSandboxResponse, error) {
+	err := r.stopPodSandbox(ctx, req.GetPodSandboxId(), false)
+	return &runtimeApi.StopPodSandboxResponse{}, err
 }
 
 func (r *RktRuntime) RemovePodSandbox(ctx context.Context, req *runtimeApi.RemovePodSandboxRequest) (*runtimeApi.RemovePodSandboxResponse, error) {
+	// Force stop first, per api contract "if there are any running containers in
+	// the sandbox, they must be forcibly terminated
+	r.stopPodSandbox(ctx, req.GetPodSandboxId(), true)
+
 	if _, err := r.RunCommand("rm", req.GetPodSandboxId()); err != nil {
 		return nil, err
 	}
