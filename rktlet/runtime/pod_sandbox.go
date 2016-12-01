@@ -149,7 +149,8 @@ func (r *RktRuntime) ListPodSandbox(ctx context.Context, req *runtimeApi.ListPod
 	}
 
 	sandboxes := make([]*runtimeApi.PodSandbox, 0, len(pods))
-	for _, p := range pods {
+	for i, _ := range pods {
+		p := pods[i]
 		sandboxStatus, err := toPodSandboxStatus(&p)
 		if err != nil {
 			return nil, fmt.Errorf("error converting the status of pod sandbox %v: %v", p.UUID, err)
