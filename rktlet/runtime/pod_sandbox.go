@@ -156,7 +156,9 @@ func (r *RktRuntime) ListPodSandbox(ctx context.Context, req *runtimeApi.ListPod
 			return nil, fmt.Errorf("error converting the status of pod sandbox %v: %v", p.UUID, err)
 		}
 
-		// TODO(yifan): Filter.
+		if !podSandboxStatusMatchesFilter(sandboxStatus, req.GetFilter()) {
+			continue
+		}
 
 		sandboxes = append(sandboxes, &runtimeApi.PodSandbox{
 			Id:        sandboxStatus.Id,
