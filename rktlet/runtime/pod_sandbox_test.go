@@ -38,10 +38,12 @@ var podsandboxNotReady = runtime.PodSandboxState_SANDBOX_NOTREADY
 func TestListPodSandbox(t *testing.T) {
 
 	testCases := []struct {
+		Filter   *runtime.PodSandboxFilter
 		RktPods  []rktlib.Pod
 		Response runtime.ListPodSandboxResponse
 	}{
 		{ // simple case of 1 pod
+			Filter: nil,
 			RktPods: []rktlib.Pod{{
 				UUID:      "1",
 				AppNames:  []string{"0-foo", "1-bar"},
@@ -70,6 +72,7 @@ func TestListPodSandbox(t *testing.T) {
 			},
 		},
 		{ // 3 pods, 2 running
+			Filter: nil,
 			RktPods: []rktlib.Pod{
 				{
 					UUID:      "1",
@@ -149,6 +152,172 @@ func TestListPodSandbox(t *testing.T) {
 				},
 			},
 		},
+		{ // filter for one pod by id
+			Filter: &runtime.PodSandboxFilter{
+				Id: strptr("1"),
+			},
+			RktPods: []rktlib.Pod{
+				{
+					UUID:      "1",
+					AppNames:  []string{"0-foo", "1-bar"},
+					Networks:  []netinfo.NetInfo{{NetName: "default", IP: []byte{10, 0, 0, 1}}},
+					StartedAt: int64ptr(100),
+					UserAnnotations: map[string]string{
+						kubernetesReservedAnnoPodName:      "foo",
+						kubernetesReservedAnnoPodUid:       "0",
+						kubernetesReservedAnnoPodAttempt:   "0",
+						kubernetesReservedAnnoPodNamespace: "default",
+					},
+					State: "running",
+				},
+				{
+					UUID:      "2",
+					AppNames:  []string{"0-foo", "1-bar"},
+					Networks:  []netinfo.NetInfo{{NetName: "default", IP: []byte{10, 0, 0, 1}}},
+					StartedAt: int64ptr(102),
+					UserAnnotations: map[string]string{
+						kubernetesReservedAnnoPodName:      "foo2",
+						kubernetesReservedAnnoPodUid:       "10",
+						kubernetesReservedAnnoPodAttempt:   "5",
+						kubernetesReservedAnnoPodNamespace: "not-default",
+					},
+					State: "running",
+				},
+			},
+			Response: runtime.ListPodSandboxResponse{
+				Items: []*runtime.PodSandbox{
+					{
+						Id:        strptr("1"),
+						CreatedAt: int64ptr(100),
+						State:     &podsandboxReady,
+						Metadata: &runtime.PodSandboxMetadata{
+							Name:      strptr("foo"),
+							Attempt:   uint32ptr(0),
+							Namespace: strptr("default"),
+							Uid:       strptr("0"),
+						},
+					},
+				},
+			},
+		},
+		{ // Simple filter for one pod by state
+			Filter: &runtime.PodSandboxFilter{
+				State: &podsandboxReady,
+			},
+			RktPods: []rktlib.Pod{
+				{
+					UUID:      "1",
+					AppNames:  []string{"0-foo", "1-bar"},
+					Networks:  []netinfo.NetInfo{{NetName: "default", IP: []byte{10, 0, 0, 1}}},
+					StartedAt: int64ptr(100),
+					UserAnnotations: map[string]string{
+						kubernetesReservedAnnoPodName:      "foo",
+						kubernetesReservedAnnoPodUid:       "0",
+						kubernetesReservedAnnoPodAttempt:   "0",
+						kubernetesReservedAnnoPodNamespace: "default",
+					},
+					State: "running",
+				},
+				{
+					UUID:      "2",
+					AppNames:  []string{"0-foo", "1-bar"},
+					Networks:  []netinfo.NetInfo{{NetName: "default", IP: []byte{10, 0, 0, 1}}},
+					StartedAt: int64ptr(102),
+					UserAnnotations: map[string]string{
+						kubernetesReservedAnnoPodName:      "foo2",
+						kubernetesReservedAnnoPodUid:       "10",
+						kubernetesReservedAnnoPodAttempt:   "5",
+						kubernetesReservedAnnoPodNamespace: "not-default",
+					},
+					State: "stopped",
+				},
+			},
+			Response: runtime.ListPodSandboxResponse{
+				Items: []*runtime.PodSandbox{
+					{
+						Id:        strptr("1"),
+						CreatedAt: int64ptr(100),
+						State:     &podsandboxReady,
+						Metadata: &runtime.PodSandboxMetadata{
+							Name:      strptr("foo"),
+							Attempt:   uint32ptr(0),
+							Namespace: strptr("default"),
+							Uid:       strptr("0"),
+						},
+					},
+				},
+			},
+		},
+		{ // Simple filter for one pod by labels
+			Filter: &runtime.PodSandboxFilter{
+				LabelSelector: map[string]string{"foo": "bar"},
+			},
+			RktPods: []rktlib.Pod{
+				{
+					UUID:      "1",
+					AppNames:  []string{"0-foo", "1-bar"},
+					Networks:  []netinfo.NetInfo{{NetName: "default", IP: []byte{10, 0, 0, 1}}},
+					StartedAt: int64ptr(100),
+					UserAnnotations: map[string]string{
+						kubernetesReservedAnnoPodName:      "foo",
+						kubernetesReservedAnnoPodUid:       "0",
+						kubernetesReservedAnnoPodAttempt:   "0",
+						kubernetesReservedAnnoPodNamespace: "default",
+					},
+					UserLabels: map[string]string{
+						"foo": "bar",
+					},
+					State: "running",
+				},
+				{
+					UUID:      "2",
+					AppNames:  []string{"0-foo", "1-bar"},
+					Networks:  []netinfo.NetInfo{{NetName: "default", IP: []byte{10, 0, 0, 1}}},
+					StartedAt: int64ptr(102),
+					UserAnnotations: map[string]string{
+						kubernetesReservedAnnoPodName:      "foo2",
+						kubernetesReservedAnnoPodUid:       "10",
+						kubernetesReservedAnnoPodAttempt:   "5",
+						kubernetesReservedAnnoPodNamespace: "not-default",
+					},
+					UserLabels: map[string]string{
+						"foo": "baz",
+					},
+					State: "stopped",
+				},
+				{
+					UUID:      "3",
+					AppNames:  []string{"0-foo", "1-bar"},
+					Networks:  []netinfo.NetInfo{{NetName: "default", IP: []byte{10, 0, 0, 3}}},
+					StartedAt: int64ptr(103),
+					UserAnnotations: map[string]string{
+						kubernetesReservedAnnoPodName:      "foo3",
+						kubernetesReservedAnnoPodUid:       "10",
+						kubernetesReservedAnnoPodAttempt:   "5",
+						kubernetesReservedAnnoPodNamespace: "not-default",
+					},
+					State: "running",
+				},
+			},
+			Response: runtime.ListPodSandboxResponse{
+				Items: []*runtime.PodSandbox{
+					{
+						Id:        strptr("1"),
+						CreatedAt: int64ptr(100),
+						State:     &podsandboxReady,
+						Metadata: &runtime.PodSandboxMetadata{
+							Name:      strptr("foo"),
+							Attempt:   uint32ptr(0),
+							Namespace: strptr("default"),
+							Uid:       strptr("0"),
+						},
+						Labels: map[string]string{
+							"foo": "bar",
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for i, testCase := range testCases {
@@ -163,7 +332,9 @@ func TestListPodSandbox(t *testing.T) {
 		}
 		mockCli.On("RunCommand", "list", []string{"--format=json"}).Return([]string{string(rktpodJson)}, nil)
 
-		resp, err := mockRuntime.ListPodSandbox(context.TODO(), &runtime.ListPodSandboxRequest{})
+		resp, err := mockRuntime.ListPodSandbox(context.TODO(), &runtime.ListPodSandboxRequest{
+			Filter: testCase.Filter,
+		})
 		if err != nil {
 			t.Errorf("%d: error listing pod sandbox: %v", i, err)
 			continue

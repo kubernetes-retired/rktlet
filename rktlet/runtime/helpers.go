@@ -520,3 +520,28 @@ func (r *RktRuntime) getImageHash(ctx context.Context, imageName string) (string
 
 	return resp.GetImage().GetId(), err
 }
+
+func podSandboxStatusMatchesFilter(sbx *runtimeApi.PodSandboxStatus, filter *runtimeApi.PodSandboxFilter) bool {
+	if filter == nil {
+		return true
+	}
+	if filter.Id != nil && filter.GetId() != sbx.GetId() {
+		return false
+	}
+
+	if filter.State != nil && filter.GetState() != sbx.GetState() {
+		return false
+	}
+
+	for key, val := range filter.LabelSelector {
+		sbxLabel, exists := sbx.Labels[key]
+		if !exists {
+			return false
+		}
+		if sbxLabel != val {
+			return false
+		}
+	}
+
+	return true
+}
