@@ -138,10 +138,19 @@ func (r *RktRuntime) RemovePodSandbox(ctx context.Context, req *runtimeApi.Remov
 	// the sandbox, they must be forcibly terminated
 	r.stopPodSandbox(ctx, req.GetPodSandboxId(), true)
 
-	if _, err := r.RunCommand("rm", req.GetPodSandboxId()); err != nil {
-		return nil, err
+	// Retry rm a few times to work around
+	// https://github.com/kubernetes-incubator/rktlet/issues/21#issuecomment-264842608
+	// TODO(euank): this won't be needed once the above is fixed
+	var err error
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		_, err = r.RunCommand("rm", req.GetPodSandboxId())
+		if i == maxRetries-1 || err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	return &runtimeApi.RemovePodSandboxResponse{}, nil
+	return &runtimeApi.RemovePodSandboxResponse{}, err
 }
 
 func (r *RktRuntime) PodSandboxStatus(ctx context.Context, req *runtimeApi.PodSandboxStatusRequest) (*runtimeApi.PodSandboxStatusResponse, error) {
