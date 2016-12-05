@@ -308,9 +308,6 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile string) []string {
 	cmd := []string{"app", "sandbox", "--uuid-file-save=" + uuidfile}
 
-	// TODO(yifan): Namespace options.
-
-	// Add hostname.
 	if req.Config.Hostname != nil {
 		cmd = append(cmd, "--hostname="+*req.Config.Hostname)
 	}
@@ -323,8 +320,9 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 		for _, search := range config.Searches {
 			cmd = append(cmd, "--dns-search="+search)
 		}
-		// TODO(yifan): Add dns-opt after
-		// https://github.com/kubernetes/kubernetes/pull/33709 is merged.
+		for _, opt := range config.Options {
+			cmd = append(cmd, "--dns-opt="+opt)
+		}
 	}
 
 	// Add port mappings only if it's not hostnetwork.
