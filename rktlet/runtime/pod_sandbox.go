@@ -94,7 +94,19 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	glog.Warningf("sandbox got a UUID but did not have a ready status after 10s: %v, %v", status, err)
+	if status.GetStatus().GetState() != runtimeApi.PodSandboxState_SANDBOX_READY {
+		glog.Warningf("sandbox got a UUID but did not have a ready status after 10s: %v, %v", status, err)
+		return &runtimeApi.RunPodSandboxResponse{PodSandboxId: &rktUUID}, fmt.Errorf("unable to get status within 10s: %v", err)
+	}
+
+	// TODO(euank): this is a temporary hack due to https://github.com/coreos/rkt/issues/3423
+	// it should be removed once that issue is resolved/released
+	time.Sleep(3 * time.Second)
+
+	// Inject internal logging app
+	// TODO: This can be removed once https://github.com/coreos/rkt/pull/3396
+	// handles logging
+	err = r.addInternalLoggingApp(ctx, rktUUID, req.GetConfig().GetLogDirectory())
 
 	return &runtimeApi.RunPodSandboxResponse{PodSandboxId: &rktUUID}, err
 }
