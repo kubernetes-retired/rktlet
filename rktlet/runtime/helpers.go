@@ -515,8 +515,14 @@ func (r *RktRuntime) getImageHash(ctx context.Context, imageName string) (string
 			Image: &imageName,
 		},
 	})
+	if err != nil {
+		return "", fmt.Errorf("unable to get status for image %q: %v", imageName, err)
+	}
+	if resp.GetImage().GetId() == "" {
+		return "", fmt.Errorf("could not find image %q", imageName)
+	}
 
-	return resp.GetImage().GetId(), err
+	return resp.GetImage().GetId(), nil
 }
 
 func podSandboxStatusMatchesFilter(sbx *runtimeApi.PodSandboxStatus, filter *runtimeApi.PodSandboxFilter) bool {
