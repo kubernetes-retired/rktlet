@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: all build-in-rkt glide generate test clean
+.PHONY: all build-in-rkt glide generate test integ clean
 
 all:
 	go build -o bin/rktlet ./cmd/server/main.go
@@ -33,6 +33,9 @@ generate: ./hack/bin/mockery
 
 test:
 	go test ./rktlet/... ./journal2cri/...
+
+integ:
+	sudo -E go test ./tests/...
 
 clean:
 	rm -f ./bin/rktlet ./hack/bin/mockery ./bin/container/rktlet
