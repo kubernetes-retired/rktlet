@@ -198,12 +198,10 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 	if linux := config.GetLinux(); linux != nil {
 		// Add resources.
 		if resources := linux.Resources; resources != nil {
-			// TODO(yifan): Only implemented cpu quota/period with --cpu now,
-			// rkt needs to support relative cpu share https://github.com/coreos/rkt/issues/3242
-			var cpuMilliCores int64
-			if resources.GetCpuShares() > 0 {
-				cpuMilliCores = cpuSharesToMilliCores(resources.GetCpuShares())
+			if cpuShares := resources.GetCpuShares(); cpuShares > 0 {
+				cmd = append(cmd, fmt.Sprintf("--cpu-shares=%d", cpuShares))
 			}
+			var cpuMilliCores int64
 			if resources.GetCpuPeriod() > 0 && resources.GetCpuQuota() > 0 {
 				cpuMilliCores = cpuQuotaToMilliCores(resources.GetCpuQuota(), resources.GetCpuPeriod())
 			}
@@ -277,7 +275,6 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 	if workingDir := config.GetWorkingDir(); len(workingDir) > 0 {
 		cmd = append(cmd, "--working-dir="+workingDir)
 	}
-	// TODO(yifan): logpath
 
 	for _, mnt := range config.GetMounts() {
 		if mnt == nil {
