@@ -20,9 +20,9 @@ import (
 	"testing"
 
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/apis/batch"
 	"k8s.io/kubernetes/pkg/apis/extensions"
+	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/registry/generic"
@@ -33,7 +33,12 @@ import (
 
 func newStorage(t *testing.T) (*REST, *StatusREST, *etcdtesting.EtcdTestServer) {
 	etcdStorage, server := registrytest.NewEtcdStorage(t, extensions.GroupName)
-	restOptions := generic.RESTOptions{StorageConfig: etcdStorage, Decorator: generic.UndecoratedStorage, DeleteCollectionWorkers: 1}
+	restOptions := generic.RESTOptions{
+		StorageConfig:           etcdStorage,
+		Decorator:               generic.UndecoratedStorage,
+		DeleteCollectionWorkers: 1,
+		ResourcePrefix:          "jobs",
+	}
 	jobStorage, statusStorage := NewREST(restOptions)
 	return jobStorage, statusStorage, server
 }
@@ -49,7 +54,7 @@ func validNewJob() *batch.Job {
 		Spec: batch.JobSpec{
 			Completions: &completions,
 			Parallelism: &parallelism,
-			Selector: &unversioned.LabelSelector{
+			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{"a": "b"},
 			},
 			ManualSelector: newBool(true),
@@ -87,7 +92,7 @@ func TestCreate(t *testing.T) {
 		&batch.Job{
 			Spec: batch.JobSpec{
 				Completions: validJob.Spec.Completions,
-				Selector:    &unversioned.LabelSelector{},
+				Selector:    &metav1.LabelSelector{},
 				Template:    validJob.Spec.Template,
 			},
 		},
@@ -112,7 +117,7 @@ func TestUpdate(t *testing.T) {
 		// invalid updateFunc
 		func(obj runtime.Object) runtime.Object {
 			object := obj.(*batch.Job)
-			object.Spec.Selector = &unversioned.LabelSelector{}
+			object.Spec.Selector = &metav1.LabelSelector{}
 			return object
 		},
 		func(obj runtime.Object) runtime.Object {

@@ -18,10 +18,11 @@ package fake
 
 import (
 	api "k8s.io/kubernetes/pkg/api"
-	unversioned "k8s.io/kubernetes/pkg/api/unversioned"
 	batch "k8s.io/kubernetes/pkg/apis/batch"
+	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
 	labels "k8s.io/kubernetes/pkg/labels"
+	schema "k8s.io/kubernetes/pkg/runtime/schema"
 	watch "k8s.io/kubernetes/pkg/watch"
 )
 
@@ -31,7 +32,7 @@ type FakeJobs struct {
 	ns   string
 }
 
-var jobsResource = unversioned.GroupVersionResource{Group: "batch", Version: "", Resource: "jobs"}
+var jobsResource = schema.GroupVersionResource{Group: "batch", Version: "", Resource: "jobs"}
 
 func (c *FakeJobs) Create(job *batch.Job) (result *batch.Job, err error) {
 	obj, err := c.Fake.
@@ -77,7 +78,7 @@ func (c *FakeJobs) DeleteCollection(options *api.DeleteOptions, listOptions api.
 	return err
 }
 
-func (c *FakeJobs) Get(name string) (result *batch.Job, err error) {
+func (c *FakeJobs) Get(name string, options v1.GetOptions) (result *batch.Job, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewGetAction(jobsResource, c.ns, name), &batch.Job{})
 

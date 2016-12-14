@@ -4,10 +4,9 @@ licenses(["notice"])
 
 load(
     "@io_bazel_rules_go//go:def.bzl",
-    "go_binary",
+    "cgo_genrule",
     "go_library",
     "go_test",
-    "cgo_library",
 )
 
 go_library(
@@ -18,13 +17,16 @@ go_library(
         "helpers.go",
         "types.go",
     ],
+    library = "cgo_codegen",
     tags = ["automanaged"],
     deps = [
         "//pkg/api:go_default_library",
         "//pkg/api/resource:go_default_library",
-        "//pkg/api/unversioned:go_default_library",
+        "//pkg/api/v1:go_default_library",
+        "//pkg/apis/meta/v1:go_default_library",
         "//pkg/client/record:go_default_library",
         "//pkg/kubelet/api/v1alpha1/stats:go_default_library",
+        "//pkg/kubelet/cm:go_default_library",
         "//pkg/kubelet/lifecycle:go_default_library",
         "//pkg/kubelet/qos:go_default_library",
         "//pkg/kubelet/server/stats:go_default_library",
@@ -48,7 +50,8 @@ go_test(
     deps = [
         "//pkg/api:go_default_library",
         "//pkg/api/resource:go_default_library",
-        "//pkg/api/unversioned:go_default_library",
+        "//pkg/api/v1:go_default_library",
+        "//pkg/apis/meta/v1:go_default_library",
         "//pkg/client/record:go_default_library",
         "//pkg/kubelet/api/v1alpha1/stats:go_default_library",
         "//pkg/kubelet/lifecycle:go_default_library",
@@ -56,4 +59,16 @@ go_test(
         "//pkg/types:go_default_library",
         "//pkg/util/clock:go_default_library",
     ],
+)
+
+cgo_genrule(
+    name = "cgo_codegen",
+    srcs = ["threshold_notifier_linux.go"],
+    clinkopts = [
+        "-lz",
+        "-lm",
+        "-lpthread",
+        "-ldl",
+    ],
+    tags = ["automanaged"],
 )

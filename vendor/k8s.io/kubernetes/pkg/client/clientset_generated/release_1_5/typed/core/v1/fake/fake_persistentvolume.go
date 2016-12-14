@@ -18,10 +18,11 @@ package fake
 
 import (
 	api "k8s.io/kubernetes/pkg/api"
-	unversioned "k8s.io/kubernetes/pkg/api/unversioned"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
+	meta_v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
 	labels "k8s.io/kubernetes/pkg/labels"
+	schema "k8s.io/kubernetes/pkg/runtime/schema"
 	watch "k8s.io/kubernetes/pkg/watch"
 )
 
@@ -30,7 +31,7 @@ type FakePersistentVolumes struct {
 	Fake *FakeCoreV1
 }
 
-var persistentvolumesResource = unversioned.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumes"}
+var persistentvolumesResource = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumes"}
 
 func (c *FakePersistentVolumes) Create(persistentVolume *v1.PersistentVolume) (result *v1.PersistentVolume, err error) {
 	obj, err := c.Fake.
@@ -72,7 +73,7 @@ func (c *FakePersistentVolumes) DeleteCollection(options *v1.DeleteOptions, list
 	return err
 }
 
-func (c *FakePersistentVolumes) Get(name string) (result *v1.PersistentVolume, err error) {
+func (c *FakePersistentVolumes) Get(name string, options meta_v1.GetOptions) (result *v1.PersistentVolume, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewRootGetAction(persistentvolumesResource, name), &v1.PersistentVolume{})
 	if obj == nil {

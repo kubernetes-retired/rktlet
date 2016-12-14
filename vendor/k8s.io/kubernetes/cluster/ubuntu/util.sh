@@ -224,7 +224,7 @@ function create-etcd-opts() {
   cat <<EOF > ~/kube/default/etcd
 ETCD_OPTS="\
  -name infra\
- -listen-client-urls http://127.0.0.1:4001,http://${1}:4001\
+ --listen-client-urls=http://127.0.0.1:4001,http://${1}:4001\
  -advertise-client-urls http://${1}:4001"
 EOF
 }
@@ -296,7 +296,7 @@ KUBELET_OPTS="\
  --logtostderr=true \
  --cluster-dns=${3} \
  --cluster-domain=${4} \
- --config=${5} \
+ --pod-manifest-path=${5} \
  --allow-privileged=${6}
  $cni_opts"
 EOF
@@ -558,7 +558,7 @@ function provision-node() {
       '${MASTER_IP}' \
       '${DNS_SERVER_IP}' \
       '${DNS_DOMAIN}' \
-      '${KUBELET_CONFIG}' \
+      '${KUBELET_POD_MANIFEST_PATH}' \
       '${ALLOW_PRIVILEGED}' \
       '${CNI_PLUGIN_CONF}'
     create-kube-proxy-opts \
@@ -660,7 +660,7 @@ function provision-masterandnode() {
       '${MASTER_IP}' \
       '${DNS_SERVER_IP}' \
       '${DNS_DOMAIN}' \
-      '${KUBELET_CONFIG}' \
+      '${KUBELET_POD_MANIFEST_PATH}' \
       '${ALLOW_PRIVILEGED}' \
       '${CNI_PLUGIN_CONF}'
     create-kube-proxy-opts \

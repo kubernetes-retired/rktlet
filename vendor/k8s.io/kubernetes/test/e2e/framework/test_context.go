@@ -23,6 +23,7 @@ import (
 
 	"github.com/onsi/ginkgo/config"
 	"github.com/spf13/viper"
+	"k8s.io/kubernetes/pkg/apis/componentconfig"
 	"k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 )
@@ -66,6 +67,8 @@ type TestContextType struct {
 	GatherMetricsAfterTest            bool
 	// Currently supported values are 'hr' for human-readable and 'json'. It's a comma separated list.
 	OutputPrintType string
+	// NodeSchedulableTimeout is the timeout for waiting for all nodes to be schedulable.
+	NodeSchedulableTimeout time.Duration
 	// CreateTestingNS is responsible for creating namespace used for executing e2e tests.
 	// It accepts namespace base name, which will be prepended with e2e prefix, kube client
 	// and labels to be applied to a namespace.
@@ -106,25 +109,10 @@ type NodeTestContextType struct {
 	NodeName string
 	// NodeConformance indicates whether the test is running in node conformance mode.
 	NodeConformance bool
-	// DisableKubenet disables kubenet when starting kubelet.
-	DisableKubenet bool
-	// Whether to enable the QoS Cgroup Hierarchy or not
-	CgroupsPerQOS bool
-	// How the kubelet should interface with the cgroup hierarchy (cgroupfs or systemd)
-	CgroupDriver string
-	// The hard eviction thresholds
-	EvictionHard string
-	// ManifestPath is the static pod manifest path.
-	ManifestPath string
 	// PrepullImages indicates whether node e2e framework should prepull images.
 	PrepullImages bool
-	// Enable CRI integration.
-	EnableCRI bool
-	// ContainerRuntimeEndpoint is the endpoint of remote container runtime grpc server. This is mainly used for Remote CRI
-	// validation test.
-	ContainerRuntimeEndpoint string
-	// MounterPath is the path to the program to run to perform a mount
-	MounterPath string
+	// KubeletConfig is the kubelet configuration the test is running against.
+	KubeletConfig componentconfig.KubeletConfiguration
 }
 
 type CloudConfig struct {
@@ -201,6 +189,7 @@ func RegisterClusterFlags() {
 	flag.StringVar(&cloudConfig.ClusterTag, "cluster-tag", "", "Tag used to identify resources.  Only required if provider is aws.")
 	flag.IntVar(&TestContext.MinStartupPods, "minStartupPods", 0, "The number of pods which we need to see in 'Running' state with a 'Ready' condition of true, before we try running tests. This is useful in any cluster which needs some base pod-based services running before it can be used.")
 	flag.DurationVar(&TestContext.SystemPodsStartupTimeout, "system-pods-startup-timeout", 10*time.Minute, "Timeout for waiting for all system pods to be running before starting tests.")
+	flag.DurationVar(&TestContext.NodeSchedulableTimeout, "node-schedulable-timeout", 4*time.Hour, "Timeout for waiting for all nodes to be schedulable.")
 	flag.StringVar(&TestContext.UpgradeTarget, "upgrade-target", "ci/latest", "Version to upgrade to (e.g. 'release/stable', 'release/latest', 'ci/latest', '0.19.1', '0.19.1-669-gabac8c8') if doing an upgrade test.")
 	flag.StringVar(&TestContext.UpgradeImage, "upgrade-image", "", "Image to upgrade to (e.g. 'container_vm' or 'gci') if doing an upgrade test.")
 	flag.StringVar(&TestContext.PrometheusPushGateway, "prom-push-gateway", "", "The URL to prometheus gateway, so that metrics can be pushed during e2es and scraped by prometheus. Typically something like 127.0.0.1:9091.")
@@ -220,17 +209,7 @@ func RegisterNodeFlags() {
 	// For different situation we need to mount different things into the container, run different commands.
 	// It is hard and unnecessary to deal with the complexity inside the test suite.
 	flag.BoolVar(&TestContext.NodeConformance, "conformance", false, "If true, the test suite will not start kubelet, and fetch system log (kernel, docker, kubelet log etc.) to the report directory.")
-	// TODO(random-liu): Remove kubelet related flags when we move the kubelet start logic out of the test.
-	// TODO(random-liu): Find someway to get kubelet configuration, and automatic config and filter test based on the configuration.
-	flag.BoolVar(&TestContext.DisableKubenet, "disable-kubenet", false, "If true, start kubelet without kubenet. (default false)")
-	flag.StringVar(&TestContext.EvictionHard, "eviction-hard", "memory.available<250Mi,nodefs.available<10%,nodefs.inodesFree<5%", "The hard eviction thresholds. If set, pods get evicted when the specified resources drop below the thresholds.")
-	flag.BoolVar(&TestContext.CgroupsPerQOS, "experimental-cgroups-per-qos", false, "Enable creation of QoS cgroup hierarchy, if true top level QoS and pod cgroups are created.")
-	flag.StringVar(&TestContext.CgroupDriver, "cgroup-driver", "", "Driver that the kubelet uses to manipulate cgroups on the host.  Possible values: 'cgroupfs', 'systemd'")
-	flag.StringVar(&TestContext.ManifestPath, "manifest-path", "", "The path to the static pod manifest file.")
 	flag.BoolVar(&TestContext.PrepullImages, "prepull-images", true, "If true, prepull images so image pull failures do not cause test failures.")
-	flag.BoolVar(&TestContext.EnableCRI, "enable-cri", false, "Enable Container Runtime Interface (CRI) integration.")
-	flag.StringVar(&TestContext.ContainerRuntimeEndpoint, "container-runtime-endpoint", "", "The endpoint of remote container runtime grpc server, mainly used for Remote CRI validation.")
-	flag.StringVar(&TestContext.MounterPath, "experimental-mounter-path", "", "Path of mounter binary. Leave empty to use the default mount.")
 }
 
 // overwriteFlagsWithViperConfig finds and writes values to flags using viper as input.

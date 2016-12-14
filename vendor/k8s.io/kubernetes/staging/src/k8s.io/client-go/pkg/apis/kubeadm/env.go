@@ -36,13 +36,14 @@ func SetEnvParams() *EnvParams {
 		"host_pki_path":      "/etc/kubernetes/pki",
 		"host_etcd_path":     "/var/lib/etcd",
 		"hyperkube_image":    "",
+		"repo_prefix":        "gcr.io/google_containers",
 		"discovery_image":    fmt.Sprintf("gcr.io/google_containers/kube-discovery-%s:%s", runtime.GOARCH, "1.0"),
 		"etcd_image":         "",
 		"component_loglevel": "--v=2",
 	}
 
 	for k := range envParams {
-		if v := os.Getenv(fmt.Sprintf("KUBE_%s", strings.ToUpper(k))); v != "" {
+		if v := strings.TrimSpace(os.Getenv(fmt.Sprintf("KUBE_%s", strings.ToUpper(k)))); v != "" {
 			envParams[k] = v
 		}
 	}
@@ -52,6 +53,7 @@ func SetEnvParams() *EnvParams {
 		HostPKIPath:       envParams["host_pki_path"],
 		HostEtcdPath:      envParams["host_etcd_path"],
 		HyperkubeImage:    envParams["hyperkube_image"],
+		RepositoryPrefix:  envParams["repo_prefix"],
 		DiscoveryImage:    envParams["discovery_image"],
 		EtcdImage:         envParams["etcd_image"],
 		ComponentLoglevel: envParams["component_loglevel"],

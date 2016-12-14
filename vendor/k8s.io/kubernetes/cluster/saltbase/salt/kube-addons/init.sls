@@ -73,17 +73,17 @@ addon-dir-create:
 {% endif %}
 
 {% if pillar.get('enable_cluster_dns', '').lower() == 'true' %}
-/etc/kubernetes/addons/dns/skydns-svc.yaml:
+/etc/kubernetes/addons/dns/kubedns-svc.yaml:
   file.managed:
-    - source: salt://kube-addons/dns/skydns-svc.yaml.in
+    - source: salt://kube-addons/dns/kubedns-svc.yaml.in
     - template: jinja
     - group: root
     - dir_mode: 755
     - makedirs: True
 
-/etc/kubernetes/addons/dns/skydns-rc.yaml:
+/etc/kubernetes/addons/dns/kubedns-controller.yaml:
   file.managed:
-    - source: salt://kube-addons/dns/skydns-rc.yaml.in
+    - source: salt://kube-addons/dns/kubedns-controller.yaml.in
     - template: jinja
     - group: root
     - dir_mode: 755
@@ -177,3 +177,13 @@ addon-dir-create:
     - user: root
     - group: root
     - mode: 755
+
+{% if pillar.get('enable_default_storage_class', '').lower() == 'true' and grains['cloud'] is defined and grains['cloud'] in ['aws', 'gce', 'openstack'] %}
+/etc/kubernetes/addons/storage-class/default.yaml:
+  file.managed:
+    - source: salt://kube-addons/storage-class/{{ grains['cloud'] }}/default.yaml
+    - user: root
+    - group: root
+    - mode: 644
+    - makedirs: True
+{% endif %}

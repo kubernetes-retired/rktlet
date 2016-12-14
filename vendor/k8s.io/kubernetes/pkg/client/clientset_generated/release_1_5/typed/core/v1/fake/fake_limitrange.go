@@ -18,10 +18,11 @@ package fake
 
 import (
 	api "k8s.io/kubernetes/pkg/api"
-	unversioned "k8s.io/kubernetes/pkg/api/unversioned"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
+	meta_v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
 	labels "k8s.io/kubernetes/pkg/labels"
+	schema "k8s.io/kubernetes/pkg/runtime/schema"
 	watch "k8s.io/kubernetes/pkg/watch"
 )
 
@@ -31,7 +32,7 @@ type FakeLimitRanges struct {
 	ns   string
 }
 
-var limitrangesResource = unversioned.GroupVersionResource{Group: "", Version: "v1", Resource: "limitranges"}
+var limitrangesResource = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "limitranges"}
 
 func (c *FakeLimitRanges) Create(limitRange *v1.LimitRange) (result *v1.LimitRange, err error) {
 	obj, err := c.Fake.
@@ -67,7 +68,7 @@ func (c *FakeLimitRanges) DeleteCollection(options *v1.DeleteOptions, listOption
 	return err
 }
 
-func (c *FakeLimitRanges) Get(name string) (result *v1.LimitRange, err error) {
+func (c *FakeLimitRanges) Get(name string, options meta_v1.GetOptions) (result *v1.LimitRange, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewGetAction(limitrangesResource, c.ns, name), &v1.LimitRange{})
 

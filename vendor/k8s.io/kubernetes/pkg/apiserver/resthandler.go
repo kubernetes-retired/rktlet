@@ -31,9 +31,10 @@ import (
 	"k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/api/meta"
 	"k8s.io/kubernetes/pkg/api/rest"
-	"k8s.io/kubernetes/pkg/api/unversioned"
+	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/runtime/schema"
 	"k8s.io/kubernetes/pkg/util"
 	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
 	"k8s.io/kubernetes/pkg/util/strategicpatch"
@@ -79,8 +80,8 @@ type RequestScope struct {
 	Convertor runtime.ObjectConvertor
 	Copier    runtime.ObjectCopier
 
-	Resource    unversioned.GroupVersionResource
-	Kind        unversioned.GroupVersionKind
+	Resource    schema.GroupVersionResource
+	Kind        schema.GroupVersionKind
 	Subresource string
 }
 
@@ -130,10 +131,10 @@ func GetResource(r rest.Getter, e rest.Exporter, scope RequestScope) restful.Rou
 			defer trace.LogIfLong(500 * time.Millisecond)
 
 			// check for export
+			options := metav1.GetOptions{}
 			if values := req.Request.URL.Query(); len(values) > 0 {
-				// TODO: this is internal version, not unversioned
-				exports := unversioned.ExportOptions{}
-				if err := scope.ParameterCodec.DecodeParameters(values, unversioned.GroupVersion{Version: "v1"}, &exports); err != nil {
+				exports := metav1.ExportOptions{}
+				if err := scope.ParameterCodec.DecodeParameters(values, schema.GroupVersion{Version: "v1"}, &exports); err != nil {
 					return nil, err
 				}
 				if exports.Export {
@@ -142,9 +143,12 @@ func GetResource(r rest.Getter, e rest.Exporter, scope RequestScope) restful.Rou
 					}
 					return e.Export(ctx, name, exports)
 				}
+				if err := scope.ParameterCodec.DecodeParameters(values, schema.GroupVersion{Version: "v1"}, &options); err != nil {
+					return nil, err
+				}
 			}
 
-			return r.Get(ctx, name)
+			return r.Get(ctx, name, &options)
 		})
 }
 
@@ -365,7 +369,7 @@ func createHandler(r rest.NamedCreater, scope RequestScope, typer runtime.Object
 			scope.err(err, res.ResponseWriter, req.Request)
 			return
 		}
-		decoder := scope.Serializer.DecoderToVersion(s.Serializer, unversioned.GroupVersion{Group: gv.Group, Version: runtime.APIVersionInternal})
+		decoder := scope.Serializer.DecoderToVersion(s.Serializer, schema.GroupVersion{Group: gv.Group, Version: runtime.APIVersionInternal})
 
 		body, err := readBody(req.Request)
 		if err != nil {
@@ -402,7 +406,7 @@ func createHandler(r rest.NamedCreater, scope RequestScope, typer runtime.Object
 		trace.Step("About to store object in database")
 		result, err := finishRequest(timeout, func() (runtime.Object, error) {
 			out, err := r.Create(ctx, name, obj)
-			if status, ok := out.(*unversioned.Status); ok && err == nil && status.Code == 0 {
+			if status, ok := out.(*metav1.Status); ok && err == nil && status.Code == 0 {
 				status.Code = http.StatusCreated
 			}
 			return out, err
@@ -489,7 +493,7 @@ func PatchResource(r rest.Patcher, scope RequestScope, typer runtime.ObjectTyper
 		gv := scope.Kind.GroupVersion()
 		codec := runtime.NewCodec(
 			scope.Serializer.EncoderForVersion(s.Serializer, gv),
-			scope.Serializer.DecoderToVersion(s.Serializer, unversioned.GroupVersion{Group: gv.Group, Version: runtime.APIVersionInternal}),
+			scope.Serializer.DecoderToVersion(s.Serializer, schema.GroupVersion{Group: gv.Group, Version: runtime.APIVersionInternal}),
 		)
 
 		updateAdmit := func(updatedObject runtime.Object, currentObject runtime.Object) error {
@@ -531,7 +535,7 @@ func patchResource(
 	patchJS []byte,
 	namer ScopeNamer,
 	copier runtime.ObjectCopier,
-	resource unversioned.GroupVersionResource,
+	resource schema.GroupVersionResource,
 	codec runtime.Codec,
 ) (runtime.Object, error) {
 
@@ -591,11 +595,11 @@ func patchResource(
 			if err != nil {
 				return nil, err
 			}
-			currentPatch, err := strategicpatch.CreateStrategicMergePatch(originalObjJS, currentObjectJS, versionedObj, strategicpatch.SMPatchVersionLatest)
+			currentPatch, err := strategicpatch.CreateStrategicMergePatch(originalObjJS, currentObjectJS, versionedObj)
 			if err != nil {
 				return nil, err
 			}
-			originalPatch, err := strategicpatch.CreateStrategicMergePatch(originalObjJS, originalPatchedObjJS, versionedObj, strategicpatch.SMPatchVersionLatest)
+			originalPatch, err := strategicpatch.CreateStrategicMergePatch(originalObjJS, originalPatchedObjJS, versionedObj)
 			if err != nil {
 				return nil, err
 			}
@@ -815,17 +819,17 @@ func DeleteResource(r rest.GracefulDeleter, allowsOptions bool, scope RequestSco
 		// if the rest.Deleter returns a nil object, fill out a status. Callers may return a valid
 		// object with the response.
 		if result == nil {
-			result = &unversioned.Status{
-				Status: unversioned.StatusSuccess,
+			result = &metav1.Status{
+				Status: metav1.StatusSuccess,
 				Code:   http.StatusOK,
-				Details: &unversioned.StatusDetails{
+				Details: &metav1.StatusDetails{
 					Name: name,
 					Kind: scope.Kind.Kind,
 				},
 			}
 		} else {
 			// when a non-status response is returned, set the self link
-			if _, ok := result.(*unversioned.Status); !ok {
+			if _, ok := result.(*metav1.Status); !ok {
 				if err := setSelfLink(result, req, scope.Namer); err != nil {
 					scope.err(err, res.ResponseWriter, req.Request)
 					return
@@ -920,16 +924,16 @@ func DeleteCollection(r rest.CollectionDeleter, checkBody bool, scope RequestSco
 		// if the rest.Deleter returns a nil object, fill out a status. Callers may return a valid
 		// object with the response.
 		if result == nil {
-			result = &unversioned.Status{
-				Status: unversioned.StatusSuccess,
+			result = &metav1.Status{
+				Status: metav1.StatusSuccess,
 				Code:   http.StatusOK,
-				Details: &unversioned.StatusDetails{
+				Details: &metav1.StatusDetails{
 					Kind: scope.Kind.Kind,
 				},
 			}
 		} else {
 			// when a non-status response is returned, set the self link
-			if _, ok := result.(*unversioned.Status); !ok {
+			if _, ok := result.(*metav1.Status); !ok {
 				if _, err := setListSelfLink(result, req, scope.Namer); err != nil {
 					scope.err(err, res.ResponseWriter, req.Request)
 					return
@@ -967,7 +971,7 @@ func finishRequest(timeout time.Duration, fn resultFunc) (result runtime.Object,
 
 	select {
 	case result = <-ch:
-		if status, ok := result.(*unversioned.Status); ok {
+		if status, ok := result.(*metav1.Status); ok {
 			return nil, errors.FromObject(status)
 		}
 		return result, nil
@@ -981,7 +985,7 @@ func finishRequest(timeout time.Duration, fn resultFunc) (result runtime.Object,
 }
 
 // transformDecodeError adds additional information when a decode fails.
-func transformDecodeError(typer runtime.ObjectTyper, baseErr error, into runtime.Object, gvk *unversioned.GroupVersionKind, body []byte) error {
+func transformDecodeError(typer runtime.ObjectTyper, baseErr error, into runtime.Object, gvk *schema.GroupVersionKind, body []byte) error {
 	objGVKs, _, err := typer.ObjectKinds(into)
 	if err != nil {
 		return err

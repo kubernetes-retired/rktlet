@@ -19,20 +19,25 @@ package v1beta1
 import (
 	fmt "fmt"
 	api "k8s.io/kubernetes/pkg/api"
-	unversioned "k8s.io/kubernetes/pkg/api/unversioned"
 	registered "k8s.io/kubernetes/pkg/apimachinery/registered"
 	restclient "k8s.io/kubernetes/pkg/client/restclient"
+	schema "k8s.io/kubernetes/pkg/runtime/schema"
 	serializer "k8s.io/kubernetes/pkg/runtime/serializer"
 )
 
 type PolicyV1beta1Interface interface {
 	RESTClient() restclient.Interface
+	EvictionsGetter
 	PodDisruptionBudgetsGetter
 }
 
 // PolicyV1beta1Client is used to interact with features provided by the k8s.io/kubernetes/pkg/apimachinery/registered.Group group.
 type PolicyV1beta1Client struct {
 	restClient restclient.Interface
+}
+
+func (c *PolicyV1beta1Client) Evictions(namespace string) EvictionInterface {
+	return newEvictions(c, namespace)
 }
 
 func (c *PolicyV1beta1Client) PodDisruptionBudgets(namespace string) PodDisruptionBudgetInterface {
@@ -68,7 +73,7 @@ func New(c restclient.Interface) *PolicyV1beta1Client {
 }
 
 func setConfigDefaults(config *restclient.Config) error {
-	gv, err := unversioned.ParseGroupVersion("policy/v1beta1")
+	gv, err := schema.ParseGroupVersion("policy/v1beta1")
 	if err != nil {
 		return err
 	}

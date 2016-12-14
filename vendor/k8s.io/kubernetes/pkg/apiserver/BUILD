@@ -4,10 +4,8 @@ licenses(["notice"])
 
 load(
     "@io_bazel_rules_go//go:def.bzl",
-    "go_binary",
     "go_library",
     "go_test",
-    "cgo_library",
 )
 
 go_library(
@@ -31,8 +29,8 @@ go_library(
         "//pkg/api/errors:go_default_library",
         "//pkg/api/meta:go_default_library",
         "//pkg/api/rest:go_default_library",
-        "//pkg/api/unversioned:go_default_library",
         "//pkg/apis/extensions:go_default_library",
+        "//pkg/apis/meta/v1:go_default_library",
         "//pkg/apiserver/metrics:go_default_library",
         "//pkg/apiserver/request:go_default_library",
         "//pkg/conversion:go_default_library",
@@ -41,6 +39,7 @@ go_library(
         "//pkg/probe:go_default_library",
         "//pkg/probe/http:go_default_library",
         "//pkg/runtime:go_default_library",
+        "//pkg/runtime/schema:go_default_library",
         "//pkg/runtime/serializer/streaming:go_default_library",
         "//pkg/storage:go_default_library",
         "//pkg/util:go_default_library",
@@ -53,8 +52,8 @@ go_library(
         "//pkg/util/sets:go_default_library",
         "//pkg/util/strategicpatch:go_default_library",
         "//pkg/util/strings:go_default_library",
+        "//pkg/util/version:go_default_library",
         "//pkg/util/wsstream:go_default_library",
-        "//pkg/version:go_default_library",
         "//pkg/watch:go_default_library",
         "//pkg/watch/versioned:go_default_library",
         "//vendor:bitbucket.org/ww/goautoneg",
@@ -87,8 +86,8 @@ go_test(
         "//pkg/api/rest:go_default_library",
         "//pkg/api/testapi:go_default_library",
         "//pkg/api/testing:go_default_library",
-        "//pkg/api/unversioned:go_default_library",
         "//pkg/api/v1:go_default_library",
+        "//pkg/apis/meta/v1:go_default_library",
         "//pkg/apiserver/filters:go_default_library",
         "//pkg/apiserver/request:go_default_library",
         "//pkg/apiserver/testing:go_default_library",
@@ -96,6 +95,7 @@ go_test(
         "//pkg/labels:go_default_library",
         "//pkg/probe:go_default_library",
         "//pkg/runtime:go_default_library",
+        "//pkg/runtime/schema:go_default_library",
         "//pkg/runtime/serializer/streaming:go_default_library",
         "//pkg/types:go_default_library",
         "//pkg/util/diff:go_default_library",

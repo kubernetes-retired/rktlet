@@ -369,6 +369,13 @@ function set_binary_version() {
 #   SALT_TAR_URL
 #   SALT_TAR_HASH
 function tars_from_version() {
+  local sha1sum=""
+  if which sha1sum >/dev/null 2>&1; then
+    sha1sum="sha1sum"
+  else
+    sha1sum="shasum -a1"
+  fi
+
   if [[ -z "${KUBE_VERSION-}" ]]; then
     find-release-tars
     upload-server-tars
@@ -377,13 +384,13 @@ function tars_from_version() {
     SALT_TAR_URL="https://storage.googleapis.com/kubernetes-release/release/${KUBE_VERSION}/kubernetes-salt.tar.gz"
     # TODO: Clean this up.
     KUBE_MANIFESTS_TAR_URL="${SERVER_BINARY_TAR_URL/server-linux-amd64/manifests}"
-    KUBE_MANIFESTS_TAR_HASH=$(curl ${KUBE_MANIFESTS_TAR_URL} --silent --show-error | sha1sum | awk '{print $1}')
+    KUBE_MANIFESTS_TAR_HASH=$(curl ${KUBE_MANIFESTS_TAR_URL} --silent --show-error | ${sha1sum} | awk '{print $1}')
   elif [[ ${KUBE_VERSION} =~ ${KUBE_CI_VERSION_REGEX} ]]; then
     SERVER_BINARY_TAR_URL="https://storage.googleapis.com/kubernetes-release-dev/ci/${KUBE_VERSION}/kubernetes-server-linux-amd64.tar.gz"
     SALT_TAR_URL="https://storage.googleapis.com/kubernetes-release-dev/ci/${KUBE_VERSION}/kubernetes-salt.tar.gz"
     # TODO: Clean this up.
     KUBE_MANIFESTS_TAR_URL="${SERVER_BINARY_TAR_URL/server-linux-amd64/manifests}"
-    KUBE_MANIFESTS_TAR_HASH=$(curl ${KUBE_MANIFESTS_TAR_URL} --silent --show-error | sha1sum | awk '{print $1}')
+    KUBE_MANIFESTS_TAR_HASH=$(curl ${KUBE_MANIFESTS_TAR_URL} --silent --show-error | ${sha1sum} | awk '{print $1}')
   else
     echo "Version doesn't match regexp" >&2
     exit 1
@@ -620,6 +627,7 @@ NETWORK_PROVIDER: $(yaml-quote ${NETWORK_PROVIDER:-})
 NETWORK_POLICY_PROVIDER: $(yaml-quote ${NETWORK_POLICY_PROVIDER:-})
 PREPULL_E2E_IMAGES: $(yaml-quote ${PREPULL_E2E_IMAGES:-})
 HAIRPIN_MODE: $(yaml-quote ${HAIRPIN_MODE:-})
+SOFTLOCKUP_PANIC: $(yaml-quote ${SOFTLOCKUP_PANIC:-})
 OPENCONTRAIL_TAG: $(yaml-quote ${OPENCONTRAIL_TAG:-})
 OPENCONTRAIL_KUBERNETES_TAG: $(yaml-quote ${OPENCONTRAIL_KUBERNETES_TAG:-})
 OPENCONTRAIL_PUBLIC_SUBNET: $(yaml-quote ${OPENCONTRAIL_PUBLIC_SUBNET:-})
@@ -630,6 +638,7 @@ KUBE_ADDON_REGISTRY: $(yaml-quote ${KUBE_ADDON_REGISTRY:-})
 MULTIZONE: $(yaml-quote ${MULTIZONE:-})
 NON_MASQUERADE_CIDR: $(yaml-quote ${NON_MASQUERADE_CIDR:-})
 KUBE_UID: $(yaml-quote ${KUBE_UID:-})
+ENABLE_DEFAULT_STORAGE_CLASS: $(yaml-quote ${ENABLE_DEFAULT_STORAGE_CLASS:-})
 EOF
   if [ -n "${KUBELET_PORT:-}" ]; then
     cat >>$file <<EOF
@@ -754,6 +763,11 @@ EOF
     if [ -n "${INITIAL_ETCD_CLUSTER:-}" ]; then
       cat >>$file <<EOF
 INITIAL_ETCD_CLUSTER: $(yaml-quote ${INITIAL_ETCD_CLUSTER})
+EOF
+    fi
+    if [ -n "${ETCD_QUORUM_READ:-}" ]; then
+      cat >>$file <<EOF
+ETCD_QUORUM_READ: $(yaml-quote ${ETCD_QUORUM_READ})
 EOF
     fi
 
@@ -954,4 +968,43 @@ function parse-master-env() {
   EXTRA_DOCKER_OPTS=$(get-env-val "${master_env}" "EXTRA_DOCKER_OPTS")
   KUBELET_CERT_BASE64=$(get-env-val "${master_env}" "KUBELET_CERT")
   KUBELET_KEY_BASE64=$(get-env-val "${master_env}" "KUBELET_KEY")
+}
+
+# Update or verify required gcloud components are installed
+# at minimum required version.
+# Assumed vars
+#   KUBE_PROMPT_FOR_UPDATE
+function update-or-verify-gcloud() {
+  local sudo_prefix=""
+  if [ ! -w $(dirname `which gcloud`) ]; then
+    sudo_prefix="sudo"
+  fi
+  # update and install components as needed
+  if [[ "${KUBE_PROMPT_FOR_UPDATE}" == "y" ]]; then
+    ${sudo_prefix} gcloud ${gcloud_prompt:-} components install alpha
+    ${sudo_prefix} gcloud ${gcloud_prompt:-} components install beta
+    ${sudo_prefix} gcloud ${gcloud_prompt:-} components update
+  else
+    local version=$(${sudo_prefix} gcloud version --format=json)
+    python -c'
+import json,sys
+from distutils import version
+
+minVersion = version.LooseVersion("1.3.0")
+required = [ "alpha", "beta", "core" ]
+data = json.loads(sys.argv[1])
+rel = data.get("Google Cloud SDK")
+if rel != "HEAD" and version.LooseVersion(rel) < minVersion:
+  print("gcloud version out of date ( < %s )" % minVersion)
+  exit(1)
+missing = []
+for c in required:
+  if not data.get(c):
+    missing += [c]
+if missing:
+  for c in missing:
+    print ("missing required gcloud component \"{0}\"".format(c))
+  exit(1)
+    ' """${version}"""
+  fi
 }

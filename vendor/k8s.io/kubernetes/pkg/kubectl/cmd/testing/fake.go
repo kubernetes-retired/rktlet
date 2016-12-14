@@ -28,9 +28,9 @@ import (
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/meta"
 	"k8s.io/kubernetes/pkg/api/testapi"
-	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/api/validation"
 	"k8s.io/kubernetes/pkg/apimachinery/registered"
+	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/client/restclient"
 	"k8s.io/kubernetes/pkg/client/restclient/fake"
@@ -39,6 +39,7 @@ import (
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
 	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/runtime/schema"
 	"k8s.io/kubernetes/pkg/runtime/serializer"
 )
 
@@ -63,26 +64,26 @@ type ExternalType2 struct {
 	Name string `json:"name"`
 }
 
-func (obj *InternalType) GetObjectKind() unversioned.ObjectKind { return obj }
-func (obj *InternalType) SetGroupVersionKind(gvk unversioned.GroupVersionKind) {
+func (obj *InternalType) GetObjectKind() schema.ObjectKind { return obj }
+func (obj *InternalType) SetGroupVersionKind(gvk schema.GroupVersionKind) {
 	obj.APIVersion, obj.Kind = gvk.ToAPIVersionAndKind()
 }
-func (obj *InternalType) GroupVersionKind() unversioned.GroupVersionKind {
-	return unversioned.FromAPIVersionAndKind(obj.APIVersion, obj.Kind)
+func (obj *InternalType) GroupVersionKind() schema.GroupVersionKind {
+	return schema.FromAPIVersionAndKind(obj.APIVersion, obj.Kind)
 }
-func (obj *ExternalType) GetObjectKind() unversioned.ObjectKind { return obj }
-func (obj *ExternalType) SetGroupVersionKind(gvk unversioned.GroupVersionKind) {
+func (obj *ExternalType) GetObjectKind() schema.ObjectKind { return obj }
+func (obj *ExternalType) SetGroupVersionKind(gvk schema.GroupVersionKind) {
 	obj.APIVersion, obj.Kind = gvk.ToAPIVersionAndKind()
 }
-func (obj *ExternalType) GroupVersionKind() unversioned.GroupVersionKind {
-	return unversioned.FromAPIVersionAndKind(obj.APIVersion, obj.Kind)
+func (obj *ExternalType) GroupVersionKind() schema.GroupVersionKind {
+	return schema.FromAPIVersionAndKind(obj.APIVersion, obj.Kind)
 }
-func (obj *ExternalType2) GetObjectKind() unversioned.ObjectKind { return obj }
-func (obj *ExternalType2) SetGroupVersionKind(gvk unversioned.GroupVersionKind) {
+func (obj *ExternalType2) GetObjectKind() schema.ObjectKind { return obj }
+func (obj *ExternalType2) SetGroupVersionKind(gvk schema.GroupVersionKind) {
 	obj.APIVersion, obj.Kind = gvk.ToAPIVersionAndKind()
 }
-func (obj *ExternalType2) GroupVersionKind() unversioned.GroupVersionKind {
-	return unversioned.FromAPIVersionAndKind(obj.APIVersion, obj.Kind)
+func (obj *ExternalType2) GroupVersionKind() schema.GroupVersionKind {
+	return schema.FromAPIVersionAndKind(obj.APIVersion, obj.Kind)
 }
 
 func NewInternalType(kind, apiversion, name string) *InternalType {
@@ -102,9 +103,9 @@ func versionErrIfFalse(b bool) error {
 }
 
 var ValidVersion = registered.GroupOrDie(api.GroupName).GroupVersion.Version
-var InternalGV = unversioned.GroupVersion{Group: "apitest", Version: runtime.APIVersionInternal}
-var UnlikelyGV = unversioned.GroupVersion{Group: "apitest", Version: "unlikelyversion"}
-var ValidVersionGV = unversioned.GroupVersion{Group: "apitest", Version: ValidVersion}
+var InternalGV = schema.GroupVersion{Group: "apitest", Version: runtime.APIVersionInternal}
+var UnlikelyGV = schema.GroupVersion{Group: "apitest", Version: "unlikelyversion"}
+var ValidVersionGV = schema.GroupVersion{Group: "apitest", Version: ValidVersion}
 
 func newExternalScheme() (*runtime.Scheme, meta.RESTMapper, runtime.Codec) {
 	scheme := runtime.NewScheme()
@@ -115,13 +116,13 @@ func newExternalScheme() (*runtime.Scheme, meta.RESTMapper, runtime.Codec) {
 
 	codecs := serializer.NewCodecFactory(scheme)
 	codec := codecs.LegacyCodec(UnlikelyGV)
-	mapper := meta.NewDefaultRESTMapper([]unversioned.GroupVersion{UnlikelyGV, ValidVersionGV}, func(version unversioned.GroupVersion) (*meta.VersionInterfaces, error) {
+	mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{UnlikelyGV, ValidVersionGV}, func(version schema.GroupVersion) (*meta.VersionInterfaces, error) {
 		return &meta.VersionInterfaces{
 			ObjectConvertor:  scheme,
 			MetadataAccessor: meta.NewAccessor(),
 		}, versionErrIfFalse(version == ValidVersionGV || version == UnlikelyGV)
 	})
-	for _, gv := range []unversioned.GroupVersion{UnlikelyGV, ValidVersionGV} {
+	for _, gv := range []schema.GroupVersion{UnlikelyGV, ValidVersionGV} {
 		for kind := range scheme.KnownTypes(gv) {
 			gvk := gv.WithKind(kind)
 
@@ -190,10 +191,10 @@ func (f *FakeFactory) FlagSet() *pflag.FlagSet {
 func (f *FakeFactory) Object() (meta.RESTMapper, runtime.ObjectTyper) {
 	priorityRESTMapper := meta.PriorityRESTMapper{
 		Delegate: f.tf.Mapper,
-		ResourcePriority: []unversioned.GroupVersionResource{
+		ResourcePriority: []schema.GroupVersionResource{
 			{Group: meta.AnyGroup, Version: "v1", Resource: meta.AnyResource},
 		},
-		KindPriority: []unversioned.GroupVersionKind{
+		KindPriority: []schema.GroupVersionKind{
 			{Group: meta.AnyGroup, Version: "v1", Kind: meta.AnyKind},
 		},
 	}
@@ -292,11 +293,15 @@ func (f *FakeFactory) Resumer(info *resource.Info) (bool, error) {
 	return false, nil
 }
 
+func (f *FakeFactory) ResolveImage(name string) (string, error) {
+	return name, nil
+}
+
 func (f *FakeFactory) Validator(validate bool, cacheDir string) (validation.Schema, error) {
 	return f.tf.Validator, f.tf.Err
 }
 
-func (f *FakeFactory) SwaggerSchema(unversioned.GroupVersionKind) (*swagger.ApiDeclaration, error) {
+func (f *FakeFactory) SwaggerSchema(schema.GroupVersionKind) (*swagger.ApiDeclaration, error) {
 	return nil, nil
 }
 
@@ -315,11 +320,11 @@ func (f *FakeFactory) Generators(cmdName string) map[string]kubectl.Generator {
 	return generator
 }
 
-func (f *FakeFactory) CanBeExposed(unversioned.GroupKind) error {
+func (f *FakeFactory) CanBeExposed(schema.GroupKind) error {
 	return nil
 }
 
-func (f *FakeFactory) CanBeAutoscaled(unversioned.GroupKind) error {
+func (f *FakeFactory) CanBeAutoscaled(schema.GroupKind) error {
 	return nil
 }
 
@@ -368,8 +373,8 @@ func (f *FakeFactory) DefaultResourceFilterFunc() kubectl.Filters {
 	return nil
 }
 
-func (f *FakeFactory) SuggestedPodTemplateResources() []unversioned.GroupResource {
-	return []unversioned.GroupResource{}
+func (f *FakeFactory) SuggestedPodTemplateResources() []schema.GroupResource {
+	return []schema.GroupResource{}
 }
 
 type fakeMixedFactory struct {
@@ -384,10 +389,10 @@ func (f *fakeMixedFactory) Object() (meta.RESTMapper, runtime.ObjectTyper) {
 	multiRESTMapper = append(multiRESTMapper, testapi.Default.RESTMapper())
 	priorityRESTMapper := meta.PriorityRESTMapper{
 		Delegate: multiRESTMapper,
-		ResourcePriority: []unversioned.GroupVersionResource{
+		ResourcePriority: []schema.GroupVersionResource{
 			{Group: meta.AnyGroup, Version: "v1", Resource: meta.AnyResource},
 		},
-		KindPriority: []unversioned.GroupVersionKind{
+		KindPriority: []schema.GroupVersionKind{
 			{Group: meta.AnyGroup, Version: "v1", Kind: meta.AnyKind},
 		},
 	}
@@ -548,8 +553,8 @@ func (f *fakeAPIFactory) NewBuilder() *resource.Builder {
 	return resource.NewBuilder(mapper, typer, resource.ClientMapperFunc(f.ClientForMapping), f.Decoder(true))
 }
 
-func (f *fakeAPIFactory) SuggestedPodTemplateResources() []unversioned.GroupResource {
-	return []unversioned.GroupResource{}
+func (f *fakeAPIFactory) SuggestedPodTemplateResources() []schema.GroupResource {
+	return []schema.GroupResource{}
 }
 
 func NewAPIFactory() (cmdutil.Factory, *TestFactory, runtime.Codec, runtime.NegotiatedSerializer) {
@@ -566,13 +571,13 @@ func NewAPIFactory() (cmdutil.Factory, *TestFactory, runtime.Codec, runtime.Nego
 func testDynamicResources() []*discovery.APIGroupResources {
 	return []*discovery.APIGroupResources{
 		{
-			Group: unversioned.APIGroup{
-				Versions: []unversioned.GroupVersionForDiscovery{
+			Group: metav1.APIGroup{
+				Versions: []metav1.GroupVersionForDiscovery{
 					{Version: "v1"},
 				},
-				PreferredVersion: unversioned.GroupVersionForDiscovery{Version: "v1"},
+				PreferredVersion: metav1.GroupVersionForDiscovery{Version: "v1"},
 			},
-			VersionedResources: map[string][]unversioned.APIResource{
+			VersionedResources: map[string][]metav1.APIResource{
 				"v1": {
 					{Name: "pods", Namespaced: true, Kind: "Pod"},
 					{Name: "services", Namespaced: true, Kind: "Service"},

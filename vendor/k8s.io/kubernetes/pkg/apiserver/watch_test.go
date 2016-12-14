@@ -34,7 +34,8 @@ import (
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/rest"
 	apitesting "k8s.io/kubernetes/pkg/api/testing"
-	"k8s.io/kubernetes/pkg/api/unversioned"
+	apiv1 "k8s.io/kubernetes/pkg/api/v1"
+	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	apiservertesting "k8s.io/kubernetes/pkg/apiserver/testing"
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/labels"
@@ -69,9 +70,9 @@ var watchTestTable = []struct {
 	t   watch.EventType
 	obj runtime.Object
 }{
-	{watch.Added, &apiservertesting.Simple{ObjectMeta: api.ObjectMeta{Name: "foo"}}},
-	{watch.Modified, &apiservertesting.Simple{ObjectMeta: api.ObjectMeta{Name: "bar"}}},
-	{watch.Deleted, &apiservertesting.Simple{ObjectMeta: api.ObjectMeta{Name: "bar"}}},
+	{watch.Added, &apiservertesting.Simple{ObjectMeta: apiv1.ObjectMeta{Name: "foo"}}},
+	{watch.Modified, &apiservertesting.Simple{ObjectMeta: apiv1.ObjectMeta{Name: "bar"}}},
+	{watch.Deleted, &apiservertesting.Simple{ObjectMeta: apiv1.ObjectMeta{Name: "bar"}}},
 }
 
 var podWatchTestTable = []struct {
@@ -603,7 +604,7 @@ func TestWatchHTTPTimeout(t *testing.T) {
 	req, _ := http.NewRequest("GET", dest.String(), nil)
 	client := http.Client{}
 	resp, err := client.Do(req)
-	watcher.Add(&apiservertesting.Simple{TypeMeta: unversioned.TypeMeta{APIVersion: newGroupVersion.String()}})
+	watcher.Add(&apiservertesting.Simple{TypeMeta: metav1.TypeMeta{APIVersion: newGroupVersion.String()}})
 
 	// Make sure we can actually watch an endpoint
 	decoder := json.NewDecoder(resp.Body)

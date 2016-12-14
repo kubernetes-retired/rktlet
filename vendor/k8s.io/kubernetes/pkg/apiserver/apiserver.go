@@ -35,15 +35,16 @@ import (
 	apierrors "k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/api/meta"
 	"k8s.io/kubernetes/pkg/api/rest"
-	"k8s.io/kubernetes/pkg/api/unversioned"
+	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/apiserver/metrics"
 	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/runtime/schema"
 	utilerrors "k8s.io/kubernetes/pkg/util/errors"
 	"k8s.io/kubernetes/pkg/util/flushwriter"
 	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
 	"k8s.io/kubernetes/pkg/util/sets"
+	utilversion "k8s.io/kubernetes/pkg/util/version"
 	"k8s.io/kubernetes/pkg/util/wsstream"
-	"k8s.io/kubernetes/pkg/version"
 
 	"github.com/emicklei/go-restful"
 	"github.com/golang/glog"
@@ -54,7 +55,7 @@ func init() {
 }
 
 type APIResourceLister interface {
-	ListAPIResources() []unversioned.APIResource
+	ListAPIResources() []metav1.APIResource
 }
 
 // APIGroupVersion is a helper for exposing rest.Storage objects as http.Handlers via go-restful
@@ -68,13 +69,13 @@ type APIGroupVersion struct {
 	Root string
 
 	// GroupVersion is the external group version
-	GroupVersion unversioned.GroupVersion
+	GroupVersion schema.GroupVersion
 
 	// OptionsExternalVersion controls the Kubernetes APIVersion used for common objects in the apiserver
 	// schema like api.Status, api.DeleteOptions, and api.ListOptions. Other implementors may
 	// define a version "v1beta1" but want to use the Kubernetes "v1" internal objects. If
 	// empty, defaults to GroupVersion.
-	OptionsExternalVersion *unversioned.GroupVersion
+	OptionsExternalVersion *schema.GroupVersion
 
 	Mapper meta.RESTMapper
 
@@ -98,7 +99,7 @@ type APIGroupVersion struct {
 	// accessible from this API group version. The GroupVersionKind is that of the external version of
 	// the subresource. The key of this map should be the path of the subresource. The keys here should
 	// match the keys in the Storage map above for subresources.
-	SubresourceGroupVersionKind map[string]unversioned.GroupVersionKind
+	SubresourceGroupVersionKind map[string]schema.GroupVersionKind
 
 	// ResourceLister is an interface that knows how to list resources
 	// for this API Group.
@@ -117,10 +118,10 @@ const (
 
 // staticLister implements the APIResourceLister interface
 type staticLister struct {
-	list []unversioned.APIResource
+	list []metav1.APIResource
 }
 
-func (s staticLister) ListAPIResources() []unversioned.APIResource {
+func (s staticLister) ListAPIResources() []metav1.APIResource {
 	return s.list
 }
 
@@ -204,11 +205,11 @@ func logStackOnRecover(s runtime.NegotiatedSerializer, panicReason interface{}, 
 	if ct := w.Header().Get("Content-Type"); len(ct) > 0 {
 		headers.Set("Accept", ct)
 	}
-	errorNegotiated(apierrors.NewGenericServerResponse(http.StatusInternalServerError, "", api.Resource(""), "", "", 0, false), s, unversioned.GroupVersion{}, w, &http.Request{Header: headers})
+	errorNegotiated(apierrors.NewGenericServerResponse(http.StatusInternalServerError, "", api.Resource(""), "", "", 0, false), s, schema.GroupVersion{}, w, &http.Request{Header: headers})
 }
 
 // Adds a service to return the supported api versions at the legacy /api.
-func AddApiWebService(s runtime.NegotiatedSerializer, container *restful.Container, apiPrefix string, getAPIVersionsFunc func(req *restful.Request) *unversioned.APIVersions) {
+func AddApiWebService(s runtime.NegotiatedSerializer, container *restful.Container, apiPrefix string, getAPIVersionsFunc func(req *restful.Request) *metav1.APIVersions) {
 	// TODO: InstallREST should register each version automatically
 
 	// Because in release 1.1, /api returns response with empty APIVersion, we
@@ -225,7 +226,7 @@ func AddApiWebService(s runtime.NegotiatedSerializer, container *restful.Contain
 		Operation("getAPIVersions").
 		Produces(mediaTypes...).
 		Consumes(mediaTypes...).
-		Writes(unversioned.APIVersions{}))
+		Writes(metav1.APIVersions{}))
 	container.Add(ws)
 }
 
@@ -276,7 +277,7 @@ func keepUnversioned(group string) bool {
 }
 
 // NewApisWebService returns a webservice serving the available api version under /apis.
-func NewApisWebService(s runtime.NegotiatedSerializer, apiPrefix string, f func(req *restful.Request) []unversioned.APIGroup) *restful.WebService {
+func NewApisWebService(s runtime.NegotiatedSerializer, apiPrefix string, f func(req *restful.Request) []metav1.APIGroup) *restful.WebService {
 	// Because in release 1.1, /apis returns response with empty APIVersion, we
 	// use StripVersionNegotiatedSerializer to keep the response backwards
 	// compatible.
@@ -291,13 +292,13 @@ func NewApisWebService(s runtime.NegotiatedSerializer, apiPrefix string, f func(
 		Operation("getAPIVersions").
 		Produces(mediaTypes...).
 		Consumes(mediaTypes...).
-		Writes(unversioned.APIGroupList{}))
+		Writes(metav1.APIGroupList{}))
 	return ws
 }
 
 // NewGroupWebService returns a webservice serving the supported versions, preferred version, and name
 // of a group. E.g., such a web service will be registered at /apis/extensions.
-func NewGroupWebService(s runtime.NegotiatedSerializer, path string, group unversioned.APIGroup) *restful.WebService {
+func NewGroupWebService(s runtime.NegotiatedSerializer, path string, group metav1.APIGroup) *restful.WebService {
 	ss := s
 	if keepUnversioned(group.Name) {
 		// Because in release 1.1, /apis/extensions returns response with empty
@@ -315,13 +316,13 @@ func NewGroupWebService(s runtime.NegotiatedSerializer, path string, group unver
 		Operation("getAPIGroup").
 		Produces(mediaTypes...).
 		Consumes(mediaTypes...).
-		Writes(unversioned.APIGroup{}))
+		Writes(metav1.APIGroup{}))
 	return ws
 }
 
 // Adds a service to return the supported resources, E.g., a such web service
 // will be registered at /apis/extensions/v1.
-func AddSupportedResourcesWebService(s runtime.NegotiatedSerializer, ws *restful.WebService, groupVersion unversioned.GroupVersion, lister APIResourceLister) {
+func AddSupportedResourcesWebService(s runtime.NegotiatedSerializer, ws *restful.WebService, groupVersion schema.GroupVersion, lister APIResourceLister) {
 	ss := s
 	if keepUnversioned(groupVersion.Group) {
 		// Because in release 1.1, /apis/extensions/v1beta1 returns response
@@ -336,13 +337,13 @@ func AddSupportedResourcesWebService(s runtime.NegotiatedSerializer, ws *restful
 		Operation("getAPIResources").
 		Produces(mediaTypes...).
 		Consumes(mediaTypes...).
-		Writes(unversioned.APIResourceList{}))
+		Writes(metav1.APIResourceList{}))
 }
 
 // APIVersionHandler returns a handler which will list the provided versions as available.
-func APIVersionHandler(s runtime.NegotiatedSerializer, getAPIVersionsFunc func(req *restful.Request) *unversioned.APIVersions) restful.RouteFunction {
+func APIVersionHandler(s runtime.NegotiatedSerializer, getAPIVersionsFunc func(req *restful.Request) *metav1.APIVersions) restful.RouteFunction {
 	return func(req *restful.Request, resp *restful.Response) {
-		writeNegotiated(s, unversioned.GroupVersion{}, resp.ResponseWriter, req.Request, http.StatusOK, getAPIVersionsFunc(req))
+		writeNegotiated(s, schema.GroupVersion{}, resp.ResponseWriter, req.Request, http.StatusOK, getAPIVersionsFunc(req))
 	}
 }
 
@@ -357,11 +358,11 @@ func isOldKubectl(userAgent string) bool {
 	if len(subs) != 2 {
 		return false
 	}
-	kubectlVersion, versionErr := version.Parse(subs[1])
+	kubectlVersion, versionErr := utilversion.ParseSemantic(subs[1])
 	if versionErr != nil {
 		return false
 	}
-	return kubectlVersion.LT(version.MustParse("v1.5.0"))
+	return kubectlVersion.LessThan(utilversion.MustParseSemantic("v1.5.0"))
 }
 
 // TODO: Remove in 1.6. This is for backward compatibility with 1.4 kubectl.
@@ -369,12 +370,12 @@ func isOldKubectl(userAgent string) bool {
 var groupsWithNewVersionsIn1_5 = sets.NewString("apps", "policy")
 
 // TODO: Remove in 1.6.
-func filterAPIGroups(req *restful.Request, groups []unversioned.APIGroup) []unversioned.APIGroup {
+func filterAPIGroups(req *restful.Request, groups []metav1.APIGroup) []metav1.APIGroup {
 	if !isOldKubectl(req.HeaderParameter("User-Agent")) {
 		return groups
 	}
 	// hide API group that has new versions added in 1.5.
-	var ret []unversioned.APIGroup
+	var ret []metav1.APIGroup
 	for _, group := range groups {
 		if groupsWithNewVersionsIn1_5.Has(group.Name) {
 			continue
@@ -385,24 +386,24 @@ func filterAPIGroups(req *restful.Request, groups []unversioned.APIGroup) []unve
 }
 
 // RootAPIHandler returns a handler which will list the provided groups and versions as available.
-func RootAPIHandler(s runtime.NegotiatedSerializer, f func(req *restful.Request) []unversioned.APIGroup) restful.RouteFunction {
+func RootAPIHandler(s runtime.NegotiatedSerializer, f func(req *restful.Request) []metav1.APIGroup) restful.RouteFunction {
 	return func(req *restful.Request, resp *restful.Response) {
-		writeNegotiated(s, unversioned.GroupVersion{}, resp.ResponseWriter, req.Request, http.StatusOK, &unversioned.APIGroupList{Groups: filterAPIGroups(req, f(req))})
+		writeNegotiated(s, schema.GroupVersion{}, resp.ResponseWriter, req.Request, http.StatusOK, &metav1.APIGroupList{Groups: filterAPIGroups(req, f(req))})
 	}
 }
 
 // GroupHandler returns a handler which will return the api.GroupAndVersion of
 // the group.
-func GroupHandler(s runtime.NegotiatedSerializer, group unversioned.APIGroup) restful.RouteFunction {
+func GroupHandler(s runtime.NegotiatedSerializer, group metav1.APIGroup) restful.RouteFunction {
 	return func(req *restful.Request, resp *restful.Response) {
-		writeNegotiated(s, unversioned.GroupVersion{}, resp.ResponseWriter, req.Request, http.StatusOK, &group)
+		writeNegotiated(s, schema.GroupVersion{}, resp.ResponseWriter, req.Request, http.StatusOK, &group)
 	}
 }
 
 // SupportedResourcesHandler returns a handler which will list the provided resources as available.
-func SupportedResourcesHandler(s runtime.NegotiatedSerializer, groupVersion unversioned.GroupVersion, lister APIResourceLister) restful.RouteFunction {
+func SupportedResourcesHandler(s runtime.NegotiatedSerializer, groupVersion schema.GroupVersion, lister APIResourceLister) restful.RouteFunction {
 	return func(req *restful.Request, resp *restful.Response) {
-		writeNegotiated(s, unversioned.GroupVersion{}, resp.ResponseWriter, req.Request, http.StatusOK, &unversioned.APIResourceList{GroupVersion: groupVersion.String(), APIResources: lister.ListAPIResources()})
+		writeNegotiated(s, schema.GroupVersion{}, resp.ResponseWriter, req.Request, http.StatusOK, &metav1.APIResourceList{GroupVersion: groupVersion.String(), APIResources: lister.ListAPIResources()})
 	}
 }
 
@@ -411,7 +412,7 @@ func SupportedResourcesHandler(s runtime.NegotiatedSerializer, groupVersion unve
 // response. The Accept header and current API version will be passed in, and the output will be copied
 // directly to the response body. If content type is returned it is used, otherwise the content type will
 // be "application/octet-stream". All other objects are sent to standard JSON serialization.
-func write(statusCode int, gv unversioned.GroupVersion, s runtime.NegotiatedSerializer, object runtime.Object, w http.ResponseWriter, req *http.Request) {
+func write(statusCode int, gv schema.GroupVersion, s runtime.NegotiatedSerializer, object runtime.Object, w http.ResponseWriter, req *http.Request) {
 	stream, ok := object.(rest.ResourceStreamer)
 	if !ok {
 		writeNegotiated(s, gv, w, req, statusCode, object)
@@ -451,7 +452,7 @@ func write(statusCode int, gv unversioned.GroupVersion, s runtime.NegotiatedSeri
 }
 
 // writeNegotiated renders an object in the content type negotiated by the client
-func writeNegotiated(s runtime.NegotiatedSerializer, gv unversioned.GroupVersion, w http.ResponseWriter, req *http.Request, statusCode int, object runtime.Object) {
+func writeNegotiated(s runtime.NegotiatedSerializer, gv schema.GroupVersion, w http.ResponseWriter, req *http.Request, statusCode int, object runtime.Object) {
 	serializer, err := negotiateOutputSerializer(req, s)
 	if err != nil {
 		status := errToAPIStatus(err)
@@ -469,7 +470,7 @@ func writeNegotiated(s runtime.NegotiatedSerializer, gv unversioned.GroupVersion
 }
 
 // errorNegotiated renders an error to the response. Returns the HTTP status code of the error.
-func errorNegotiated(err error, s runtime.NegotiatedSerializer, gv unversioned.GroupVersion, w http.ResponseWriter, req *http.Request) int {
+func errorNegotiated(err error, s runtime.NegotiatedSerializer, gv schema.GroupVersion, w http.ResponseWriter, req *http.Request) int {
 	status := errToAPIStatus(err)
 	code := int(status.Code)
 	// when writing an error, check to see if the status indicates a retry after period

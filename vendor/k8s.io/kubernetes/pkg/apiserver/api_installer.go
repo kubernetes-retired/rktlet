@@ -31,11 +31,12 @@ import (
 	"k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/api/meta"
 	"k8s.io/kubernetes/pkg/api/rest"
-	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/apis/extensions"
+	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/apiserver/metrics"
 	"k8s.io/kubernetes/pkg/conversion"
 	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/runtime/schema"
 	utilstrings "k8s.io/kubernetes/pkg/util/strings"
 
 	"github.com/emicklei/go-restful"
@@ -61,11 +62,26 @@ type documentable interface {
 	SwaggerDoc() map[string]string
 }
 
+// toDiscoveryKubeVerb maps an action.Verb to the logical kube verb, used for discovery
+var toDiscoveryKubeVerb = map[string]string{
+	"CONNECT":          "", // do not list in discovery.
+	"DELETE":           "delete",
+	"DELETECOLLECTION": "deletecollection",
+	"GET":              "get",
+	"LIST":             "list",
+	"PATCH":            "patch",
+	"POST":             "create",
+	"PROXY":            "proxy",
+	"PUT":              "update",
+	"WATCH":            "watch",
+	"WATCHLIST":        "watch",
+}
+
 // errEmptyName is returned when API requests do not fill the name section of the path.
 var errEmptyName = errors.NewBadRequest("name must be provided")
 
 // Installs handlers for API resources.
-func (a *APIInstaller) Install(ws *restful.WebService) (apiResources []unversioned.APIResource, errors []error) {
+func (a *APIInstaller) Install(ws *restful.WebService) (apiResources []metav1.APIResource, errors []error) {
 	errors = make([]error, 0)
 
 	proxyHandler := (&ProxyHandler{
@@ -115,7 +131,7 @@ func (a *APIInstaller) NewWebService() *restful.WebService {
 // getResourceKind returns the external group version kind registered for the given storage
 // object. If the storage object is a subresource and has an override supplied for it, it returns
 // the group version kind supplied in the override.
-func (a *APIInstaller) getResourceKind(path string, storage rest.Storage) (unversioned.GroupVersionKind, error) {
+func (a *APIInstaller) getResourceKind(path string, storage rest.Storage) (schema.GroupVersionKind, error) {
 	if fqKindToRegister, ok := a.group.SubresourceGroupVersionKind[path]; ok {
 		return fqKindToRegister, nil
 	}
@@ -123,12 +139,12 @@ func (a *APIInstaller) getResourceKind(path string, storage rest.Storage) (unver
 	object := storage.New()
 	fqKinds, _, err := a.group.Typer.ObjectKinds(object)
 	if err != nil {
-		return unversioned.GroupVersionKind{}, err
+		return schema.GroupVersionKind{}, err
 	}
 
 	// a given go type can have multiple potential fully qualified kinds.  Find the one that corresponds with the group
 	// we're trying to register here
-	fqKindToRegister := unversioned.GroupVersionKind{}
+	fqKindToRegister := schema.GroupVersionKind{}
 	for _, fqKind := range fqKinds {
 		if fqKind.Group == a.group.GroupVersion.Group {
 			fqKindToRegister = a.group.GroupVersion.WithKind(fqKind.Kind)
@@ -141,7 +157,7 @@ func (a *APIInstaller) getResourceKind(path string, storage rest.Storage) (unver
 		}
 	}
 	if fqKindToRegister.Empty() {
-		return unversioned.GroupVersionKind{}, fmt.Errorf("unable to locate fully qualified kind for %v: found %v when registering for %v", reflect.TypeOf(object), fqKinds, a.group.GroupVersion)
+		return schema.GroupVersionKind{}, fmt.Errorf("unable to locate fully qualified kind for %v: found %v when registering for %v", reflect.TypeOf(object), fqKinds, a.group.GroupVersion)
 	}
 	return fqKindToRegister, nil
 }
@@ -169,7 +185,7 @@ func (a *APIInstaller) restMapping(resource string) (*meta.RESTMapping, error) {
 	return a.group.Mapper.RESTMapping(fqKindToRegister.GroupKind(), fqKindToRegister.Version)
 }
 
-func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storage, ws *restful.WebService, proxyHandler http.Handler) (*unversioned.APIResource, error) {
+func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storage, ws *restful.WebService, proxyHandler http.Handler) (*metav1.APIResource, error) {
 	admit := a.group.Admit
 	context := a.group.Context
 
@@ -197,7 +213,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 	if err != nil {
 		return nil, err
 	}
-	versionedObject := indirectArbitraryPointer(versionedPtr)
+	defaultVersionedObject := indirectArbitraryPointer(versionedPtr)
 	kind := fqKindToRegister.Kind
 	hasSubresource := len(subresource) > 0
 
@@ -274,7 +290,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 	var (
 		getOptions             runtime.Object
 		versionedGetOptions    runtime.Object
-		getOptionsInternalKind unversioned.GroupVersionKind
+		getOptionsInternalKind schema.GroupVersionKind
 		getSubpath             bool
 	)
 	if isGetterWithOptions {
@@ -303,7 +319,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 	var (
 		connectOptions             runtime.Object
 		versionedConnectOptions    runtime.Object
-		connectOptionsInternalKind unversioned.GroupVersionKind
+		connectOptionsInternalKind schema.GroupVersionKind
 		connectSubpath             bool
 	)
 	if isConnecter {
@@ -349,7 +365,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 		resourceKind = kind
 	}
 
-	var apiResource unversioned.APIResource
+	var apiResource metav1.APIResource
 	// Get the list of actions for the given scope.
 	switch scope.Name() {
 	case meta.RESTScopeNameRoot:
@@ -489,6 +505,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 	allMediaTypes := append(mediaTypes, streamMediaTypes...)
 	ws.Produces(allMediaTypes...)
 
+	kubeVerbs := map[string]struct{}{}
 	reqScope := RequestScope{
 		ContextFunc:    ctxFn,
 		Serializer:     a.group.Serializer,
@@ -503,6 +520,10 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 		Kind:        fqKindToRegister,
 	}
 	for _, action := range actions {
+		versionedObject := storageMeta.ProducesObject(action.Verb)
+		if versionedObject == nil {
+			versionedObject = defaultVersionedObject
+		}
 		reqScope.Namer = action.Namer
 		namespaced := ""
 		if apiResource.Namespaced {
@@ -515,6 +536,14 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 		if action.AllNamespaces {
 			operationSuffix = operationSuffix + "ForAllNamespaces"
 			namespaced = ""
+		}
+
+		if kubeVerb, found := toDiscoveryKubeVerb[action.Verb]; found {
+			if len(kubeVerb) != 0 {
+				kubeVerbs[kubeVerb] = struct{}{}
+			}
+		} else {
+			return nil, fmt.Errorf("unknown action verb for discovery: %s", action.Verb)
 		}
 
 		switch action.Verb {
@@ -610,7 +639,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 				Operation("patch"+namespaced+kind+strings.Title(subresource)+operationSuffix).
 				Produces(append(storageMeta.ProducesMIMETypes(action.Verb), mediaTypes...)...).
 				Returns(http.StatusOK, "OK", versionedObject).
-				Reads(unversioned.Patch{}).
+				Reads(metav1.Patch{}).
 				Writes(versionedObject)
 			addParams(route, action.Params)
 			ws.Route(route)
@@ -751,8 +780,15 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
 		default:
 			return nil, fmt.Errorf("unrecognized action verb: %s", action.Verb)
 		}
-		// Note: update GetAttribs() when adding a custom handler.
+		// Note: update GetAuthorizerAttributes() when adding a custom handler.
 	}
+
+	apiResource.Verbs = make([]string, 0, len(kubeVerbs))
+	for kubeVerb := range kubeVerbs {
+		apiResource.Verbs = append(apiResource.Verbs, kubeVerb)
+	}
+	sort.Strings(apiResource.Verbs)
+
 	return &apiResource, nil
 }
 
@@ -963,8 +999,8 @@ func addObjectParams(ws *restful.WebService, route *restful.RouteBuilder, obj in
 			switch sf.Type.Kind() {
 			case reflect.Interface, reflect.Struct:
 			case reflect.Ptr:
-				// TODO: This is a hack to let unversioned.Time through. This needs to be fixed in a more generic way eventually. bug #36191
-				if (sf.Type.Elem().Kind() == reflect.Interface || sf.Type.Elem().Kind() == reflect.Struct) && strings.TrimPrefix(sf.Type.String(), "*") != "unversioned.Time" {
+				// TODO: This is a hack to let metav1.Time through. This needs to be fixed in a more generic way eventually. bug #36191
+				if (sf.Type.Elem().Kind() == reflect.Interface || sf.Type.Elem().Kind() == reflect.Struct) && strings.TrimPrefix(sf.Type.String(), "*") != "metav1.Time" {
 					continue
 				}
 				fallthrough
@@ -999,7 +1035,7 @@ func typeToJSON(typeName string) string {
 		return "integer"
 	case "float64", "*float64", "float32", "*float32":
 		return "number"
-	case "unversioned.Time", "*unversioned.Time":
+	case "metav1.Time", "*metav1.Time":
 		return "string"
 	case "byte", "*byte":
 		return "string"
@@ -1019,6 +1055,10 @@ type defaultStorageMetadata struct{}
 var _ rest.StorageMetadata = defaultStorageMetadata{}
 
 func (defaultStorageMetadata) ProducesMIMETypes(verb string) []string {
+	return nil
+}
+
+func (defaultStorageMetadata) ProducesObject(verb string) interface{} {
 	return nil
 }
 

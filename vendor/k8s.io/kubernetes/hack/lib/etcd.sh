@@ -32,11 +32,18 @@ kube::etcd::start() {
     exit 1
   fi
 
-  version=$(etcd --version | head -n 1 | cut -d " " -f 3)
+  version=$(etcd --version | tail -n +1 | head -n 1 | cut -d " " -f 3)
   if [[ "${version}" < "${ETCD_VERSION}" ]]; then
-   kube::log::usage "etcd version ${ETCD_VERSION} or greater required."
-   kube::log::info "You can use 'hack/install-etcd.sh' to install a copy in third_party/."
-   exit 1
+   export PATH=$KUBE_ROOT/third_party/etcd:$PATH
+   hash etcd
+   echo $PATH
+   ls $KUBE_ROOT/third_party/etcd
+   version=$(etcd --version | head -n 1 | cut -d " " -f 3)
+   if [[ "${version}" < "${ETCD_VERSION}" ]]; then
+    kube::log::usage "etcd version ${ETCD_VERSION} or greater required."
+    kube::log::info "You can use 'hack/install-etcd.sh' to install a copy in third_party/."
+    exit 1
+   fi
   fi
 
   # Start etcd
@@ -87,6 +94,6 @@ kube::etcd::install() {
       ln -fns "etcd-v${ETCD_VERSION}-linux-amd64" etcd
     fi
     kube::log::info "etcd v${ETCD_VERSION} installed. To use:"
-    kube::log::info "export PATH=\${PATH}:$(pwd)/etcd"
+    kube::log::info "export PATH=$(pwd)/etcd:\${PATH}"
   )
 }
