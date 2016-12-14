@@ -19,18 +19,31 @@ limitations under the License.
 package framework
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	"k8s.io/kubernetes/pkg/kubelet/kuberuntime"
 
 	"github.com/kubernetes-incubator/rktlet/rktlet"
 	"golang.org/x/net/context"
 )
+
+// All test images should be listed here so they can be prepulled
+var (
+	TestImageBusybox = "busybox:1.25.1"
+)
+
+var allTestImages = []string{
+	TestImageBusybox,
+}
 
 func RequireRoot(t *testing.T) {
 	if os.Getuid() != 0 {
@@ -42,6 +55,7 @@ type TestContext struct {
 	*testing.T
 	Rktlet rktlet.ContainerAndImageService
 	TmpDir string
+	LogDir string
 }
 
 func Setup(t *testing.T) *TestContext {
@@ -59,14 +73,32 @@ func Setup(t *testing.T) *TestContext {
 		t.Fatalf("unable to initialize rktlet: %v", err)
 	}
 
+	for _, image := range allTestImages {
+		// TODO, retry this N times
+		image := image
+		_, err := rktRuntime.PullImage(context.TODO(), &runtime.PullImageRequest{
+			Image: &runtime.ImageSpec{
+				Image: &image,
+			},
+		})
+		if err != nil {
+			t.Fatalf("error pulling image %q for test: %v", image, err)
+		}
+	}
+
 	return &TestContext{
 		T:      t,
 		Rktlet: rktRuntime,
 		TmpDir: tmpDir,
+		LogDir: filepath.Join(tmpDir, "cri_logs"),
 	}
 }
 
 func (t *TestContext) Teardown() {
+	if t.Failed() {
+		t.Logf("leaving tempdir for failed test: %v", t.TmpDir)
+		return
+	}
 	allSandboxes, err := t.Rktlet.ListPodSandbox(context.Background(), &runtime.ListPodSandboxRequest{})
 	if err != nil {
 		t.Fatalf("expected to list sandboxes, got back: %v", err)
@@ -83,9 +115,117 @@ func (t *TestContext) Teardown() {
 		}
 	}
 
-	if t.Failed() {
-		t.Logf("leaving tempdir for failed test: %v", t.TmpDir)
-	} else {
-		os.RemoveAll(t.TmpDir)
+	os.RemoveAll(t.TmpDir)
+}
+
+func (t *TestContext) PullImages() {
+}
+
+type Pod struct {
+	Name      string
+	SandboxId string
+	Metadata  *runtime.PodSandboxMetadata
+	LogDir    string
+
+	t *TestContext
+}
+
+// RunPod runs a pod for a test of the given name. The provided 'partialConfig'
+// is optional and essential fields will be set (or overridden)
+func (t *TestContext) RunPod(name string, partialConfig *runtime.PodSandboxConfig) *Pod {
+	attempt := uint32(0)
+
+	uid := fmt.Sprintf("uid_%s_%d", name, rand.Int())
+	podName := fmt.Sprintf("name_%s_%d", name, rand.Int())
+	namespace := fmt.Sprintf("namespace_%s_%d", name, rand.Int())
+	logDir := filepath.Join(t.LogDir, uid)
+	os.MkdirAll(logDir, 0777)
+
+	pod := &Pod{
+		Name: name,
+		Metadata: &runtime.PodSandboxMetadata{
+			Uid:       &uid,
+			Attempt:   &attempt,
+			Name:      &podName,
+			Namespace: &namespace,
+		},
+		LogDir: logDir,
+		t:      t,
 	}
+
+	config := &runtime.PodSandboxConfig{}
+	if partialConfig != nil {
+		config = partialConfig
+	}
+	// Override things that we need to control
+	config.Metadata = pod.Metadata
+	config.LogDirectory = &pod.LogDir
+
+	resp, err := t.Rktlet.RunPodSandbox(context.Background(), &runtime.RunPodSandboxRequest{
+		Config: config,
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error running pod %s: %v", name, err)
+	}
+	sboxId := resp.GetPodSandboxId()
+	if sboxId == "" {
+		t.Fatalf("empty sandbox ID returned for %s", name)
+	}
+	pod.SandboxId = sboxId
+
+	return pod
+}
+
+// RunContainerToExit runs a container and returns its exit code
+func (p *Pod) RunContainerToExit(ctx context.Context, cfg *runtime.ContainerConfig) (string, int32) {
+	resp, err := p.t.Rktlet.CreateContainer(ctx, &runtime.CreateContainerRequest{
+		PodSandboxId: &p.SandboxId,
+		Config:       cfg,
+	})
+	if err != nil {
+		p.t.Fatalf("unable to create container in %v: %v", p.Name, err)
+	}
+	_, err = p.t.Rktlet.StartContainer(ctx, &runtime.StartContainerRequest{
+		ContainerId: resp.ContainerId,
+	})
+	if err != nil {
+		p.t.Fatalf("unable to start container in %v: %v", p.Name, err)
+	}
+
+	// Wait for it to finish running
+	var statusResp *runtime.ContainerStatusResponse
+	for {
+		time.Sleep(1 * time.Second)
+		statusResp, err = p.t.Rktlet.ContainerStatus(ctx, &runtime.ContainerStatusRequest{
+			ContainerId: resp.ContainerId,
+		})
+		if err != nil {
+			p.t.Fatalf("error getting container status in %v: %v", p.Name, err)
+		}
+		if statusResp.GetStatus().GetState() == runtime.ContainerState_CONTAINER_EXITED {
+			break
+		}
+	}
+
+	if statusResp.GetStatus().ExitCode == nil {
+		p.t.Fatalf("expected status to have exit code set after exiting in %v: %+v", p.Name, statusResp.GetStatus())
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = kuberuntime.ReadLogs(logPath(p.t.LogDir, *p.Metadata.Uid, *cfg.Metadata.Name, *cfg.Metadata.Attempt), &api.PodLogOptions{}, &stdout, &stderr)
+	if err != nil {
+		p.t.Errorf("unable to get logs for pod %v", err)
+	}
+
+	// merge stdout/stderr
+	stdout.Write(stderr.Bytes())
+	return stdout.String(), statusResp.GetStatus().GetExitCode()
+}
+
+func logPath(root string, uid string, name string, attempt uint32) string {
+	// https://github.com/kubernetes/kubernetes/blob/b5cf713bc73db6d94f78a2c6cd49ef981c0c80dd/pkg/kubelet/kuberuntime/helpers.go#L209-L222
+	containerLogsPath := fmt.Sprintf("%s_%d.log", name, attempt)
+	podLogsDir := filepath.Join(root, uid)
+	return filepath.Join(podLogsDir, containerLogsPath)
 }

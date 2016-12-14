@@ -5,7 +5,9 @@ import:
   subpackages:
   - pkg/kubelet/api/v1alpha1/runtime
   - pkg/kubelet/container
+  - pkg/kubelet/kuberuntime
   - pkg/api/resource
+  - pkg/api
   - pkg/util/exec
   - pkg/util/flag
   - pkg/util/logs
