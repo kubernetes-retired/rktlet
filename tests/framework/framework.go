@@ -28,7 +28,7 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/kubelet/kuberuntime"
 
@@ -39,10 +39,12 @@ import (
 // All test images should be listed here so they can be prepulled
 var (
 	TestImageBusybox = "busybox:1.25.1"
+	TestImageFedora  = "fedora:25"
 )
 
 var allTestImages = []string{
 	TestImageBusybox,
+	TestImageFedora,
 }
 
 func RequireRoot(t *testing.T) {
@@ -61,13 +63,14 @@ type TestContext struct {
 func Setup(t *testing.T) *TestContext {
 	RequireRoot(t)
 
-	tmpDir, err := ioutil.TempDir("", fmt.Sprintf("rktlet_test_%d", time.Now().Unix()))
+	tmpDir, err := ioutil.TempDir(os.Getenv("TMPDIR"), fmt.Sprintf("rktlet_test_%d", time.Now().Unix()))
 	if err != nil {
 		t.Fatalf("unable to make tmpdir for test: %v", err)
 	}
 
 	rktRuntime, err := rktlet.New(&rktlet.Config{
-		RktDatadir: filepath.Join(tmpDir, "rkt_data"),
+		RktDatadir:          filepath.Join(tmpDir, "rkt_data"),
+		StreamServerAddress: "127.0.0.1:0", // :0 so multiple setup instances don't conflict
 	})
 	if err != nil {
 		t.Fatalf("unable to initialize rktlet: %v", err)
@@ -213,7 +216,7 @@ func (p *Pod) RunContainerToExit(ctx context.Context, cfg *runtime.ContainerConf
 	}
 
 	var stdout, stderr bytes.Buffer
-	err = kuberuntime.ReadLogs(logPath(p.t.LogDir, *p.Metadata.Uid, *cfg.Metadata.Name, *cfg.Metadata.Attempt), &api.PodLogOptions{}, &stdout, &stderr)
+	err = kuberuntime.ReadLogs(logPath(p.t.LogDir, *p.Metadata.Uid, *cfg.Metadata.Name, *cfg.Metadata.Attempt), &v1.PodLogOptions{}, &stdout, &stderr)
 	if err != nil {
 		p.t.Errorf("unable to get logs for pod %v", err)
 	}
