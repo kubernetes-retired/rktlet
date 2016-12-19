@@ -202,7 +202,7 @@ function create-master-auth {
     echo "${MASTER_KEY}" | base64 --decode > "${auth_dir}/server.key"
   fi
   local -r basic_auth_csv="${auth_dir}/basic_auth.csv"
-  if [[ ! -e "${basic_auth_csv}" ]]; then
+  if [[ ! -e "${basic_auth_csv}" && -n "${KUBE_PASSWORD:-}" && -n "${KUBE_USER:-}" ]]; then
     echo "${KUBE_PASSWORD},${KUBE_USER},admin" > "${basic_auth_csv}"
   fi
   local -r known_tokens_csv="${auth_dir}/known_tokens.csv"
@@ -409,9 +409,22 @@ function assemble-docker-flags {
   fi
 
   echo "DOCKER_OPTS=\"${docker_opts} ${EXTRA_DOCKER_OPTS:-}\"" > /etc/default/docker
-  # If using a network plugin, we need to explicitly restart docker daemon, because
-  # kubelet will not do it.
+
   if [[ "${use_net_plugin}" == "true" ]]; then
+    # If using a network plugin, extend the docker configuration to always remove
+    # the network checkpoint to avoid corrupt checkpoints.
+    # (https://github.com/docker/docker/issues/18283).
+    echo "Extend the default docker.service configuration"
+    mkdir -p /etc/systemd/system/docker.service.d
+    cat <<EOF >/etc/systemd/system/docker.service.d/01network.conf
+[Service]
+ExecStartPre=/bin/sh -x -c "rm -rf /var/lib/docker/network"
+EOF
+
+    systemctl daemon-reload
+
+    # If using a network plugin, we need to explicitly restart docker daemon, because
+    # kubelet will not do it.
     echo "Docker command line is updated. Restart docker to pick it up"
     systemctl restart docker
   fi
@@ -429,7 +442,7 @@ function try-load-docker-image {
   local -i attempt_num=1
   until timeout 30 docker load -i "${img}"; do
     if [[ "${attempt_num}" == "${max_attempts}" ]]; then
-      echo "Fail to load docker image file ${img} after ${max_attempts} retries. Exist!!"
+      echo "Fail to load docker image file ${img} after ${max_attempts} retries. Exit!!"
       exit 1
     else
       attempt_num=$((attempt_num+1))
@@ -494,6 +507,7 @@ function start-kubelet {
     if [[ ! -z "${KUBELET_APISERVER:-}" && ! -z "${KUBELET_CERT:-}" && ! -z "${KUBELET_KEY:-}" ]]; then
       flags+=" --api-servers=https://${KUBELET_APISERVER}"
       flags+=" --register-schedulable=false"
+      flags+=" --register-with-taints=node.alpha.kubernetes.io/ismaster=:NoSchedule"
     else
       # Standalone mode (not widely used?)
       flags+=" --pod-cidr=${MASTER_IP_RANGE}"
@@ -744,7 +758,6 @@ function start-kube-apiserver {
   params+=" --address=127.0.0.1"
   params+=" --allow-privileged=true"
   params+=" --authorization-policy-file=/etc/srv/kubernetes/abac-authz-policy.jsonl"
-  params+=" --basic-auth-file=/etc/srv/kubernetes/basic_auth.csv"
   params+=" --cloud-provider=gce"
   params+=" --client-ca-file=/etc/srv/kubernetes/ca.crt"
   params+=" --etcd-servers=http://127.0.0.1:2379"
@@ -753,6 +766,9 @@ function start-kube-apiserver {
   params+=" --tls-cert-file=/etc/srv/kubernetes/server.cert"
   params+=" --tls-private-key-file=/etc/srv/kubernetes/server.key"
   params+=" --token-auth-file=/etc/srv/kubernetes/known_tokens.csv"
+  if [[ -n "${KUBE_PASSWORD:-}" && -n "${KUBE_USER:-}" ]]; then
+    params+=" --basic-auth-file=/etc/srv/kubernetes/basic_auth.csv"
+  fi
   if [[ -n "${STORAGE_BACKEND:-}" ]]; then
     params+=" --storage-backend=${STORAGE_BACKEND}"
   fi
@@ -762,7 +778,7 @@ function start-kube-apiserver {
   if [[ -n "${NUM_NODES:-}" ]]; then
     # If the cluster is large, increase max-requests-inflight limit in apiserver.
     if [[ "${NUM_NODES}" -ge 1000 ]]; then
-      params+=" --max-requests-inflight=1500"
+      params+=" --max-requests-inflight=1500 --max-mutating-requests-inflight=500"
     fi
     # Set amount of memory available for apiserver based on number of nodes.
     # TODO: Once we start setting proper requests and limits for apiserver
@@ -771,6 +787,9 @@ function start-kube-apiserver {
   fi
   if [[ -n "${SERVICE_CLUSTER_IP_RANGE:-}" ]]; then
     params+=" --service-cluster-ip-range=${SERVICE_CLUSTER_IP_RANGE}"
+  fi
+  if [[ -n "${ETCD_QUORUM_READ:-}" ]]; then
+    params+=" --etcd-quorum-read=${ETCD_QUORUM_READ}"
   fi
 
   local admission_controller_config_mount=""
@@ -804,7 +823,7 @@ function start-kube-apiserver {
     params+=" --advertise-address=${vm_external_ip}"
     params+=" --ssh-user=${PROXY_SSH_USER}"
     params+=" --ssh-keyfile=/etc/srv/sshproxy/.sshkeyfile"
-  else [ -n "${MASTER_ADVERTISE_ADDRESS:-}" ]
+  elif [ -n "${MASTER_ADVERTISE_ADDRESS:-}" ]; then
     params="${params} --advertise-address=${MASTER_ADVERTISE_ADDRESS}"
   fi
 
@@ -826,10 +845,14 @@ function start-kube-apiserver {
   fi
   local -r src_dir="${KUBE_HOME}/kube-manifests/kubernetes/gci-trusty"
 
-  if [[ -n "${KUBE_USER:-}" ]]; then
+  if [[ -n "${KUBE_USER:-}" || ! -e /etc/srv/kubernetes/abac-authz-policy.jsonl ]]; then
     local -r abac_policy_json="${src_dir}/abac-authz-policy.jsonl"
     remove-salt-config-comments "${abac_policy_json}"
-    sed -i -e "s/{{kube_user}}/${KUBE_USER}/g" "${abac_policy_json}"
+    if [[ -n "${KUBE_USER:-}" ]]; then
+      sed -i -e "s/{{kube_user}}/${KUBE_USER}/g" "${abac_policy_json}"
+    else
+      sed -i -e "/{{kube_user}}/d" "${abac_policy_json}"
+    fi
     cp "${abac_policy_json}" /etc/srv/kubernetes/
   fi
 
@@ -1041,12 +1064,12 @@ function start-kube-addons {
   fi
   if [[ "${ENABLE_CLUSTER_DNS:-}" == "true" ]]; then
     setup-addon-manifests "addons" "dns"
-    local -r dns_rc_file="${dst_dir}/dns/skydns-rc.yaml"
-    local -r dns_svc_file="${dst_dir}/dns/skydns-svc.yaml"
-    mv "${dst_dir}/dns/skydns-rc.yaml.in" "${dns_rc_file}"
-    mv "${dst_dir}/dns/skydns-svc.yaml.in" "${dns_svc_file}"
+    local -r dns_controller_file="${dst_dir}/dns/kubedns-controller.yaml"
+    local -r dns_svc_file="${dst_dir}/dns/kubedns-svc.yaml"
+    mv "${dst_dir}/dns/kubedns-controller.yaml.in" "${dns_controller_file}"
+    mv "${dst_dir}/dns/kubedns-svc.yaml.in" "${dns_svc_file}"
     # Replace the salt configurations with variable values.
-    sed -i -e "s@{{ *pillar\['dns_domain'\] *}}@${DNS_DOMAIN}@g" "${dns_rc_file}"
+    sed -i -e "s@{{ *pillar\['dns_domain'\] *}}@${DNS_DOMAIN}@g" "${dns_controller_file}"
     sed -i -e "s@{{ *pillar\['dns_server'\] *}}@${DNS_SERVER_IP}@g" "${dns_svc_file}"
 
     if [[ "${ENABLE_DNS_HORIZONTAL_AUTOSCALER:-}" == "true" ]]; then
@@ -1059,12 +1082,12 @@ function start-kube-addons {
         federations_domain_map="${FEDERATION_NAME}=${DNS_ZONE_NAME}"
       fi
       if [[ -n "${federations_domain_map}" ]]; then
-        sed -i -e "s@{{ *pillar\['federations_domain_map'\] *}}@- --federations=${federations_domain_map}@g" "${dns_rc_file}"
+        sed -i -e "s@{{ *pillar\['federations_domain_map'\] *}}@- --federations=${federations_domain_map}@g" "${dns_controller_file}"
       else
-        sed -i -e "/{{ *pillar\['federations_domain_map'\] *}}/d" "${dns_rc_file}"
+        sed -i -e "/{{ *pillar\['federations_domain_map'\] *}}/d" "${dns_controller_file}"
       fi
     else
-      sed -i -e "/{{ *pillar\['federations_domain_map'\] *}}/d" "${dns_rc_file}"
+      sed -i -e "/{{ *pillar\['federations_domain_map'\] *}}/d" "${dns_controller_file}"
     fi
   fi
   if [[ "${ENABLE_CLUSTER_REGISTRY:-}" == "true" ]]; then
@@ -1096,6 +1119,9 @@ function start-kube-addons {
   if [[ "${NETWORK_POLICY_PROVIDER:-}" == "calico" ]]; then
     setup-addon-manifests "addons" "calico-policy-controller"
   fi
+  if [[ "${ENABLE_DEFAULT_STORAGE_CLASS:-}" == "true" ]]; then
+    setup-addon-manifests "addons" "storage-class/gce"
+  fi
 
   # Place addon manager pod manifest.
   cp "${src_dir}/kube-addon-manager.yaml" /etc/kubernetes/manifests
@@ -1106,7 +1132,7 @@ function start-fluentd {
   echo "Start fluentd pod"
   if [[ "${ENABLE_NODE_LOGGING:-}" == "true" ]]; then
     if [[ "${LOGGING_DESTINATION:-}" == "gcp" ]]; then
-      cp "${KUBE_HOME}/kube-manifests/kubernetes/fluentd-gcp-gci.yaml" /etc/kubernetes/manifests/
+      cp "${KUBE_HOME}/kube-manifests/kubernetes/fluentd-gcp.yaml" /etc/kubernetes/manifests/
     elif [[ "${LOGGING_DESTINATION:-}" == "elasticsearch" && "${KUBERNETES_MASTER:-}" != "true" ]]; then
       # Running fluentd-es on the master is pointless, as it can't communicate
       # with elasticsearch from there in the default configuration.

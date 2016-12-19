@@ -589,7 +589,7 @@ start_kube_apiserver() {
   if [ -n "${NUM_NODES:-}" ]; then
     # If the cluster is large, increase max-requests-inflight limit in apiserver.
     if [[ "${NUM_NODES}" -ge 1000 ]]; then
-      params+=" --max-requests-inflight=1500"
+      params+=" --max-requests-inflight=1500 --max-mutating-requests-inflight=500"
     fi
     # Set amount of memory available for apiserver based on number of nodes.
     # TODO: Once we start setting proper requests and limits for apiserver
@@ -598,6 +598,9 @@ start_kube_apiserver() {
   fi
   if [ -n "${SERVICE_CLUSTER_IP_RANGE:-}" ]; then
     params="${params} --service-cluster-ip-range=${SERVICE_CLUSTER_IP_RANGE}"
+  fi
+  if [ -n "${ETCD_QUORUM_READ:-}" ]; then
+    params="${params} --etcd-quorum-read=${ETCD_QUORUM_READ}"
   fi
 
   local admission_controller_config_mount=""
@@ -628,7 +631,7 @@ start_kube_apiserver() {
     params="${params} --advertise-address=${vm_external_ip}"
     params="${params} --ssh-user=${PROXY_SSH_USER}"
     params="${params} --ssh-keyfile=/etc/srv/sshproxy/.sshkeyfile"
-  else [ -n "${MASTER_ADVERTISE_ADDRESS:-}" ]
+  elif [ -n "${MASTER_ADVERTISE_ADDRESS:-}" ]; then
     params="${params} --advertise-address=${MASTER_ADVERTISE_ADDRESS}"
   fi
   readonly kube_apiserver_docker_tag=$(cat /home/kubernetes/kube-docker-files/kube-apiserver.docker_tag)
@@ -888,12 +891,12 @@ start_kube_addons() {
   fi
   if [ "${ENABLE_CLUSTER_DNS:-}" = "true" ]; then
     setup_addon_manifests "addons" "dns"
-    dns_rc_file="${addon_dst_dir}/dns/skydns-rc.yaml"
-    dns_svc_file="${addon_dst_dir}/dns/skydns-svc.yaml"
-    mv "${addon_dst_dir}/dns/skydns-rc.yaml.in" "${dns_rc_file}"
-    mv "${addon_dst_dir}/dns/skydns-svc.yaml.in" "${dns_svc_file}"
+    dns_controller_file="${addon_dst_dir}/dns/kubedns-controller.yaml"
+    dns_svc_file="${addon_dst_dir}/dns/kubedns-svc.yaml"
+    mv "${addon_dst_dir}/dns/kubedns-controller.yaml.in" "${dns_controller_file}"
+    mv "${addon_dst_dir}/dns/kubedns-svc.yaml.in" "${dns_svc_file}"
     # Replace the salt configurations with variable values.
-    sed -i -e "s@{{ *pillar\['dns_domain'\] *}}@${DNS_DOMAIN}@g" "${dns_rc_file}"
+    sed -i -e "s@{{ *pillar\['dns_domain'\] *}}@${DNS_DOMAIN}@g" "${dns_controller_file}"
     sed -i -e "s@{{ *pillar\['dns_server'\] *}}@${DNS_SERVER_IP}@g" "${dns_svc_file}"
 
     if [[ "${ENABLE_DNS_HORIZONTAL_AUTOSCALER:-}" == "true" ]]; then
@@ -906,12 +909,12 @@ start_kube_addons() {
         FEDERATIONS_DOMAIN_MAP="${FEDERATION_NAME}=${DNS_ZONE_NAME}"
       fi
       if [[ -n "${FEDERATIONS_DOMAIN_MAP}" ]]; then
-        sed -i -e "s@{{ *pillar\['federations_domain_map'\] *}}@- --federations=${FEDERATIONS_DOMAIN_MAP}@g" "${dns_rc_file}"
+        sed -i -e "s@{{ *pillar\['federations_domain_map'\] *}}@- --federations=${FEDERATIONS_DOMAIN_MAP}@g" "${dns_controller_file}"
       else
-        sed -i -e "/{{ *pillar\['federations_domain_map'\] *}}/d" "${dns_rc_file}"
+        sed -i -e "/{{ *pillar\['federations_domain_map'\] *}}/d" "${dns_controller_file}"
       fi
     else
-      sed -i -e "/{{ *pillar\['federations_domain_map'\] *}}/d" "${dns_rc_file}"
+      sed -i -e "/{{ *pillar\['federations_domain_map'\] *}}/d" "${dns_controller_file}"
     fi
   fi
   if [ "${ENABLE_CLUSTER_REGISTRY:-}" = "true" ]; then
@@ -936,6 +939,9 @@ start_kube_addons() {
   fi
   if echo "${ADMISSION_CONTROL:-}" | grep -q "LimitRanger"; then
     setup_addon_manifests "admission-controls" "limit-range"
+  fi
+  if [[ "${ENABLE_DEFAULT_STORAGE_CLASS:-}" == "true" ]]; then
+    setup-addon-manifests "addons" "storage-class/gce"
   fi
 
   # Place addon manager pod manifest

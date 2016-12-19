@@ -25,10 +25,10 @@ import (
 	"strings"
 
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/unversioned"
-	unversionedvalidation "k8s.io/kubernetes/pkg/api/unversioned/validation"
 	apivalidation "k8s.io/kubernetes/pkg/api/validation"
 	"k8s.io/kubernetes/pkg/apis/extensions"
+	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
+	unversionedvalidation "k8s.io/kubernetes/pkg/apis/meta/v1/validation"
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/security/apparmor"
 	"k8s.io/kubernetes/pkg/security/podsecuritypolicy/seccomp"
@@ -68,6 +68,9 @@ func ValidateThirdPartyResource(obj *extensions.ThirdPartyResource) field.ErrorL
 	allErrs = append(allErrs, apivalidation.ValidateObjectMeta(&obj.ObjectMeta, false, ValidateThirdPartyResourceName, field.NewPath("metadata"))...)
 
 	versions := sets.String{}
+	if len(obj.Versions) == 0 {
+		allErrs = append(allErrs, field.Required(field.NewPath("versions"), "must specify at least one version"))
+	}
 	for ix := range obj.Versions {
 		version := &obj.Versions[ix]
 		if len(version.Name) == 0 {
@@ -121,7 +124,7 @@ func ValidateDaemonSetSpec(spec *extensions.DaemonSetSpec, fldPath *field.Path) 
 
 	allErrs = append(allErrs, unversionedvalidation.ValidateLabelSelector(spec.Selector, fldPath.Child("selector"))...)
 
-	selector, err := unversioned.LabelSelectorAsSelector(spec.Selector)
+	selector, err := metav1.LabelSelectorAsSelector(spec.Selector)
 	if err == nil && !selector.Matches(labels.Set(spec.Template.Labels)) {
 		allErrs = append(allErrs, field.Invalid(fldPath.Child("template", "metadata", "labels"), spec.Template.Labels, "`selector` does not match template `labels`"))
 	}
@@ -246,7 +249,7 @@ func ValidateDeploymentSpec(spec *extensions.DeploymentSpec, fldPath *field.Path
 		}
 	}
 
-	selector, err := unversioned.LabelSelectorAsSelector(spec.Selector)
+	selector, err := metav1.LabelSelectorAsSelector(spec.Selector)
 	if err != nil {
 		allErrs = append(allErrs, field.Invalid(fldPath.Child("selector"), spec.Selector, "invalid label selector."))
 	} else {
@@ -520,7 +523,7 @@ func ValidateReplicaSetSpec(spec *extensions.ReplicaSetSpec, fldPath *field.Path
 		}
 	}
 
-	selector, err := unversioned.LabelSelectorAsSelector(spec.Selector)
+	selector, err := metav1.LabelSelectorAsSelector(spec.Selector)
 	if err != nil {
 		allErrs = append(allErrs, field.Invalid(fldPath.Child("selector"), spec.Selector, "invalid label selector."))
 	} else {

@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/v1"
+	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/client/restclient"
 	"k8s.io/kubernetes/pkg/client/transport"
 	"k8s.io/kubernetes/pkg/types"
@@ -102,14 +104,14 @@ func (c *KubeletClientConfig) transportConfig() *transport.Config {
 
 // NodeGetter defines an interface for looking up a node by name
 type NodeGetter interface {
-	Get(name string) (*api.Node, error)
+	Get(name string, options metav1.GetOptions) (*v1.Node, error)
 }
 
 // NodeGetterFunc allows implementing NodeGetter with a function
-type NodeGetterFunc func(name string) (*api.Node, error)
+type NodeGetterFunc func(name string, options metav1.GetOptions) (*v1.Node, error)
 
-func (f NodeGetterFunc) Get(name string) (*api.Node, error) {
-	return f(name)
+func (f NodeGetterFunc) Get(name string, options metav1.GetOptions) (*v1.Node, error) {
+	return f(name, options)
 }
 
 // NodeConnectionInfoGetter obtains connection info from the status of a Node API object
@@ -123,7 +125,7 @@ type NodeConnectionInfoGetter struct {
 	// transport is the transport to use to send a request to all kubelets
 	transport http.RoundTripper
 	// preferredAddressTypes specifies the preferred order to use to find a node address
-	preferredAddressTypes []api.NodeAddressType
+	preferredAddressTypes []v1.NodeAddressType
 }
 
 func NewNodeConnectionInfoGetter(nodes NodeGetter, config KubeletClientConfig) (ConnectionInfoGetter, error) {
@@ -137,9 +139,9 @@ func NewNodeConnectionInfoGetter(nodes NodeGetter, config KubeletClientConfig) (
 		return nil, err
 	}
 
-	types := []api.NodeAddressType{}
+	types := []v1.NodeAddressType{}
 	for _, t := range config.PreferredAddressTypes {
-		types = append(types, api.NodeAddressType(t))
+		types = append(types, v1.NodeAddressType(t))
 	}
 
 	return &NodeConnectionInfoGetter{
@@ -153,7 +155,7 @@ func NewNodeConnectionInfoGetter(nodes NodeGetter, config KubeletClientConfig) (
 }
 
 func (k *NodeConnectionInfoGetter) GetConnectionInfo(ctx api.Context, nodeName types.NodeName) (*ConnectionInfo, error) {
-	node, err := k.nodes.Get(string(nodeName))
+	node, err := k.nodes.Get(string(nodeName), metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

@@ -170,7 +170,10 @@ __custom_func() {
 	// TODO: This should be populated using the discovery information from apiserver.
 	valid_resources = `Valid resource types include:
 
+    * all
     * clusters (valid only for federation apiservers)
+    * clusterrolebindings
+    * clusterroles
     * componentstatuses (aka 'cs')
     * configmaps (aka 'cm')
     * daemonsets (aka 'ds')
@@ -192,9 +195,12 @@ __custom_func() {
     * replicasets (aka 'rs')
     * replicationcontrollers (aka 'rc')
     * resourcequotas (aka 'quota')
+    * rolebindings
+    * roles
     * secrets
     * serviceaccounts (aka 'sa')
     * services (aka 'svc')
+    * statefulsets
     * storageclasses
     * thirdpartyresources
     `
@@ -236,7 +242,7 @@ func NewKubectlCommand(f cmdutil.Factory, in io.Reader, out, err io.Writer) *cob
 				NewCmdGet(f, out, err),
 				NewCmdExplain(f, out, err),
 				NewCmdEdit(f, out, err),
-				NewCmdDelete(f, out),
+				NewCmdDelete(f, out, err),
 			},
 		},
 		{
@@ -275,7 +281,7 @@ func NewKubectlCommand(f cmdutil.Factory, in io.Reader, out, err io.Writer) *cob
 		{
 			Message: "Advanced Commands:",
 			Commands: []*cobra.Command{
-				NewCmdApply(f, out),
+				NewCmdApply(f, out, err),
 				NewCmdPatch(f, out),
 				NewCmdReplace(f, out),
 				NewCmdConvert(f, out),

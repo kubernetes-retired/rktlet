@@ -18,11 +18,12 @@ package fake
 
 import (
 	api "k8s.io/kubernetes/pkg/api"
-	unversioned "k8s.io/kubernetes/pkg/api/unversioned"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
 	v1beta1 "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
+	meta_v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
 	labels "k8s.io/kubernetes/pkg/labels"
+	schema "k8s.io/kubernetes/pkg/runtime/schema"
 	watch "k8s.io/kubernetes/pkg/watch"
 )
 
@@ -32,7 +33,7 @@ type FakeReplicaSets struct {
 	ns   string
 }
 
-var replicasetsResource = unversioned.GroupVersionResource{Group: "extensions", Version: "v1beta1", Resource: "replicasets"}
+var replicasetsResource = schema.GroupVersionResource{Group: "extensions", Version: "v1beta1", Resource: "replicasets"}
 
 func (c *FakeReplicaSets) Create(replicaSet *v1beta1.ReplicaSet) (result *v1beta1.ReplicaSet, err error) {
 	obj, err := c.Fake.
@@ -78,7 +79,7 @@ func (c *FakeReplicaSets) DeleteCollection(options *v1.DeleteOptions, listOption
 	return err
 }
 
-func (c *FakeReplicaSets) Get(name string) (result *v1beta1.ReplicaSet, err error) {
+func (c *FakeReplicaSets) Get(name string, options meta_v1.GetOptions) (result *v1beta1.ReplicaSet, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewGetAction(replicasetsResource, c.ns, name), &v1beta1.ReplicaSet{})
 

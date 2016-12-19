@@ -18,10 +18,11 @@ package fake
 
 import (
 	api "k8s.io/kubernetes/pkg/api"
-	unversioned "k8s.io/kubernetes/pkg/api/unversioned"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
+	meta_v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
 	labels "k8s.io/kubernetes/pkg/labels"
+	schema "k8s.io/kubernetes/pkg/runtime/schema"
 	watch "k8s.io/kubernetes/pkg/watch"
 )
 
@@ -31,7 +32,7 @@ type FakePersistentVolumeClaims struct {
 	ns   string
 }
 
-var persistentvolumeclaimsResource = unversioned.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}
+var persistentvolumeclaimsResource = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}
 
 func (c *FakePersistentVolumeClaims) Create(persistentVolumeClaim *v1.PersistentVolumeClaim) (result *v1.PersistentVolumeClaim, err error) {
 	obj, err := c.Fake.
@@ -77,7 +78,7 @@ func (c *FakePersistentVolumeClaims) DeleteCollection(options *v1.DeleteOptions,
 	return err
 }
 
-func (c *FakePersistentVolumeClaims) Get(name string) (result *v1.PersistentVolumeClaim, err error) {
+func (c *FakePersistentVolumeClaims) Get(name string, options meta_v1.GetOptions) (result *v1.PersistentVolumeClaim, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewGetAction(persistentvolumeclaimsResource, c.ns, name), &v1.PersistentVolumeClaim{})
 

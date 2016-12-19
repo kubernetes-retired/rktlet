@@ -31,11 +31,12 @@ import (
 	"k8s.io/kubernetes/pkg/api/meta"
 	"k8s.io/kubernetes/pkg/api/testapi"
 	apitesting "k8s.io/kubernetes/pkg/api/testing"
-	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	"k8s.io/kubernetes/pkg/apis/extensions"
+	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/runtime/schema"
 	uexec "k8s.io/kubernetes/pkg/util/exec"
 	"k8s.io/kubernetes/pkg/util/validation/field"
 )
@@ -250,22 +251,22 @@ func TestCheckInvalidErr(t *testing.T) {
 func TestCheckNoResourceMatchError(t *testing.T) {
 	testCheckError(t, []checkErrTestCase{
 		{
-			&meta.NoResourceMatchError{PartialResource: unversioned.GroupVersionResource{Resource: "foo"}},
+			&meta.NoResourceMatchError{PartialResource: schema.GroupVersionResource{Resource: "foo"}},
 			`the server doesn't have a resource type "foo"`,
 			DefaultErrorExitCode,
 		},
 		{
-			&meta.NoResourceMatchError{PartialResource: unversioned.GroupVersionResource{Version: "theversion", Resource: "foo"}},
+			&meta.NoResourceMatchError{PartialResource: schema.GroupVersionResource{Version: "theversion", Resource: "foo"}},
 			`the server doesn't have a resource type "foo" in version "theversion"`,
 			DefaultErrorExitCode,
 		},
 		{
-			&meta.NoResourceMatchError{PartialResource: unversioned.GroupVersionResource{Group: "thegroup", Version: "theversion", Resource: "foo"}},
+			&meta.NoResourceMatchError{PartialResource: schema.GroupVersionResource{Group: "thegroup", Version: "theversion", Resource: "foo"}},
 			`the server doesn't have a resource type "foo" in group "thegroup" and version "theversion"`,
 			DefaultErrorExitCode,
 		},
 		{
-			&meta.NoResourceMatchError{PartialResource: unversioned.GroupVersionResource{Group: "thegroup", Resource: "foo"}},
+			&meta.NoResourceMatchError{PartialResource: schema.GroupVersionResource{Group: "thegroup", Resource: "foo"}},
 			`the server doesn't have a resource type "foo" in group "thegroup"`,
 			DefaultErrorExitCode,
 		},
@@ -332,7 +333,7 @@ func TestDumpReaderToFile(t *testing.T) {
 func TestMaybeConvert(t *testing.T) {
 	tests := []struct {
 		input    runtime.Object
-		gv       unversioned.GroupVersion
+		gv       schema.GroupVersion
 		expected runtime.Object
 	}{
 		{
@@ -341,9 +342,9 @@ func TestMaybeConvert(t *testing.T) {
 					Name: "foo",
 				},
 			},
-			gv: unversioned.GroupVersion{Group: "", Version: "v1"},
+			gv: schema.GroupVersion{Group: "", Version: "v1"},
 			expected: &v1.Pod{
-				TypeMeta: unversioned.TypeMeta{
+				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1",
 					Kind:       "Pod",
 				},

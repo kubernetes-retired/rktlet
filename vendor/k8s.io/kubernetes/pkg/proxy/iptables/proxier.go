@@ -32,7 +32,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coreos/go-semver/semver"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/api"
@@ -47,6 +46,7 @@ import (
 	"k8s.io/kubernetes/pkg/util/sets"
 	"k8s.io/kubernetes/pkg/util/slice"
 	utilsysctl "k8s.io/kubernetes/pkg/util/sysctl"
+	utilversion "k8s.io/kubernetes/pkg/util/version"
 )
 
 const (
@@ -93,20 +93,19 @@ type KernelCompatTester interface {
 // an error if it fails to get the iptables version without error, in which
 // case it will also return false.
 func CanUseIPTablesProxier(iptver IPTablesVersioner, kcompat KernelCompatTester) (bool, error) {
-	minVersion, err := semver.NewVersion(iptablesMinVersion)
+	minVersion, err := utilversion.ParseGeneric(iptablesMinVersion)
 	if err != nil {
 		return false, err
 	}
-	// returns "X.Y.Z"
 	versionString, err := iptver.GetVersion()
 	if err != nil {
 		return false, err
 	}
-	version, err := semver.NewVersion(versionString)
+	version, err := utilversion.ParseGeneric(versionString)
 	if err != nil {
 		return false, err
 	}
-	if version.LessThan(*minVersion) {
+	if version.LessThan(minVersion) {
 		return false, nil
 	}
 
@@ -138,7 +137,7 @@ type serviceInfo struct {
 	nodePort                 int
 	loadBalancerStatus       api.LoadBalancerStatus
 	sessionAffinityType      api.ServiceAffinity
-	stickyMaxAgeSeconds      int
+	stickyMaxAgeMinutes      int
 	externalIPs              []string
 	loadBalancerSourceRanges []string
 	onlyNodeLocalEndpoints   bool
@@ -155,7 +154,7 @@ type endpointsInfo struct {
 func newServiceInfo(service proxy.ServicePortName) *serviceInfo {
 	return &serviceInfo{
 		sessionAffinityType: api.ServiceAffinityNone, // default
-		stickyMaxAgeSeconds: 180,                     // TODO: paramaterize this in the API.
+		stickyMaxAgeMinutes: 180,                     // TODO: paramaterize this in the API.
 	}
 }
 
@@ -246,7 +245,7 @@ func NewProxier(ipt utiliptables.Interface, sysctl utilsysctl.Interface, exec ut
 	masqueradeMark := fmt.Sprintf("%#08x/%#08x", masqueradeValue, masqueradeValue)
 
 	if nodeIP == nil {
-		glog.Warningf("invalid nodeIP, initialize kube-proxy with 127.0.0.1 as nodeIP")
+		glog.Warningf("invalid nodeIP, initializing kube-proxy with 127.0.0.1 as nodeIP")
 		nodeIP = net.ParseIP("127.0.0.1")
 	}
 
@@ -386,6 +385,9 @@ func (proxier *Proxier) sameConfig(info *serviceInfo, service *api.Service, port
 	}
 	onlyNodeLocalEndpoints := apiservice.NeedsHealthCheck(service) && featuregate.DefaultFeatureGate.ExternalTrafficLocalOnly()
 	if info.onlyNodeLocalEndpoints != onlyNodeLocalEndpoints {
+		return false
+	}
+	if !reflect.DeepEqual(info.loadBalancerSourceRanges, service.Spec.LoadBalancerSourceRanges) {
 		return false
 	}
 	return true
@@ -1105,6 +1107,9 @@ func (proxier *Proxier) syncProxyRules() {
 					glog.Errorf("can't open %s, skipping this nodePort: %v", lp.String(), err)
 					continue
 				}
+				if lp.protocol == "udp" {
+					proxier.clearUdpConntrackForPort(lp.port)
+				}
 				replacementPortsMap[lp] = socket
 			} // We're holding the port, so it's OK to install iptables rules.
 
@@ -1165,7 +1170,7 @@ func (proxier *Proxier) syncProxyRules() {
 					"-A", string(svcChain),
 					"-m", "comment", "--comment", svcName.String(),
 					"-m", "recent", "--name", string(endpointChain),
-					"--rcheck", "--seconds", fmt.Sprintf("%d", svcInfo.stickyMaxAgeSeconds), "--reap",
+					"--rcheck", "--seconds", fmt.Sprintf("%d", svcInfo.stickyMaxAgeMinutes*60), "--reap",
 					"-j", string(endpointChain))
 			}
 		}
@@ -1321,6 +1326,24 @@ func (proxier *Proxier) syncProxyRules() {
 		}
 	}
 	proxier.portsMap = replacementPortsMap
+}
+
+// Clear UDP conntrack for port or all conntrack entries when port equal zero.
+// When a packet arrives, it will not go through NAT table again, because it is not "the first" packet.
+// The solution is clearing the conntrack. Known issus:
+// https://github.com/docker/docker/issues/8795
+// https://github.com/kubernetes/kubernetes/issues/31983
+func (proxier *Proxier) clearUdpConntrackForPort(port int) {
+	var err error = nil
+	glog.V(2).Infof("Deleting conntrack entries for udp connections")
+	if port > 0 {
+		err = proxier.execConntrackTool("-D", "-p", "udp", "--dport", strconv.Itoa(port))
+		if err != nil && !strings.Contains(err.Error(), noConnectionToDelete) {
+			glog.Errorf("conntrack return with error: %v", err)
+		}
+	} else {
+		glog.Errorf("Wrong port number. The port number must be greater than zero")
+	}
 }
 
 // Join all words with spaces, terminate with newline and write to buf.

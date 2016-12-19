@@ -18,11 +18,12 @@ package fake
 
 import (
 	api "k8s.io/kubernetes/pkg/api"
-	unversioned "k8s.io/kubernetes/pkg/api/unversioned"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
+	meta_v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	v1alpha1 "k8s.io/kubernetes/pkg/apis/rbac/v1alpha1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
 	labels "k8s.io/kubernetes/pkg/labels"
+	schema "k8s.io/kubernetes/pkg/runtime/schema"
 	watch "k8s.io/kubernetes/pkg/watch"
 )
 
@@ -32,7 +33,7 @@ type FakeRoleBindings struct {
 	ns   string
 }
 
-var rolebindingsResource = unversioned.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1alpha1", Resource: "rolebindings"}
+var rolebindingsResource = schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1alpha1", Resource: "rolebindings"}
 
 func (c *FakeRoleBindings) Create(roleBinding *v1alpha1.RoleBinding) (result *v1alpha1.RoleBinding, err error) {
 	obj, err := c.Fake.
@@ -68,7 +69,7 @@ func (c *FakeRoleBindings) DeleteCollection(options *v1.DeleteOptions, listOptio
 	return err
 }
 
-func (c *FakeRoleBindings) Get(name string) (result *v1alpha1.RoleBinding, err error) {
+func (c *FakeRoleBindings) Get(name string, options meta_v1.GetOptions) (result *v1alpha1.RoleBinding, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewGetAction(rolebindingsResource, c.ns, name), &v1alpha1.RoleBinding{})
 

@@ -28,12 +28,11 @@ import (
 
 	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
 	kubeadmapiext "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm/v1alpha1"
+	"k8s.io/kubernetes/cmd/kubeadm/app/cmd/flags"
 	kubemaster "k8s.io/kubernetes/cmd/kubeadm/app/master"
 	"k8s.io/kubernetes/cmd/kubeadm/app/preflight"
 	kubeadmutil "k8s.io/kubernetes/cmd/kubeadm/app/util"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/cloudprovider"
-	_ "k8s.io/kubernetes/pkg/cloudprovider/providers"
 	"k8s.io/kubernetes/pkg/runtime"
 	netutil "k8s.io/kubernetes/pkg/util/net"
 )
@@ -52,7 +51,11 @@ const (
 
 var (
 	initDoneMsgf = dedent.Dedent(`
-		Kubernetes master initialised successfully!
+		Your Kubernetes master has initialized successfully!
+
+		You should now deploy a pod network to the cluster.
+		Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+		    http://kubernetes.io/docs/admin/addons/
 
 		You can now join any number of machines by running the following on each node:
 
@@ -103,9 +106,9 @@ func NewCmdInit(out io.Writer) *cobra.Command {
 		&cfg.Networking.DNSDomain, "service-dns-domain", cfg.Networking.DNSDomain,
 		`Use alternative domain for services, e.g. "myorg.internal"`,
 	)
-	cmd.PersistentFlags().StringVar(
-		&cfg.CloudProvider, "cloud-provider", cfg.CloudProvider,
-		`Enable cloud provider features (external load-balancers, storage, etc), e.g. "gce"`,
+	cmd.PersistentFlags().Var(
+		flags.NewCloudProviderFlag(&cfg.CloudProvider), "cloud-provider",
+		`Enable cloud provider features (external load-balancers, storage, etc). Note that you have to configure all kubelets manually`,
 	)
 
 	cmd.PersistentFlags().StringVar(
@@ -163,6 +166,9 @@ type Init struct {
 }
 
 func NewInit(cfgPath string, cfg *kubeadmapi.MasterConfiguration, skipPreFlight bool) (*Init, error) {
+
+	fmt.Println("[kubeadm] WARNING: kubeadm is in alpha, please do not use it for production clusters.")
+
 	if cfgPath != "" {
 		b, err := ioutil.ReadFile(cfgPath)
 		if err != nil {
@@ -175,7 +181,6 @@ func NewInit(cfgPath string, cfg *kubeadmapi.MasterConfiguration, skipPreFlight 
 
 	// Auto-detect the IP
 	if len(cfg.API.AdvertiseAddresses) == 0 {
-		// TODO(phase1+) perhaps we could actually grab eth0 and eth1
 		ip, err := netutil.ChooseHostInterface()
 		if err != nil {
 			return nil, err
@@ -184,23 +189,42 @@ func NewInit(cfgPath string, cfg *kubeadmapi.MasterConfiguration, skipPreFlight 
 	}
 
 	if !skipPreFlight {
-		fmt.Println("Running pre-flight checks")
-		err := preflight.RunInitMasterChecks(cfg)
-		if err != nil {
-			return nil, &preflight.PreFlightError{Msg: err.Error()}
+		fmt.Println("[preflight] Running pre-flight checks")
+
+		// First, check if we're root separately from the other preflight checks and fail fast
+		if err := preflight.RunRootCheckOnly(); err != nil {
+			return nil, err
+		}
+
+		// Then continue with the others...
+		if err := preflight.RunInitMasterChecks(cfg); err != nil {
+			return nil, err
 		}
 	} else {
-		fmt.Println("Skipping pre-flight checks")
+		fmt.Println("[preflight] Skipping pre-flight checks")
 	}
 
-	// TODO(phase1+) create a custom flag
-	if cfg.CloudProvider != "" {
-		if cloudprovider.IsCloudProvider(cfg.CloudProvider) {
-			fmt.Printf("cloud provider %q initialized for the control plane. Remember to set the same cloud provider flag on the kubelet.\n", cfg.CloudProvider)
+	// Try to start the kubelet service in case it's inactive
+	preflight.TryStartKubelet()
+
+	// validate version argument
+	ver, err := kubeadmutil.KubernetesReleaseVersion(cfg.KubernetesVersion)
+	if err != nil {
+		if cfg.KubernetesVersion != kubeadmapiext.DefaultKubernetesVersion {
+			return nil, err
 		} else {
-			return nil, fmt.Errorf("cloud provider %q is not supported, you can use any of %v, or leave it unset.\n", cfg.CloudProvider, cloudprovider.CloudProviders())
+			ver = kubeadmapiext.DefaultKubernetesFallbackVersion
 		}
 	}
+	cfg.KubernetesVersion = ver
+	fmt.Println("[init] Using Kubernetes version:", ver)
+
+	// Warn about the limitations with the current cloudprovider solution.
+	if cfg.CloudProvider != "" {
+		fmt.Println("WARNING: For cloudprovider integrations to work --cloud-provider must be set for all kubelets in the cluster.")
+		fmt.Println("\t(/etc/systemd/system/kubelet.service.d/10-kubeadm.conf should be edited for this purpose)")
+	}
+
 	return &Init{cfg: cfg}, nil
 }
 
@@ -236,7 +260,7 @@ func (i *Init) Run(out io.Writer) error {
 	// write a file that has already been written (the kubelet will be up and
 	// running in that case - they'd need to stop the kubelet, remove the file, and
 	// start it again in that case).
-	// TODO(phase1+) this is no longer the right place to guard agains foo-shooting,
+	// TODO(phase1+) this is no longer the right place to guard against foo-shooting,
 	// we need to decide how to handle existing files (it may be handy to support
 	// importing existing files, may be we could even make our command idempotant,
 	// or at least allow for external PKI and stuff)

@@ -30,16 +30,17 @@ import (
 	apierrors "k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/api/rest"
 	"k8s.io/kubernetes/pkg/api/testapi"
-	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/api/v1"
+	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/runtime/schema"
 	"k8s.io/kubernetes/pkg/types"
 	"k8s.io/kubernetes/pkg/util/diff"
 	"k8s.io/kubernetes/pkg/util/strategicpatch"
 )
 
 type testPatchType struct {
-	unversioned.TypeMeta `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
 
 	TestPatchSubType `json:",inline"`
 }
@@ -50,7 +51,7 @@ type TestPatchSubType struct {
 	StringField string `json:"theField"`
 }
 
-func (obj *testPatchType) GetObjectKind() unversioned.ObjectKind { return &obj.TypeMeta }
+func (obj *testPatchType) GetObjectKind() schema.ObjectKind { return &obj.TypeMeta }
 
 func TestPatchAnonymousField(t *testing.T) {
 	originalJS := `{"kind":"testPatchType","theField":"my-value"}`
@@ -101,7 +102,7 @@ func (p *testPatcher) Update(ctx api.Context, name string, objInfo rest.UpdatedO
 	return inPod, false, nil
 }
 
-func (p *testPatcher) Get(ctx api.Context, name string) (runtime.Object, error) {
+func (p *testPatcher) Get(ctx api.Context, name string, options *metav1.GetOptions) (runtime.Object, error) {
 	p.t.Fatal("Unexpected call to testPatcher.Get")
 	return nil, errors.New("Unexpected call to testPatcher.Get")
 }
@@ -186,7 +187,7 @@ func (tc *patchTestCase) Run(t *testing.T) {
 
 	namer := &testNamer{namespace, name}
 	copier := runtime.ObjectCopier(api.Scheme)
-	resource := unversioned.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
+	resource := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
 	versionedObj := &v1.Pod{}
 
 	for _, patchType := range []api.PatchType{api.JSONPatchType, api.MergePatchType, api.StrategicMergePatchType} {
@@ -213,7 +214,7 @@ func (tc *patchTestCase) Run(t *testing.T) {
 			continue
 
 		case api.StrategicMergePatchType:
-			patch, err = strategicpatch.CreateStrategicMergePatch(originalObjJS, changedJS, versionedObj, strategicpatch.SMPatchVersionLatest)
+			patch, err = strategicpatch.CreateStrategicMergePatch(originalObjJS, changedJS, versionedObj)
 			if err != nil {
 				t.Errorf("%s: unexpected error: %v", tc.name, err)
 				return

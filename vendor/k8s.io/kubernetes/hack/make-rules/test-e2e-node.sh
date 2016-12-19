@@ -18,7 +18,7 @@ KUBE_ROOT=$(dirname "${BASH_SOURCE}")/../..
 source "${KUBE_ROOT}/hack/lib/init.sh"
 
 focus=${FOCUS:-""}
-skip=${SKIP:-""}
+skip=${SKIP-"\[Flaky\]|\[Slow\]|\[Serial\]"}
 # The number of tests that can run in parallel depends on what tests
 # are running and on the size of the node. Too many, and tests will
 # fail due to resource contention. 8 is a reasonable default for a
@@ -38,11 +38,11 @@ if [[ $parallelism > 1 ]]; then
 fi
 
 if [[ $focus != "" ]]; then
-  ginkgoflags="$ginkgoflags -focus='$focus' "
+  ginkgoflags="$ginkgoflags -focus=\"$focus\" "
 fi
 
 if [[ $skip != "" ]]; then
-  ginkgoflags="$ginkgoflags -skip='$skip' "
+  ginkgoflags="$ginkgoflags -skip=\"$skip\" "
 fi
 
 if [[ $run_until_failure != "" ]]; then
@@ -128,7 +128,7 @@ if [ $remote = true ] ; then
     --zone="$zone" --project="$project" --gubernator="$gubernator" \
     --hosts="$hosts" --images="$images" --cleanup="$cleanup" \
     --results-dir="$artifacts" --ginkgo-flags="$ginkgoflags" \
-    --image-project="$image_project" --instance-name-prefix="$instance_prefix" --setup-node="true" \
+    --image-project="$image_project" --instance-name-prefix="$instance_prefix" \
     --delete-instances="$delete_instances" --test_args="$test_args" --instance-metadata="$metadata" \
     2>&1 | tee -i "${artifacts}/build-log.txt"
   exit $?
@@ -140,10 +140,9 @@ else
     sudo -v || exit 1
   fi
 
-  # If the flag --disable-kubenet is not set, set true by default.
-  if ! [[ $test_args =~ "--disable-kubenet" ]]; then
-    test_args="$test_args --disable-kubenet=true"
-  fi
+  # Do not use any network plugin by default. User could override the flags with
+  # test_args.
+  test_args='--kubelet-flags="--network-plugin= --network-plugin-dir=" '$test_args
 
   # Test using the host the script was run on
   # Provided for backwards compatibility

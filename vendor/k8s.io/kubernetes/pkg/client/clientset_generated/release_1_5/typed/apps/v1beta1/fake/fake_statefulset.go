@@ -18,11 +18,12 @@ package fake
 
 import (
 	api "k8s.io/kubernetes/pkg/api"
-	unversioned "k8s.io/kubernetes/pkg/api/unversioned"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
 	v1beta1 "k8s.io/kubernetes/pkg/apis/apps/v1beta1"
+	meta_v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
 	labels "k8s.io/kubernetes/pkg/labels"
+	schema "k8s.io/kubernetes/pkg/runtime/schema"
 	watch "k8s.io/kubernetes/pkg/watch"
 )
 
@@ -32,7 +33,7 @@ type FakeStatefulSets struct {
 	ns   string
 }
 
-var statefulsetsResource = unversioned.GroupVersionResource{Group: "apps", Version: "v1beta1", Resource: "statefulsets"}
+var statefulsetsResource = schema.GroupVersionResource{Group: "apps", Version: "v1beta1", Resource: "statefulsets"}
 
 func (c *FakeStatefulSets) Create(statefulSet *v1beta1.StatefulSet) (result *v1beta1.StatefulSet, err error) {
 	obj, err := c.Fake.
@@ -78,7 +79,7 @@ func (c *FakeStatefulSets) DeleteCollection(options *v1.DeleteOptions, listOptio
 	return err
 }
 
-func (c *FakeStatefulSets) Get(name string) (result *v1beta1.StatefulSet, err error) {
+func (c *FakeStatefulSets) Get(name string, options meta_v1.GetOptions) (result *v1beta1.StatefulSet, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewGetAction(statefulsetsResource, c.ns, name), &v1beta1.StatefulSet{})
 

@@ -37,9 +37,7 @@ import (
 )
 
 func (r *RktRuntime) Attach(ctx context.Context, req *runtimeapi.AttachRequest) (*runtimeapi.AttachResponse, error) {
-	// TODO, the second parameter here needs to be retrieved from the
-	// `ContainerConfig` associated with the req.ContainerID
-	return r.streamServer.GetAttach(req, true)
+	return r.streamServer.GetAttach(req)
 }
 
 func (r *RktRuntime) Exec(ctx context.Context, req *runtimeapi.ExecRequest) (*runtimeapi.ExecResponse, error) {
@@ -91,7 +89,7 @@ func NewExecShim(cli cli.CLI) *execShim {
 	return &execShim{cli: cli}
 }
 
-func (es *execShim) Attach(containerID string, in io.Reader, out, err io.WriteCloser, resize <-chan term.Size) error {
+func (es *execShim) Attach(containerID string, in io.Reader, out, err io.WriteCloser, tty bool, resize <-chan term.Size) error {
 	return errors.New("TODO")
 }
 

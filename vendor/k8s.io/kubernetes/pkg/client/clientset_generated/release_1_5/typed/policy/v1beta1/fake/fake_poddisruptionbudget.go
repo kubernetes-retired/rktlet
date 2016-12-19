@@ -18,11 +18,12 @@ package fake
 
 import (
 	api "k8s.io/kubernetes/pkg/api"
-	unversioned "k8s.io/kubernetes/pkg/api/unversioned"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
+	meta_v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	v1beta1 "k8s.io/kubernetes/pkg/apis/policy/v1beta1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
 	labels "k8s.io/kubernetes/pkg/labels"
+	schema "k8s.io/kubernetes/pkg/runtime/schema"
 	watch "k8s.io/kubernetes/pkg/watch"
 )
 
@@ -32,7 +33,7 @@ type FakePodDisruptionBudgets struct {
 	ns   string
 }
 
-var poddisruptionbudgetsResource = unversioned.GroupVersionResource{Group: "policy", Version: "v1beta1", Resource: "poddisruptionbudgets"}
+var poddisruptionbudgetsResource = schema.GroupVersionResource{Group: "policy", Version: "v1beta1", Resource: "poddisruptionbudgets"}
 
 func (c *FakePodDisruptionBudgets) Create(podDisruptionBudget *v1beta1.PodDisruptionBudget) (result *v1beta1.PodDisruptionBudget, err error) {
 	obj, err := c.Fake.
@@ -78,7 +79,7 @@ func (c *FakePodDisruptionBudgets) DeleteCollection(options *v1.DeleteOptions, l
 	return err
 }
 
-func (c *FakePodDisruptionBudgets) Get(name string) (result *v1beta1.PodDisruptionBudget, err error) {
+func (c *FakePodDisruptionBudgets) Get(name string, options meta_v1.GetOptions) (result *v1beta1.PodDisruptionBudget, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewGetAction(poddisruptionbudgetsResource, c.ns, name), &v1beta1.PodDisruptionBudget{})
 

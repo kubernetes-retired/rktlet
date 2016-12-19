@@ -196,7 +196,6 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 
 	// Add Linux options. (resources, caps, uid, gid).
 	if linux := config.GetLinux(); linux != nil {
-
 		// Add resources.
 		if resources := linux.Resources; resources != nil {
 			// TODO(yifan): Only implemented cpu quota/period with --cpu now,
@@ -228,7 +227,10 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 		var err error
 		if secContext := linux.GetSecurityContext(); secContext != nil {
 			if secContext.GetPrivileged() {
+				cmd = append(cmd, "--seccomp=mode=retain,@appc.io/all")
 				caplist = getAllCapabilites()
+				// TODO: device cgroup should be made permissive
+				// TODO: host's /dev's devices should all be visible in the container
 			} else {
 				if capabilities := secContext.GetCapabilities(); capabilities != nil {
 					caplist, err = tweakCapabilities(defaultCapabilities, capabilities.AddCapabilities, capabilities.DropCapabilities)
@@ -276,7 +278,6 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 		cmd = append(cmd, "--working-dir="+workingDir)
 	}
 	// TODO(yifan): logpath
-	// TODO(yifan): privileged
 
 	for _, mnt := range config.GetMounts() {
 		if mnt == nil {
@@ -323,6 +324,14 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 		for _, opt := range config.Options {
 			cmd = append(cmd, "--dns-opt="+opt)
 		}
+	}
+
+	if req.GetConfig().GetLinux().GetSecurityContext().GetPrivileged() {
+		// TODO: this setting is inherited by all applications even though only
+		// a subset of them may request to be privileged, however there is no way
+		// to modify this on a per-app basis currently, so this is the best we can
+		// do.
+		cmd = append(cmd, "--insecure-options=paths")
 	}
 
 	// Add port mappings only if it's not hostnetwork.
