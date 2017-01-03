@@ -30,7 +30,7 @@ import (
 	extensions "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/client/cache"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/runtime"
@@ -360,6 +360,26 @@ const (
 	// is successfully deleted.
 	SuccessfulDeletePodReason = "SuccessfulDelete"
 )
+
+// RSControlInterface is an interface that knows how to add or delete
+// ReplicaSets, as well as increment or decrement them. It is used
+// by the deployment controller to ease testing of actions that it takes.
+type RSControlInterface interface {
+	PatchReplicaSet(namespace, name string, data []byte) error
+}
+
+// RealRSControl is the default implementation of RSControllerInterface.
+type RealRSControl struct {
+	KubeClient clientset.Interface
+	Recorder   record.EventRecorder
+}
+
+var _ RSControlInterface = &RealRSControl{}
+
+func (r RealRSControl) PatchReplicaSet(namespace, name string, data []byte) error {
+	_, err := r.KubeClient.Extensions().ReplicaSets(namespace).Patch(name, api.StrategicMergePatchType, data)
+	return err
+}
 
 // PodControlInterface is an interface that knows how to add or delete pods
 // created as an interface to allow testing.

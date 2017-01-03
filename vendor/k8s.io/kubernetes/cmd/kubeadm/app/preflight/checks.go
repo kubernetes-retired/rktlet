@@ -18,7 +18,7 @@ package preflight
 
 import (
 	"bufio"
-	"errors"
+	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -182,7 +182,7 @@ func (fac FileAvailableCheck) Check() (warnings, errors []error) {
 	return nil, errors
 }
 
-// InPathChecks checks if the given executable is present in the path.
+// InPathCheck checks if the given executable is present in the path.
 type InPathCheck struct {
 	executable string
 	mandatory  bool
@@ -280,14 +280,13 @@ func RunInitMasterChecks(cfg *kubeadmapi.MasterConfiguration) error {
 		HostnameCheck{},
 		ServiceCheck{Service: "kubelet", CheckIfActive: false},
 		ServiceCheck{Service: "docker", CheckIfActive: true},
-		FirewalldCheck{ports: []int{int(cfg.API.BindPort), int(cfg.Discovery.BindPort), 10250}},
-		PortOpenCheck{port: int(cfg.API.BindPort)},
+		FirewalldCheck{ports: []int{int(cfg.API.Port), 10250}},
+		PortOpenCheck{port: int(cfg.API.Port)},
 		PortOpenCheck{port: 8080},
-		PortOpenCheck{port: int(cfg.Discovery.BindPort)},
 		PortOpenCheck{port: 10250},
 		PortOpenCheck{port: 10251},
 		PortOpenCheck{port: 10252},
-		HTTPProxyCheck{Proto: "https", Host: cfg.API.AdvertiseAddresses[0], Port: int(cfg.API.BindPort)},
+		HTTPProxyCheck{Proto: "https", Host: cfg.API.AdvertiseAddresses[0], Port: int(cfg.API.Port)},
 		DirAvailableCheck{Path: path.Join(kubeadmapi.GlobalEnvParams.KubernetesDir, "manifests")},
 		DirAvailableCheck{Path: kubeadmapi.GlobalEnvParams.HostPKIPath},
 		DirAvailableCheck{Path: "/var/lib/kubelet"},
@@ -323,8 +322,6 @@ func RunJoinNodeChecks(cfg *kubeadmapi.NodeConfiguration) error {
 		ServiceCheck{Service: "kubelet", CheckIfActive: false},
 		ServiceCheck{Service: "docker", CheckIfActive: true},
 		PortOpenCheck{port: 10250},
-		HTTPProxyCheck{Proto: "https", Host: cfg.MasterAddresses[0], Port: int(cfg.APIPort)},
-		HTTPProxyCheck{Proto: "http", Host: cfg.MasterAddresses[0], Port: int(cfg.DiscoveryPort)},
 		DirAvailableCheck{Path: path.Join(kubeadmapi.GlobalEnvParams.KubernetesDir, "manifests")},
 		DirAvailableCheck{Path: "/var/lib/kubelet"},
 		FileAvailableCheck{Path: path.Join(kubeadmapi.GlobalEnvParams.KubernetesDir, "kubelet.conf")},
@@ -359,16 +356,14 @@ func RunChecks(checks []PreFlightCheck, ww io.Writer) error {
 		for _, w := range warnings {
 			io.WriteString(ww, fmt.Sprintf("[preflight] WARNING: %s\n", w))
 		}
-		for _, e := range errs {
-			found = append(found, e)
-		}
+		found = append(found, errs...)
 	}
 	if len(found) > 0 {
-		errs := ""
+		var errs bytes.Buffer
 		for _, i := range found {
-			errs += "\t" + i.Error() + "\n"
+			errs.WriteString("\t" + i.Error() + "\n")
 		}
-		return &PreFlightError{Msg: errors.New(errs).Error()}
+		return &PreFlightError{Msg: errs.String()}
 	}
 	return nil
 }

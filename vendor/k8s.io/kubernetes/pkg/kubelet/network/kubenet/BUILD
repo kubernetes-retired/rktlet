@@ -10,7 +10,10 @@ load(
 
 go_library(
     name = "go_default_library",
-    srcs = ["kubenet_linux.go"],
+    srcs = [
+        "kubenet.go",
+        "kubenet_linux.go",
+    ],
     tags = ["automanaged"],
     deps = [
         "//pkg/api/v1:go_default_library",
@@ -31,14 +34,13 @@ go_library(
         "//vendor:github.com/containernetworking/cni/pkg/types",
         "//vendor:github.com/golang/glog",
         "//vendor:github.com/vishvananda/netlink",
-        "//vendor:github.com/vishvananda/netlink/nl",
     ],
 )
 
 go_test(
     name = "go_default_test",
     srcs = ["kubenet_linux_test.go"],
-    library = "go_default_library",
+    library = ":go_default_library",
     tags = ["automanaged"],
     deps = [
         "//pkg/apis/componentconfig:go_default_library",

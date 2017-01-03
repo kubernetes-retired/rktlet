@@ -37,6 +37,8 @@ go_library(
         "//pkg/util/sets:go_default_library",
         "//pkg/util/yaml:go_default_library",
         "//pkg/watch:go_default_library",
+        "//vendor:golang.org/x/text/encoding/unicode",
+        "//vendor:golang.org/x/text/transform",
     ],
 )
 
@@ -51,10 +53,9 @@ go_test(
         "//examples:config",
         "//test/fixtures",
     ],
-    library = "go_default_library",
+    library = ":go_default_library",
     tags = [
         "automanaged",
-        "skip",
     ],
     deps = [
         "//pkg/api:go_default_library",

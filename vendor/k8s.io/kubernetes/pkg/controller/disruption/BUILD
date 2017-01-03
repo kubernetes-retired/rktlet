@@ -19,9 +19,9 @@ go_library(
         "//pkg/apis/meta/v1:go_default_library",
         "//pkg/apis/policy/v1beta1:go_default_library",
         "//pkg/client/cache:go_default_library",
-        "//pkg/client/clientset_generated/release_1_5:go_default_library",
-        "//pkg/client/clientset_generated/release_1_5/typed/core/v1:go_default_library",
-        "//pkg/client/clientset_generated/release_1_5/typed/policy/v1beta1:go_default_library",
+        "//pkg/client/clientset_generated/clientset:go_default_library",
+        "//pkg/client/clientset_generated/clientset/typed/core/v1:go_default_library",
+        "//pkg/client/clientset_generated/clientset/typed/policy/v1beta1:go_default_library",
         "//pkg/client/record:go_default_library",
         "//pkg/controller:go_default_library",
         "//pkg/runtime:go_default_library",
@@ -38,7 +38,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = ["disruption_test.go"],
-    library = "go_default_library",
+    library = ":go_default_library",
     tags = ["automanaged"],
     deps = [
         "//pkg/api:go_default_library",

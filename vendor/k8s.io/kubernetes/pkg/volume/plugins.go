@@ -24,7 +24,7 @@ import (
 
 	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/api/v1"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/pkg/types"
 	utilerrors "k8s.io/kubernetes/pkg/util/errors"
@@ -562,4 +562,16 @@ func NewPersistentVolumeRecyclerPodTemplate() *v1.Pod {
 		},
 	}
 	return pod
+}
+
+// Check validity of recycle pod template
+// List of checks:
+// - at least one volume is defined in the recycle pod template
+// If successful, returns nil
+// if unsuccessful, returns an error.
+func ValidateRecyclerPodTemplate(pod *v1.Pod) error {
+	if len(pod.Spec.Volumes) < 1 {
+		return fmt.Errorf("does not contain any volume(s)")
+	}
+	return nil
 }

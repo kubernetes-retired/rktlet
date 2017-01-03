@@ -17,82 +17,15 @@ limitations under the License.
 package options
 
 import (
-	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
 
-	authorizationclient "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5/typed/authorization/v1beta1"
+	authorizationclient "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/authorization/v1beta1"
+	"k8s.io/kubernetes/pkg/client/restclient"
 	"k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
-	"k8s.io/kubernetes/pkg/controller/informers"
 	"k8s.io/kubernetes/pkg/genericapiserver/authorizer"
 )
-
-var AuthorizationModeChoices = []string{authorizer.ModeAlwaysAllow, authorizer.ModeAlwaysDeny, authorizer.ModeABAC, authorizer.ModeWebhook, authorizer.ModeRBAC}
-
-type BuiltInAuthorizationOptions struct {
-	Mode                        string
-	PolicyFile                  string
-	WebhookConfigFile           string
-	WebhookCacheAuthorizedTTL   time.Duration
-	WebhookCacheUnauthorizedTTL time.Duration
-}
-
-func NewBuiltInAuthorizationOptions() *BuiltInAuthorizationOptions {
-	return &BuiltInAuthorizationOptions{
-		Mode: authorizer.ModeAlwaysAllow,
-		WebhookCacheAuthorizedTTL:   5 * time.Minute,
-		WebhookCacheUnauthorizedTTL: 30 * time.Second,
-	}
-}
-
-func (s *BuiltInAuthorizationOptions) Validate() []error {
-	allErrors := []error{}
-	return allErrors
-}
-
-func (s *BuiltInAuthorizationOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&s.Mode, "authorization-mode", s.Mode, ""+
-		"Ordered list of plug-ins to do authorization on secure port. Comma-delimited list of: "+
-		strings.Join(AuthorizationModeChoices, ",")+".")
-
-	fs.StringVar(&s.PolicyFile, "authorization-policy-file", s.PolicyFile, ""+
-		"File with authorization policy in csv format, used with --authorization-mode=ABAC, on the secure port.")
-
-	fs.StringVar(&s.WebhookConfigFile, "authorization-webhook-config-file", s.WebhookConfigFile, ""+
-		"File with webhook configuration in kubeconfig format, used with --authorization-mode=Webhook. "+
-		"The API server will query the remote service to determine access on the API server's secure port.")
-
-	fs.DurationVar(&s.WebhookCacheAuthorizedTTL, "authorization-webhook-cache-authorized-ttl",
-		s.WebhookCacheAuthorizedTTL,
-		"The duration to cache 'authorized' responses from the webhook authorizer. Default is 5m.")
-
-	fs.DurationVar(&s.WebhookCacheUnauthorizedTTL,
-		"authorization-webhook-cache-unauthorized-ttl", s.WebhookCacheUnauthorizedTTL,
-		"The duration to cache 'unauthorized' responses from the webhook authorizer. Default is 30s.")
-
-	fs.String("authorization-rbac-super-user", "", ""+
-		"If specified, a username which avoids RBAC authorization checks and role binding "+
-		"privilege escalation checks, to be used with --authorization-mode=RBAC.")
-	fs.MarkDeprecated("authorization-rbac-super-user", "Removed during alpha to beta.  The 'system:masters' group has privileged access.")
-
-}
-
-func (s *BuiltInAuthorizationOptions) ToAuthorizationConfig(informerFactory informers.SharedInformerFactory) authorizer.AuthorizationConfig {
-	modes := []string{}
-	if len(s.Mode) > 0 {
-		modes = strings.Split(s.Mode, ",")
-	}
-
-	return authorizer.AuthorizationConfig{
-		AuthorizationModes:          modes,
-		PolicyFile:                  s.PolicyFile,
-		WebhookConfigFile:           s.WebhookConfigFile,
-		WebhookCacheAuthorizedTTL:   s.WebhookCacheAuthorizedTTL,
-		WebhookCacheUnauthorizedTTL: s.WebhookCacheUnauthorizedTTL,
-		InformerFactory:             informerFactory,
-	}
-}
 
 // DelegatingAuthorizationOptions provides an easy way for composing API servers to delegate their authorization to
 // the root kube API server
@@ -151,17 +84,23 @@ func (s *DelegatingAuthorizationOptions) ToAuthorizationConfig() (authorizer.Del
 }
 
 func (s *DelegatingAuthorizationOptions) newSubjectAccessReview() (authorizationclient.SubjectAccessReviewInterface, error) {
-	if len(s.RemoteKubeConfigFile) == 0 {
-		return nil, nil
+	var clientConfig *restclient.Config
+	var err error
+	if len(s.RemoteKubeConfigFile) > 0 {
+		loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: s.RemoteKubeConfigFile}
+		loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
+
+		clientConfig, err = loader.ClientConfig()
+
+	} else {
+		// without the remote kubeconfig file, try to use the in-cluster config.  Most addon API servers will
+		// use this path
+		clientConfig, err = restclient.InClusterConfig()
 	}
-
-	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: s.RemoteKubeConfigFile}
-	loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
-
-	clientConfig, err := loader.ClientConfig()
 	if err != nil {
 		return nil, err
 	}
+
 	// set high qps/burst limits since this will effectively limit API server responsiveness
 	clientConfig.QPS = 200
 	clientConfig.Burst = 400

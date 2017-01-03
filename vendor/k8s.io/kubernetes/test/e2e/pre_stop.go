@@ -23,7 +23,10 @@ import (
 
 	"k8s.io/kubernetes/pkg/api/v1"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
+	rbacv1alpha1 "k8s.io/kubernetes/pkg/apis/rbac/v1alpha1"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	"k8s.io/kubernetes/pkg/runtime/schema"
+	"k8s.io/kubernetes/pkg/serviceaccount"
 	"k8s.io/kubernetes/pkg/util/wait"
 	"k8s.io/kubernetes/test/e2e/framework"
 
@@ -162,6 +165,18 @@ func testPreStop(c clientset.Interface, ns string) {
 
 var _ = framework.KubeDescribe("PreStop", func() {
 	f := framework.NewDefaultFramework("prestop")
+
+	BeforeEach(func() {
+		// this test wants extra permissions.  Since the namespace names are unique, we can leave this
+		// lying around so we don't have to race any caches
+		framework.BindClusterRole(f.ClientSet.Rbac(), "cluster-admin", f.Namespace.Name,
+			rbacv1alpha1.Subject{Kind: rbacv1alpha1.ServiceAccountKind, Namespace: f.Namespace.Name, Name: "default"})
+
+		err := framework.WaitForAuthorizationUpdate(f.ClientSet.Authorization(),
+			serviceaccount.MakeUsername(f.Namespace.Name, "default"),
+			"", "create", schema.GroupResource{Resource: "pods"}, true)
+		framework.ExpectNoError(err)
+	})
 
 	It("should call prestop when killing a pod [Conformance]", func() {
 		testPreStop(f.ClientSet, f.Namespace.Name)

@@ -17,12 +17,10 @@ limitations under the License.
 package client
 
 import (
-	"net"
 	"net/http"
 	"strconv"
 	"time"
 
-	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/v1"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/client/restclient"
@@ -50,7 +48,7 @@ type KubeletClientConfig struct {
 	HTTPTimeout time.Duration
 
 	// Dial is a custom dialer used for the client
-	Dial func(net, addr string) (net.Conn, error)
+	Dial utilnet.DialFunc
 }
 
 // ConnectionInfo provides the information needed to connect to a kubelet
@@ -63,7 +61,7 @@ type ConnectionInfo struct {
 
 // ConnectionInfoGetter provides ConnectionInfo for the kubelet running on a named node
 type ConnectionInfoGetter interface {
-	GetConnectionInfo(ctx api.Context, nodeName types.NodeName) (*ConnectionInfo, error)
+	GetConnectionInfo(nodeName types.NodeName) (*ConnectionInfo, error)
 }
 
 func MakeTransport(config *KubeletClientConfig) (http.RoundTripper, error) {
@@ -154,7 +152,7 @@ func NewNodeConnectionInfoGetter(nodes NodeGetter, config KubeletClientConfig) (
 	}, nil
 }
 
-func (k *NodeConnectionInfoGetter) GetConnectionInfo(ctx api.Context, nodeName types.NodeName) (*ConnectionInfo, error) {
+func (k *NodeConnectionInfoGetter) GetConnectionInfo(nodeName types.NodeName) (*ConnectionInfo, error) {
 	node, err := k.nodes.Get(string(nodeName), metav1.GetOptions{})
 	if err != nil {
 		return nil, err

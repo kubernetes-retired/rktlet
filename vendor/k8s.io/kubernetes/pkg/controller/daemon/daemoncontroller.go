@@ -23,13 +23,14 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/v1"
 	extensions "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/client/cache"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
-	v1core "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5/typed/core/v1"
-	unversionedextensions "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5/typed/extensions/v1beta1"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	v1core "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/core/v1"
+	unversionedextensions "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/extensions/v1beta1"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/controller/informers"
@@ -78,6 +79,9 @@ type DaemonSetsController struct {
 	podStore *cache.StoreToPodLister
 	// A store of nodes
 	nodeStore *cache.StoreToNodeLister
+	// dsStoreSynced returns true if the daemonset store has been synced at least once.
+	// Added as a member to the struct to allow injection for testing.
+	dsStoreSynced cache.InformerSynced
 	// podStoreSynced returns true if the pod store has been synced at least once.
 	// Added as a member to the struct to allow injection for testing.
 	podStoreSynced cache.InformerSynced
@@ -142,6 +146,7 @@ func NewDaemonSetsController(daemonSetInformer informers.DaemonSetInformer, podI
 		DeleteFunc: dsc.deleteDaemonset,
 	})
 	dsc.dsStore = daemonSetInformer.Lister()
+	dsc.dsStoreSynced = daemonSetInformer.Informer().HasSynced
 
 	// Watch for creation/deletion of pods. The reason we watch is that we don't want a daemon set to create/delete
 	// more pods until all the effects (expectations) of a daemon set's create/delete have been observed.
@@ -191,7 +196,7 @@ func (dsc *DaemonSetsController) Run(workers int, stopCh <-chan struct{}) {
 
 	glog.Infof("Starting Daemon Sets controller manager")
 
-	if !cache.WaitForCacheSync(stopCh, dsc.podStoreSynced, dsc.nodeStoreSynced) {
+	if !cache.WaitForCacheSync(stopCh, dsc.podStoreSynced, dsc.nodeStoreSynced, dsc.dsStoreSynced) {
 		return
 	}
 
@@ -535,23 +540,32 @@ func storeDaemonSetStatus(dsClient unversionedextensions.DaemonSetInterface, ds 
 	if int(ds.Status.DesiredNumberScheduled) == desiredNumberScheduled &&
 		int(ds.Status.CurrentNumberScheduled) == currentNumberScheduled &&
 		int(ds.Status.NumberMisscheduled) == numberMisscheduled &&
-		int(ds.Status.NumberReady) == numberReady {
+		int(ds.Status.NumberReady) == numberReady &&
+		ds.Status.ObservedGeneration >= ds.Generation {
 		return nil
 	}
 
+	clone, err := api.Scheme.DeepCopy(ds)
+	if err != nil {
+		return err
+	}
+
+	toUpdate := clone.(*extensions.DaemonSet)
+
 	var updateErr, getErr error
 	for i := 0; i < StatusUpdateRetries; i++ {
-		ds.Status.DesiredNumberScheduled = int32(desiredNumberScheduled)
-		ds.Status.CurrentNumberScheduled = int32(currentNumberScheduled)
-		ds.Status.NumberMisscheduled = int32(numberMisscheduled)
-		ds.Status.NumberReady = int32(numberReady)
+		toUpdate.Status.ObservedGeneration = ds.Generation
+		toUpdate.Status.DesiredNumberScheduled = int32(desiredNumberScheduled)
+		toUpdate.Status.CurrentNumberScheduled = int32(currentNumberScheduled)
+		toUpdate.Status.NumberMisscheduled = int32(numberMisscheduled)
+		toUpdate.Status.NumberReady = int32(numberReady)
 
-		if _, updateErr = dsClient.UpdateStatus(ds); updateErr == nil {
+		if _, updateErr = dsClient.UpdateStatus(toUpdate); updateErr == nil {
 			return nil
 		}
 
 		// Update the set with the latest resource version for the next poll
-		if ds, getErr = dsClient.Get(ds.Name, metav1.GetOptions{}); getErr != nil {
+		if toUpdate, getErr = dsClient.Get(ds.Name, metav1.GetOptions{}); getErr != nil {
 			// If the GET fails we can't trust status.Replicas anymore. This error
 			// is bound to be more interesting than the update failure.
 			return getErr

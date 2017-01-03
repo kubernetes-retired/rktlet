@@ -14,6 +14,9 @@ go_library(
         "cached_discovery.go",
         "clientcache.go",
         "factory.go",
+        "factory_builder.go",
+        "factory_client_access.go",
+        "factory_object_mapping.go",
         "helpers.go",
         "printing.go",
         "shortcut_restmapper.go",
@@ -76,7 +79,7 @@ go_test(
     data = [
         "//api/swagger-spec",
     ],
-    library = "go_default_library",
+    library = ":go_default_library",
     tags = ["automanaged"],
     deps = [
         "//pkg/api:go_default_library",

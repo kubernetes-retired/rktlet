@@ -331,6 +331,7 @@ runTests() {
   second_port_field="(index .spec.ports 1).port"
   second_port_name="(index .spec.ports 1).name"
   image_field="(index .spec.containers 0).image"
+  container_name_field="(index .spec.template.spec.containers 0).name"
   hpa_min_field=".spec.minReplicas"
   hpa_max_field=".spec.maxReplicas"
   hpa_cpu_field=".spec.targetCPUUtilizationPercentage"
@@ -425,6 +426,13 @@ runTests() {
   kube::test::get_object_assert clusterrolebindings/cluster-admin "{{.metadata.name}}" 'cluster-admin'
   kubectl create "${kube_flags[@]}" clusterrolebinding super-admin --clusterrole=admin --user=super-admin
   kube::test::get_object_assert clusterrolebinding/super-admin "{{range.subjects}}{{.name}}:{{end}}" 'super-admin:'
+  kubectl create "${kube_flags[@]}" rolebinding admin --clusterrole=admin --user=default-admin -n default
+  kube::test::get_object_assert rolebinding/admin "{{range.subjects}}{{.name}}:{{end}}" 'default-admin:'
+  kubectl create "${kube_flags[@]}" rolebinding localrole --role=localrole --group=the-group -n default
+  kube::test::get_object_assert rolebinding/localrole "{{range.subjects}}{{.name}}:{{end}}" 'the-group:'
+  kubectl create "${kube_flags[@]}" rolebinding sarole --role=localrole --serviceaccount=otherns:sa-name -n default
+  kube::test::get_object_assert rolebinding/sarole "{{range.subjects}}{{.namespace}}:{{end}}" 'otherns:'
+  kube::test::get_object_assert rolebinding/sarole "{{range.subjects}}{{.name}}:{{end}}" 'sa-name:'
 
   ###########################
   # POD creation / deletion #
@@ -1197,12 +1205,6 @@ __EOF__
   # Pre-Condition: no Job exists
   kube::test::get_object_assert jobs "{{range.items}}{{$id_field}}:{{end}}" ''
   # Command
-  kubectl run pi --generator=job/v1beta1 "--image=$IMAGE_PERL" --restart=OnFailure -- perl -Mbignum=bpi -wle 'print bpi(20)' "${kube_flags[@]}"
-  # Post-Condition: Job "pi" is created
-  kube::test::get_object_assert jobs "{{range.items}}{{$id_field}}:{{end}}" 'pi:'
-  # Clean up
-  kubectl delete jobs pi "${kube_flags[@]}"
-  # Command
   kubectl run pi --generator=job/v1 "--image=$IMAGE_PERL" --restart=OnFailure -- perl -Mbignum=bpi -wle 'print bpi(20)' "${kube_flags[@]}"
   # Post-Condition: Job "pi" is created
   kube::test::get_object_assert jobs "{{range.items}}{{$id_field}}:{{end}}" 'pi:'
@@ -1218,6 +1220,13 @@ __EOF__
   kube::test::get_object_assert deployment "{{range.items}}{{$id_field}}:{{end}}" 'nginx:'
   # Clean up
   kubectl delete deployment nginx "${kube_flags[@]}"
+
+  # Test kubectl create deployment
+  kubectl create deployment test-nginx --image=gcr.io/google-containers/nginx:test-cmd
+  # Post-Condition: Deployment has 2 replicas defined in its spec.
+  kube::test::get_object_assert 'deploy test-nginx' "{{$container_name_field}}" 'nginx'
+  # Clean up
+  kubectl delete deployment test-nginx "${kube_flags[@]}"
 
   ###############
   # Kubectl get #
@@ -1294,7 +1303,7 @@ __EOF__
 
   ## check --request-timeout value with invalid time unit
   output_message=$(! kubectl get pod valid-pod --request-timeout="1p" 2>&1)
-  kube::test::if_has_string "${output_message}" 'Invalid value for option'
+  kube::test::if_has_string "${output_message}" 'Invalid timeout value'
 
   # cleanup
   kubectl delete pods valid-pod "${kube_flags[@]}"
@@ -1847,7 +1856,7 @@ __EOF__
 
   # test invalid config
   kubectl config view | sed -E "s/apiVersion: .*/apiVersion: v-1/g" > "${TMPDIR:-/tmp}"/newconfig.yaml
-  output_message=$(! "${KUBE_OUTPUT_HOSTBIN}/kubectl" get pods --context="" --user="" --kubeconfig=/tmp/newconfig.yaml 2>&1)
+  output_message=$(! "${KUBE_OUTPUT_HOSTBIN}/kubectl" get pods --context="" --user="" --kubeconfig="${TMPDIR:-/tmp}"/newconfig.yaml 2>&1)
   kube::test::if_has_string "${output_message}" "Error loading config file"
 
   output_message=$(! kubectl get pod --kubeconfig=missing-config 2>&1)
@@ -1930,6 +1939,19 @@ __EOF__
   kube::test::describe_resource_events_assert services false
   # Describe command should print events information when show-events=true
   kube::test::describe_resource_events_assert services true
+
+  ### set selector
+  # prove role=master
+  kube::test::get_object_assert 'services redis-master' "{{range$service_selector_field}}{{.}}:{{end}}" "redis:master:backend:"
+
+  # Set command to change the selector.
+  kubectl set selector -f examples/guestbook/redis-master-service.yaml role=padawan
+  # prove role=padawan
+  kube::test::get_object_assert 'services redis-master' "{{range$service_selector_field}}{{.}}:{{end}}" "padawan:"
+  # Set command to reset the selector back to the original one.
+  kubectl set selector -f examples/guestbook/redis-master-service.yaml app=redis,role=master,tier=backend
+  # prove role=master
+  kube::test::get_object_assert 'services redis-master' "{{range$service_selector_field}}{{.}}:{{end}}" "redis:master:backend:"
 
   ### Dump current redis-master service
   output_service=$(kubectl get service redis-master -o json --output-version=v1 "${kube_flags[@]}")

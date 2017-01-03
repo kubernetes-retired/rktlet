@@ -28,7 +28,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/v1"
 	extensions "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	unversionedextensions "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5/typed/extensions/v1beta1"
+	unversionedextensions "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/extensions/v1beta1"
 	"k8s.io/kubernetes/pkg/labels"
 )
 
@@ -81,19 +81,6 @@ func updateReplicaSetStatus(c unversionedextensions.ReplicaSetInterface, rs exte
 			return getErr
 		}
 	}
-}
-
-// overlappingReplicaSets sorts a list of ReplicaSets by creation timestamp, using their names as a tie breaker.
-type overlappingReplicaSets []*extensions.ReplicaSet
-
-func (o overlappingReplicaSets) Len() int      { return len(o) }
-func (o overlappingReplicaSets) Swap(i, j int) { o[i], o[j] = o[j], o[i] }
-
-func (o overlappingReplicaSets) Less(i, j int) bool {
-	if o[i].CreationTimestamp.Equal(o[j].CreationTimestamp) {
-		return o[i].Name < o[j].Name
-	}
-	return o[i].CreationTimestamp.Before(o[j].CreationTimestamp)
 }
 
 func calculateStatus(rs extensions.ReplicaSet, filteredPods []*v1.Pod, manageReplicasErr error) extensions.ReplicaSetStatus {

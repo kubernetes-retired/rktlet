@@ -34,7 +34,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/client/restclient"
 	"k8s.io/kubernetes/pkg/client/typed/discovery"
 	"k8s.io/kubernetes/pkg/client/typed/dynamic"
@@ -428,7 +428,7 @@ func TestOrphaning(t *testing.T) {
 		t.Fatalf("Failed to create replication controller: %v", err)
 	}
 
-	// these pods should be ophaned.
+	// these pods should be orphaned.
 	var podUIDs []types.UID
 	podsNum := 3
 	for i := 0; i < podsNum; i++ {
@@ -478,7 +478,7 @@ func TestOrphaning(t *testing.T) {
 	}
 	for _, pod := range pods.Items {
 		if len(pod.ObjectMeta.OwnerReferences) != 0 {
-			t.Errorf("pod %s still has non-empty OwnerRefereces: %v", pod.ObjectMeta.Name, pod.ObjectMeta.OwnerReferences)
+			t.Errorf("pod %s still has non-empty OwnerReferences: %v", pod.ObjectMeta.Name, pod.ObjectMeta.OwnerReferences)
 		}
 	}
 }

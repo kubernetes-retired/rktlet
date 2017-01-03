@@ -85,7 +85,7 @@ func ReaperFor(kind schema.GroupKind, c internalclientset.Interface) (Reaper, er
 	case api.Kind("Service"):
 		return &ServiceReaper{c.Core()}, nil
 
-	case extensions.Kind("Job"), batch.Kind("Job"):
+	case batch.Kind("Job"):
 		return &JobReaper{c.Batch(), c.Core(), Interval, Timeout}, nil
 
 	case apps.Kind("StatefulSet"):
@@ -468,7 +468,9 @@ func (reaper *DeploymentReaper) Stop(namespace, name string, timeout time.Durati
 
 	// Delete deployment at the end.
 	// Note: We delete deployment at the end so that if removing RSs fails, we at least have the deployment to retry.
-	return deployments.Delete(name, nil)
+	var falseVar = false
+	nonOrphanOption := api.DeleteOptions{OrphanDependents: &falseVar}
+	return deployments.Delete(name, &nonOrphanOption)
 }
 
 type updateDeploymentFunc func(d *extensions.Deployment)

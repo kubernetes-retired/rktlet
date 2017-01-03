@@ -36,6 +36,17 @@ import (
 	"k8s.io/kubernetes/pkg/util/validation/field"
 )
 
+const (
+	dnsLabelErrMsg          = "a valid DNS (RFC 1123) label must consist of"
+	dnsSubdomainLabelErrMsg = "a valid DNS (RFC 1123) subdomain"
+	labelErrMsg             = "a valid label must be an empty string or consist of"
+	lowerCaseLabelErrMsg    = "a valid label must consist of"
+	maxLengthErrMsg         = "must be no more than"
+	namePartErrMsg          = "name part must consist of"
+	nameErrMsg              = "a qualified name must consist of"
+	idErrMsg                = "a valid C identifier must"
+)
+
 func expectPrefix(t *testing.T, prefix string, errs field.ErrorList) {
 	for i := range errs {
 		if f, p := errs[i].Field, prefix; !strings.HasPrefix(f, p) {
@@ -458,10 +469,10 @@ func TestValidateAnnotations(t *testing.T) {
 		annotations map[string]string
 		expect      string
 	}{
-		{map[string]string{"nospecialchars^=@": "bar"}, "must match the regex"},
-		{map[string]string{"cantendwithadash-": "bar"}, "must match the regex"},
-		{map[string]string{"only/one/slash": "bar"}, "must match the regex"},
-		{map[string]string{strings.Repeat("a", 254): "bar"}, "must be no more than"},
+		{map[string]string{"nospecialchars^=@": "bar"}, namePartErrMsg},
+		{map[string]string{"cantendwithadash-": "bar"}, namePartErrMsg},
+		{map[string]string{"only/one/slash": "bar"}, nameErrMsg},
+		{map[string]string{strings.Repeat("a", 254): "bar"}, maxLengthErrMsg},
 	}
 	for i := range nameErrorCases {
 		errs := ValidateAnnotations(nameErrorCases[i].annotations, field.NewPath("field"))
@@ -1152,7 +1163,7 @@ func TestValidateVolumes(t *testing.T) {
 			},
 			errtype:   field.ErrorTypeInvalid,
 			errfield:  "name",
-			errdetail: "must match the regex",
+			errdetail: dnsLabelErrMsg,
 		},
 		// More than one source field specified.
 		{
@@ -2530,7 +2541,7 @@ func TestValidateEnv(t *testing.T) {
 		{
 			name:          "name not a C identifier",
 			envs:          []api.EnvVar{{Name: "a.b.c"}},
-			expectedError: `[0].name: Invalid value: "a.b.c": must match the regex`,
+			expectedError: `[0].name: Invalid value: "a.b.c": ` + idErrMsg,
 		},
 		{
 			name: "value and valueFrom specified",
@@ -3482,50 +3493,60 @@ func TestValidatePod(t *testing.T) {
 				NodeName: "foobar",
 			},
 		},
-		{ // Serialized affinity requirements in annotations.
+		{ // Serialized node affinity requirements.
 			ObjectMeta: api.ObjectMeta{
 				Name:      "123",
 				Namespace: "ns",
-				// TODO: Uncomment and move this block into Annotations map once
-				// RequiredDuringSchedulingRequiredDuringExecution is implemented
-				//		"requiredDuringSchedulingRequiredDuringExecution": {
-				//			"nodeSelectorTerms": [{
-				//				"matchExpressions": [{
-				//					"key": "key1",
-				//					"operator": "Exists"
-				//				}]
-				//			}]
-				//		},
-				Annotations: map[string]string{
-					api.AffinityAnnotationKey: `
-					{"nodeAffinity": {
-						"requiredDuringSchedulingIgnoredDuringExecution": {
-							"nodeSelectorTerms": [{
-								"matchExpressions": [{
-									"key": "key2",
-									"operator": "In",
-									"values": ["value1", "value2"]
-								}]
-							}]
-						},
-						"preferredDuringSchedulingIgnoredDuringExecution": [
-							{
-								"weight": 10,
-								"preference": {"matchExpressions": [
-									{
-										"key": "foo",
-										"operator": "In", "values": ["bar"]
-									}
-								]}
-							}
-						]
-					}}`,
-				},
 			},
 			Spec: api.PodSpec{
 				Containers:    []api.Container{{Name: "ctr", Image: "image", ImagePullPolicy: "IfNotPresent"}},
 				RestartPolicy: api.RestartPolicyAlways,
 				DNSPolicy:     api.DNSClusterFirst,
+				// TODO: Uncomment and move this block and move inside NodeAffinity once
+				// RequiredDuringSchedulingRequiredDuringExecution is implemented
+				//		RequiredDuringSchedulingRequiredDuringExecution: &api.NodeSelector{
+				//			NodeSelectorTerms: []api.NodeSelectorTerm{
+				//				{
+				//					MatchExpressions: []api.NodeSelectorRequirement{
+				//						{
+				//							Key: "key1",
+				//							Operator: api.NodeSelectorOpExists
+				//						},
+				//					},
+				//				},
+				//			},
+				//		},
+				Affinity: &api.Affinity{
+					NodeAffinity: &api.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution: &api.NodeSelector{
+							NodeSelectorTerms: []api.NodeSelectorTerm{
+								{
+									MatchExpressions: []api.NodeSelectorRequirement{
+										{
+											Key:      "key2",
+											Operator: api.NodeSelectorOpIn,
+											Values:   []string{"value1", "value2"},
+										},
+									},
+								},
+							},
+						},
+						PreferredDuringSchedulingIgnoredDuringExecution: []api.PreferredSchedulingTerm{
+							{
+								Weight: 10,
+								Preference: api.NodeSelectorTerm{
+									MatchExpressions: []api.NodeSelectorRequirement{
+										{
+											Key:      "foo",
+											Operator: api.NodeSelectorOpIn,
+											Values:   []string{"bar"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
 			},
 		},
 		{ // Serialized pod affinity in affinity requirements in annotations.
@@ -3863,90 +3884,101 @@ func TestValidatePod(t *testing.T) {
 				Containers:    []api.Container{{Name: "ctr", Image: "image", ImagePullPolicy: "IfNotPresent"}},
 			},
 		},
-		"invalid json of node affinity in pod annotations": {
+		"invalid node selector requirement in node affinity, operator can't be null": {
 			ObjectMeta: api.ObjectMeta{
 				Name:      "123",
 				Namespace: "ns",
-				Annotations: map[string]string{
-					api.AffinityAnnotationKey: `
-					{"nodeAffinity": {
-						"requiredDuringSchedulingIgnoredDuringExecution": {
-							"nodeSelectorTerms": [{
-					`,
-				},
 			},
-			Spec: validPodSpec,
-		},
-		"invalid node selector requirement in node affinity in pod annotations, operator can't be null": {
-			ObjectMeta: api.ObjectMeta{
-				Name:      "123",
-				Namespace: "ns",
-				Annotations: map[string]string{
-					api.AffinityAnnotationKey: `
-					{"nodeAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": {
-						"nodeSelectorTerms": [{
-							"matchExpressions": [{
-								"key": "key1",
-							}]
-						}]
-					}}}`,
-				},
-			},
-			Spec: validPodSpec,
-		},
-		"invalid preferredSchedulingTerm in node affinity in pod annotations, weight should be in range 1-100": {
-			ObjectMeta: api.ObjectMeta{
-				Name:      "123",
-				Namespace: "ns",
-				Annotations: map[string]string{
-					api.AffinityAnnotationKey: `
-					{"nodeAffinity": {"preferredDuringSchedulingIgnoredDuringExecution": [
-						{
-							"weight": 199,
-							"preference": {"matchExpressions": [
+			Spec: api.PodSpec{
+				Containers:    []api.Container{{Name: "ctr", Image: "image", ImagePullPolicy: "IfNotPresent"}},
+				RestartPolicy: api.RestartPolicyAlways,
+				DNSPolicy:     api.DNSClusterFirst,
+				Affinity: &api.Affinity{
+					NodeAffinity: &api.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution: &api.NodeSelector{
+							NodeSelectorTerms: []api.NodeSelectorTerm{
 								{
-									"key": "foo",
-									"operator": "In",
-									"values": ["bar"]
-								}
-							]}
-						}
-					]}}`,
+									MatchExpressions: []api.NodeSelectorRequirement{
+										{
+
+											Key: "key1",
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 			},
-			Spec: validPodSpec,
+		},
+		"invalid preferredSchedulingTerm in node affinity, weight should be in range 1-100": {
+			ObjectMeta: api.ObjectMeta{
+				Name:      "123",
+				Namespace: "ns",
+			},
+			Spec: api.PodSpec{
+				Containers:    []api.Container{{Name: "ctr", Image: "image", ImagePullPolicy: "IfNotPresent"}},
+				RestartPolicy: api.RestartPolicyAlways,
+				DNSPolicy:     api.DNSClusterFirst,
+				Affinity: &api.Affinity{
+					NodeAffinity: &api.NodeAffinity{
+						PreferredDuringSchedulingIgnoredDuringExecution: []api.PreferredSchedulingTerm{
+							{
+								Weight: 199,
+								Preference: api.NodeSelectorTerm{
+									MatchExpressions: []api.NodeSelectorRequirement{
+										{
+											Key:      "foo",
+											Operator: api.NodeSelectorOpIn,
+											Values:   []string{"bar"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
 		},
 		"invalid requiredDuringSchedulingIgnoredDuringExecution node selector, nodeSelectorTerms must have at least one term": {
 			ObjectMeta: api.ObjectMeta{
 				Name:      "123",
 				Namespace: "ns",
-				Annotations: map[string]string{
-					api.AffinityAnnotationKey: `
-					{"nodeAffinity": {
-						"requiredDuringSchedulingIgnoredDuringExecution": {
-							"nodeSelectorTerms": []
+			},
+			Spec: api.PodSpec{
+				Containers:    []api.Container{{Name: "ctr", Image: "image", ImagePullPolicy: "IfNotPresent"}},
+				RestartPolicy: api.RestartPolicyAlways,
+				DNSPolicy:     api.DNSClusterFirst,
+				Affinity: &api.Affinity{
+					NodeAffinity: &api.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution: &api.NodeSelector{
+							NodeSelectorTerms: []api.NodeSelectorTerm{},
 						},
-					}}`,
+					},
 				},
 			},
-			Spec: validPodSpec,
 		},
 		"invalid requiredDuringSchedulingIgnoredDuringExecution node selector term, matchExpressions must have at least one node selector requirement": {
 			ObjectMeta: api.ObjectMeta{
 				Name:      "123",
 				Namespace: "ns",
-				Annotations: map[string]string{
-					api.AffinityAnnotationKey: `
-					{"nodeAffinity": {
-						"requiredDuringSchedulingIgnoredDuringExecution": {
-							"nodeSelectorTerms": [{
-								"matchExpressions": []
-							}]
+			},
+			Spec: api.PodSpec{
+				Containers:    []api.Container{{Name: "ctr", Image: "image", ImagePullPolicy: "IfNotPresent"}},
+				RestartPolicy: api.RestartPolicyAlways,
+				DNSPolicy:     api.DNSClusterFirst,
+				Affinity: &api.Affinity{
+					NodeAffinity: &api.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution: &api.NodeSelector{
+							NodeSelectorTerms: []api.NodeSelectorTerm{
+								{
+									MatchExpressions: []api.NodeSelectorRequirement{},
+								},
+							},
 						},
-					}}`,
+					},
 				},
 			},
-			Spec: validPodSpec,
 		},
 		"invalid weight in preferredDuringSchedulingIgnoredDuringExecution in pod affinity annotations, weight should be in range 1-100": {
 			ObjectMeta: api.ObjectMeta{
@@ -7267,11 +7299,11 @@ func TestValidateLimitRange(t *testing.T) {
 		},
 		"invalid-name": {
 			api.LimitRange{ObjectMeta: api.ObjectMeta{Name: "^Invalid", Namespace: "foo"}, Spec: api.LimitRangeSpec{}},
-			"must match the regex",
+			dnsSubdomainLabelErrMsg,
 		},
 		"invalid-namespace": {
 			api.LimitRange{ObjectMeta: api.ObjectMeta{Name: "abc", Namespace: "^Invalid"}, Spec: api.LimitRangeSpec{}},
-			"must match the regex",
+			dnsLabelErrMsg,
 		},
 		"duplicate-limit-type": {
 			api.LimitRange{ObjectMeta: api.ObjectMeta{Name: "abc", Namespace: "foo"}, Spec: api.LimitRangeSpec{
@@ -7613,11 +7645,11 @@ func TestValidateResourceQuota(t *testing.T) {
 		},
 		"invalid Name": {
 			api.ResourceQuota{ObjectMeta: api.ObjectMeta{Name: "^Invalid", Namespace: "foo"}, Spec: spec},
-			"must match the regex",
+			dnsSubdomainLabelErrMsg,
 		},
 		"invalid Namespace": {
 			api.ResourceQuota{ObjectMeta: api.ObjectMeta{Name: "abc", Namespace: "^Invalid"}, Spec: spec},
-			"must match the regex",
+			dnsLabelErrMsg,
 		},
 		"negative-limits": {
 			api.ResourceQuota{ObjectMeta: api.ObjectMeta{Name: "abc", Namespace: "foo"}, Spec: negativeSpec},
@@ -8211,12 +8243,12 @@ func TestValidateEndpoints(t *testing.T) {
 		"invalid namespace": {
 			endpoints:   api.Endpoints{ObjectMeta: api.ObjectMeta{Name: "mysvc", Namespace: "no@#invalid.;chars\"allowed"}},
 			errorType:   "FieldValueInvalid",
-			errorDetail: "must match the regex",
+			errorDetail: dnsLabelErrMsg,
 		},
 		"invalid name": {
 			endpoints:   api.Endpoints{ObjectMeta: api.ObjectMeta{Name: "-_Invliad^&Characters", Namespace: "namespace"}},
 			errorType:   "FieldValueInvalid",
-			errorDetail: "must match the regex",
+			errorDetail: dnsSubdomainLabelErrMsg,
 		},
 		"empty addresses": {
 			endpoints: api.Endpoints{
@@ -8788,7 +8820,7 @@ func newNodeNameEndpoint(nodeName string) *api.Endpoints {
 }
 
 func TestEndpointAddressNodeNameUpdateRestrictions(t *testing.T) {
-	oldEndpoint := newNodeNameEndpoint("kubernetes-minion-setup-by-backend")
+	oldEndpoint := newNodeNameEndpoint("kubernetes-node-setup-by-backend")
 	updatedEndpoint := newNodeNameEndpoint("kubernetes-changed-nodename")
 	// Check that NodeName cannot be changed during update (if already set)
 	errList := ValidateEndpoints(updatedEndpoint)

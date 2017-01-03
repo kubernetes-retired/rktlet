@@ -27,6 +27,7 @@ import (
 
 	systemd "github.com/coreos/go-systemd/daemon"
 	"github.com/emicklei/go-restful"
+	"github.com/emicklei/go-restful/swagger"
 	"github.com/golang/glog"
 
 	"k8s.io/kubernetes/pkg/admission"
@@ -35,10 +36,11 @@ import (
 	"k8s.io/kubernetes/pkg/apimachinery"
 	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	"k8s.io/kubernetes/pkg/apiserver"
 	"k8s.io/kubernetes/pkg/client/restclient"
+	genericapi "k8s.io/kubernetes/pkg/genericapiserver/api"
+	apirequest "k8s.io/kubernetes/pkg/genericapiserver/api/request"
 	genericmux "k8s.io/kubernetes/pkg/genericapiserver/mux"
-	"k8s.io/kubernetes/pkg/genericapiserver/openapi/common"
+	openapicommon "k8s.io/kubernetes/pkg/genericapiserver/openapi/common"
 	"k8s.io/kubernetes/pkg/genericapiserver/routes"
 	"k8s.io/kubernetes/pkg/healthz"
 	"k8s.io/kubernetes/pkg/runtime"
@@ -86,12 +88,6 @@ type GenericAPIServer struct {
 	// minRequestTimeout is how short the request timeout can be.  This is used to build the RESTHandler
 	minRequestTimeout time.Duration
 
-	// enableSwaggerSupport indicates that swagger should be served.  This is currently separate because
-	// the API group routes are created *after* initialization and you can't generate the swagger routes until
-	// after those are available.
-	// TODO eventually we should be able to factor this out to take place during initialization.
-	enableSwaggerSupport bool
-
 	// legacyAPIGroupPrefixes is used to set up URL parsing for authorization and for validating requests
 	// to InstallLegacyAPIGroup
 	legacyAPIGroupPrefixes sets.String
@@ -100,7 +96,7 @@ type GenericAPIServer struct {
 	admissionControl admission.Interface
 
 	// requestContextMapper provides a way to get the context for a request.  It may be nil.
-	requestContextMapper api.RequestContextMapper
+	requestContextMapper apirequest.RequestContextMapper
 
 	// The registered APIs
 	HandlerContainer *genericmux.APIContainer
@@ -131,10 +127,9 @@ type GenericAPIServer struct {
 	apiGroupsForDiscoveryLock sync.RWMutex
 	apiGroupsForDiscovery     map[string]metav1.APIGroup
 
-	// See Config.$name for documentation of these flags
-
-	enableOpenAPISupport bool
-	openAPIConfig        *common.Config
+	// Enable swagger and/or OpenAPI if these configs are non-nil.
+	swaggerConfig *swagger.Config
+	openAPIConfig *openapicommon.Config
 
 	// PostStartHooks are each called after the server has started listening, in a separate go func for each
 	// with no guaranteee of ordering between them.  The map key is a name used for error reporting.
@@ -158,7 +153,7 @@ func init() {
 
 // RequestContextMapper is exposed so that third party resource storage can be build in a different location.
 // TODO refactor third party resource storage
-func (s *GenericAPIServer) RequestContextMapper() api.RequestContextMapper {
+func (s *GenericAPIServer) RequestContextMapper() apirequest.RequestContextMapper {
 	return s.requestContextMapper
 }
 
@@ -174,10 +169,10 @@ type preparedGenericAPIServer struct {
 
 // PrepareRun does post API installation setup steps.
 func (s *GenericAPIServer) PrepareRun() preparedGenericAPIServer {
-	if s.enableSwaggerSupport {
-		routes.Swagger{ExternalAddress: s.ExternalAddress}.Install(s.HandlerContainer)
+	if s.swaggerConfig != nil {
+		routes.Swagger{Config: s.swaggerConfig}.Install(s.HandlerContainer)
 	}
-	if s.enableOpenAPISupport {
+	if s.openAPIConfig != nil {
 		routes.OpenAPI{
 			Config: s.openAPIConfig,
 		}.Install(s.HandlerContainer)
@@ -247,7 +242,7 @@ func (s *GenericAPIServer) InstallLegacyAPIGroup(apiPrefix string, apiGroupInfo 
 	}
 	// Install the version handler.
 	// Add a handler at /<apiPrefix> to enumerate the supported api versions.
-	apiserver.AddApiWebService(s.Serializer, s.HandlerContainer.Container, apiPrefix, func(req *restful.Request) *metav1.APIVersions {
+	genericapi.AddApiWebService(s.Serializer, s.HandlerContainer.Container, apiPrefix, func(req *restful.Request) *metav1.APIVersions {
 		clientIP := utilnet.GetClientIP(req.Request)
 
 		apiVersionsForDiscovery := metav1.APIVersions{
@@ -299,7 +294,7 @@ func (s *GenericAPIServer) InstallAPIGroup(apiGroupInfo *APIGroupInfo) error {
 	}
 
 	s.AddAPIGroupForDiscovery(apiGroup)
-	s.HandlerContainer.Add(apiserver.NewGroupWebService(s.Serializer, APIGroupPrefix+"/"+apiGroup.Name, apiGroup))
+	s.HandlerContainer.Add(genericapi.NewGroupWebService(s.Serializer, APIGroupPrefix+"/"+apiGroup.Name, apiGroup))
 
 	return nil
 }
@@ -318,7 +313,7 @@ func (s *GenericAPIServer) RemoveAPIGroupForDiscovery(groupName string) {
 	delete(s.apiGroupsForDiscovery, groupName)
 }
 
-func (s *GenericAPIServer) getAPIGroupVersion(apiGroupInfo *APIGroupInfo, groupVersion schema.GroupVersion, apiPrefix string) (*apiserver.APIGroupVersion, error) {
+func (s *GenericAPIServer) getAPIGroupVersion(apiGroupInfo *APIGroupInfo, groupVersion schema.GroupVersion, apiPrefix string) (*genericapi.APIGroupVersion, error) {
 	storage := make(map[string]rest.Storage)
 	for k, v := range apiGroupInfo.VersionedResourcesStorageMap[groupVersion.Version] {
 		storage[strings.ToLower(k)] = v
@@ -329,8 +324,8 @@ func (s *GenericAPIServer) getAPIGroupVersion(apiGroupInfo *APIGroupInfo, groupV
 	return version, err
 }
 
-func (s *GenericAPIServer) newAPIGroupVersion(apiGroupInfo *APIGroupInfo, groupVersion schema.GroupVersion) (*apiserver.APIGroupVersion, error) {
-	return &apiserver.APIGroupVersion{
+func (s *GenericAPIServer) newAPIGroupVersion(apiGroupInfo *APIGroupInfo, groupVersion schema.GroupVersion) (*genericapi.APIGroupVersion, error) {
+	return &genericapi.APIGroupVersion{
 		GroupVersion: groupVersion,
 
 		ParameterCodec: apiGroupInfo.ParameterCodec,
@@ -352,7 +347,7 @@ func (s *GenericAPIServer) newAPIGroupVersion(apiGroupInfo *APIGroupInfo, groupV
 // DynamicApisDiscovery returns a webservice serving api group discovery.
 // Note: during the server runtime apiGroupsForDiscovery might change.
 func (s *GenericAPIServer) DynamicApisDiscovery() *restful.WebService {
-	return apiserver.NewApisWebService(s.Serializer, APIGroupPrefix, func(req *restful.Request) []metav1.APIGroup {
+	return genericapi.NewApisWebService(s.Serializer, APIGroupPrefix, func(req *restful.Request) []metav1.APIGroup {
 		s.apiGroupsForDiscoveryLock.RLock()
 		defer s.apiGroupsForDiscoveryLock.RUnlock()
 

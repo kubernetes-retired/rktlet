@@ -37,7 +37,7 @@ import (
 	"k8s.io/kubernetes/pkg/apis/componentconfig"
 	componentconfigv1alpha1 "k8s.io/kubernetes/pkg/apis/componentconfig/v1alpha1"
 	"k8s.io/kubernetes/pkg/client/cache"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/pkg/fields"
@@ -538,7 +538,8 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 		case "docker":
 			streamingConfig := getStreamingConfig(kubeCfg, kubeDeps)
 			// Use the new CRI shim for docker.
-			ds, err := dockershim.NewDockerService(klet.dockerClient, kubeCfg.SeccompProfileRoot, kubeCfg.PodInfraContainerImage, streamingConfig, &pluginSettings, kubeCfg.RuntimeCgroups)
+			ds, err := dockershim.NewDockerService(klet.dockerClient, kubeCfg.SeccompProfileRoot, kubeCfg.PodInfraContainerImage,
+				streamingConfig, &pluginSettings, kubeCfg.RuntimeCgroups, kubeCfg.CgroupDriver)
 			if err != nil {
 				return nil, err
 			}
@@ -1177,9 +1178,7 @@ func (kl *Kubelet) initializeModules() error {
 	}
 
 	// Step 4: Start the image manager.
-	if err := kl.imageManager.Start(); err != nil {
-		return fmt.Errorf("Failed to start ImageManager, images may not be garbage collected: %v", err)
-	}
+	kl.imageManager.Start()
 
 	// Step 5: Start container manager.
 	node, err := kl.getNodeAnyWay()
@@ -1909,8 +1908,21 @@ func (kl *Kubelet) handleMirrorPod(mirrorPod *v1.Pod, start time.Time) {
 // a config source.
 func (kl *Kubelet) HandlePodAdditions(pods []*v1.Pod) {
 	start := kl.clock.Now()
-	sort.Sort(sliceutils.PodsByCreationTime(pods))
-	for _, pod := range pods {
+
+	// Pass critical pods through admission check first.
+	var criticalPods []*v1.Pod
+	var nonCriticalPods []*v1.Pod
+	for _, p := range pods {
+		if kubetypes.IsCriticalPod(p) {
+			criticalPods = append(criticalPods, p)
+		} else {
+			nonCriticalPods = append(nonCriticalPods, p)
+		}
+	}
+	sort.Sort(sliceutils.PodsByCreationTime(criticalPods))
+	sort.Sort(sliceutils.PodsByCreationTime(nonCriticalPods))
+
+	for _, pod := range append(criticalPods, nonCriticalPods...) {
 		existingPods := kl.podManager.GetPods()
 		// Always add the pod to the pod manager. Kubelet relies on the pod
 		// manager as the source of truth for the desired state. If a pod does

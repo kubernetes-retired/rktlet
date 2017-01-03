@@ -33,7 +33,7 @@ import (
 	extensions "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/client/cache"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/runtime"
@@ -782,6 +782,17 @@ func GetActualReplicaCountForReplicaSets(replicaSets []*extensions.ReplicaSet) i
 	return totalActualReplicas
 }
 
+// GetReadyReplicaCountForReplicaSets returns the number of ready pods corresponding to the given replica sets.
+func GetReadyReplicaCountForReplicaSets(replicaSets []*extensions.ReplicaSet) int32 {
+	totalReadyReplicas := int32(0)
+	for _, rs := range replicaSets {
+		if rs != nil {
+			totalReadyReplicas += rs.Status.ReadyReplicas
+		}
+	}
+	return totalReadyReplicas
+}
+
 // GetAvailableReplicaCountForReplicaSets returns the number of available pods corresponding to the given replica sets.
 func GetAvailableReplicaCountForReplicaSets(replicaSets []*extensions.ReplicaSet) int32 {
 	totalAvailableReplicas := int32(0)
@@ -1041,9 +1052,7 @@ func OverlapsWith(current, other *extensions.Deployment) (bool, error) {
 	}
 	otherSelector, err := metav1.LabelSelectorAsSelector(other.Spec.Selector)
 	if err != nil {
-		// Broken selectors from other deployments shouldn't block current deployment. Just log the error and continue.
-		glog.V(2).Infof("Skip overlapping check: deployment %s/%s has invalid label selector: %v", other.Namespace, other.Name, err)
-		return false, nil
+		return false, fmt.Errorf("deployment %s/%s has invalid label selector: %v", other.Namespace, other.Name, err)
 	}
 	return (!currentSelector.Empty() && currentSelector.Matches(labels.Set(other.Spec.Template.Labels))) ||
 		(!otherSelector.Empty() && otherSelector.Matches(labels.Set(current.Spec.Template.Labels))), nil

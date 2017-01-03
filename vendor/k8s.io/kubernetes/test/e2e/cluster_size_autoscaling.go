@@ -28,7 +28,7 @@ import (
 
 	"k8s.io/kubernetes/pkg/api/v1"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/util/sets"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -495,13 +495,13 @@ func CreateNodeSelectorPods(f *framework.Framework, id string, replicas int, nod
 	config := &testutils.RCConfig{
 		Client:         f.ClientSet,
 		InternalClient: f.InternalClientset,
-		Name:           "node-selector",
+		Name:           id,
 		Namespace:      f.Namespace.Name,
 		Timeout:        defaultTimeout,
 		Image:          framework.GetPauseImageName(f.ClientSet),
 		Replicas:       replicas,
 		HostPorts:      map[string]int{"port1": 4321},
-		NodeSelector:   map[string]string{"cluster-autoscaling-test.special-node": "true"},
+		NodeSelector:   nodeSelector,
 	}
 	err := framework.RunRC(*config)
 	if expectRunning {
