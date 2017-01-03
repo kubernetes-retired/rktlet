@@ -110,11 +110,7 @@ func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.Contai
 }
 
 func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.CreateContainerRequest) (*runtimeApi.CreateContainerResponse, error) {
-	imageName := req.GetConfig().GetImage().GetImage()
-	imageID, err := r.getImageHash(ctx, imageName)
-	if err != nil {
-		return nil, fmt.Errorf("could not resolve image %q: %v", imageName, err)
-	}
+	imageID := req.GetConfig().GetImage().GetImage()
 
 	command, err := generateAppAddCommand(req, imageID)
 	if err != nil {

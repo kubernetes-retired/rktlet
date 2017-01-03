@@ -58,6 +58,8 @@ type TestContext struct {
 	Rktlet rktlet.ContainerAndImageService
 	TmpDir string
 	LogDir string
+
+	imageIDs map[string]string
 }
 
 func Setup(t *testing.T) *TestContext {
@@ -76,10 +78,12 @@ func Setup(t *testing.T) *TestContext {
 		t.Fatalf("unable to initialize rktlet: %v", err)
 	}
 
+	imageIDs := make(map[string]string)
+
 	for _, image := range allTestImages {
 		// TODO, retry this N times
 		image := image
-		_, err := rktRuntime.PullImage(context.TODO(), &runtime.PullImageRequest{
+		imageRef, err := rktRuntime.PullImage(context.TODO(), &runtime.PullImageRequest{
 			Image: &runtime.ImageSpec{
 				Image: &image,
 			},
@@ -87,6 +91,7 @@ func Setup(t *testing.T) *TestContext {
 		if err != nil {
 			t.Fatalf("error pulling image %q for test: %v", image, err)
 		}
+		imageIDs[image] = imageRef.GetImageRef()
 	}
 
 	return &TestContext{
@@ -94,7 +99,17 @@ func Setup(t *testing.T) *TestContext {
 		Rktlet: rktRuntime,
 		TmpDir: tmpDir,
 		LogDir: filepath.Join(tmpDir, "cri_logs"),
+
+		imageIDs: imageIDs,
 	}
+}
+
+func (t *TestContext) ImageRef(key string) string {
+	ref, ok := t.imageIDs[key]
+	if !ok {
+		panic(fmt.Sprintf("unable to resolve image ref: %v", key))
+	}
+	return ref
 }
 
 func (t *TestContext) Teardown() {
