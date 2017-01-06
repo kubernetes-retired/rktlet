@@ -31,6 +31,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/validation/path"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/fields"
+	genericapirequest "k8s.io/kubernetes/pkg/genericapiserver/api/request"
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/registry/cachesize"
 	"k8s.io/kubernetes/pkg/registry/generic"
@@ -39,7 +40,6 @@ import (
 	"k8s.io/kubernetes/pkg/storage"
 	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
 	"k8s.io/kubernetes/pkg/util/validation/field"
-	utilversion "k8s.io/kubernetes/pkg/util/version"
 	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/golang/glog"
@@ -72,11 +72,11 @@ type Store struct {
 	QualifiedResource schema.GroupResource
 
 	// Used for listing/watching; should not include trailing "/"
-	KeyRootFunc func(ctx api.Context) string
+	KeyRootFunc func(ctx genericapirequest.Context) string
 
 	// Called for Create/Update/Get/Delete. Note that 'namespace' can be
 	// gotten from ctx.
-	KeyFunc func(ctx api.Context, name string) (string, error)
+	KeyFunc func(ctx genericapirequest.Context, name string) (string, error)
 
 	// Called to get the name of an object
 	ObjectNameFunc func(obj runtime.Object) (string, error)
@@ -133,9 +133,9 @@ var _ rest.StandardStorage = &Store{}
 const OptimisticLockErrorMsg = "the object has been modified; please apply your changes to the latest version and try again"
 
 // NamespaceKeyRootFunc is the default function for constructing storage paths to resource directories enforcing namespace rules.
-func NamespaceKeyRootFunc(ctx api.Context, prefix string) string {
+func NamespaceKeyRootFunc(ctx genericapirequest.Context, prefix string) string {
 	key := prefix
-	ns, ok := api.NamespaceFrom(ctx)
+	ns, ok := genericapirequest.NamespaceFrom(ctx)
 	if ok && len(ns) > 0 {
 		key = key + "/" + ns
 	}
@@ -144,9 +144,9 @@ func NamespaceKeyRootFunc(ctx api.Context, prefix string) string {
 
 // NamespaceKeyFunc is the default function for constructing storage paths to a resource relative to prefix enforcing namespace rules.
 // If no namespace is on context, it errors.
-func NamespaceKeyFunc(ctx api.Context, prefix string, name string) (string, error) {
+func NamespaceKeyFunc(ctx genericapirequest.Context, prefix string, name string) (string, error) {
 	key := NamespaceKeyRootFunc(ctx, prefix)
-	ns, ok := api.NamespaceFrom(ctx)
+	ns, ok := genericapirequest.NamespaceFrom(ctx)
 	if !ok || len(ns) == 0 {
 		return "", kubeerr.NewBadRequest("Namespace parameter required.")
 	}
@@ -161,7 +161,7 @@ func NamespaceKeyFunc(ctx api.Context, prefix string, name string) (string, erro
 }
 
 // NoNamespaceKeyFunc is the default function for constructing storage paths to a resource relative to prefix without a namespace
-func NoNamespaceKeyFunc(ctx api.Context, prefix string, name string) (string, error) {
+func NoNamespaceKeyFunc(ctx genericapirequest.Context, prefix string, name string) (string, error) {
 	if len(name) == 0 {
 		return "", kubeerr.NewBadRequest("Name parameter required.")
 	}
@@ -183,7 +183,7 @@ func (e *Store) NewList() runtime.Object {
 }
 
 // List returns a list of items matching labels and field
-func (e *Store) List(ctx api.Context, options *api.ListOptions) (runtime.Object, error) {
+func (e *Store) List(ctx genericapirequest.Context, options *api.ListOptions) (runtime.Object, error) {
 	label := labels.Everything()
 	if options != nil && options.LabelSelector != nil {
 		label = options.LabelSelector
@@ -205,7 +205,7 @@ func (e *Store) List(ctx api.Context, options *api.ListOptions) (runtime.Object,
 }
 
 // ListPredicate returns a list of all the items matching m.
-func (e *Store) ListPredicate(ctx api.Context, p storage.SelectionPredicate, options *api.ListOptions) (runtime.Object, error) {
+func (e *Store) ListPredicate(ctx genericapirequest.Context, p storage.SelectionPredicate, options *api.ListOptions) (runtime.Object, error) {
 	if options == nil {
 		// By default we should serve the request from etcd.
 		options = &api.ListOptions{ResourceVersion: ""}
@@ -223,27 +223,8 @@ func (e *Store) ListPredicate(ctx api.Context, p storage.SelectionPredicate, opt
 	return list, storeerr.InterpretListError(err, e.QualifiedResource)
 }
 
-// TODO: remove this function after 1.6
-// returns if the user agent is is kubectl older than v1.4.0
-func isOldKubectl(userAgent string) bool {
-	// example userAgent string: kubectl-1.3/v1.3.8 (linux/amd64) kubernetes/e328d5b
-	if !strings.Contains(userAgent, "kubectl") {
-		return false
-	}
-	userAgent = strings.Split(userAgent, " ")[0]
-	subs := strings.Split(userAgent, "/")
-	if len(subs) != 2 {
-		return false
-	}
-	kubectlVersion, versionErr := utilversion.ParseSemantic(subs[1])
-	if versionErr != nil {
-		return false
-	}
-	return kubectlVersion.LessThan(utilversion.MustParseSemantic("v1.4.0"))
-}
-
 // Create inserts a new item according to the unique key from the object.
-func (e *Store) Create(ctx api.Context, obj runtime.Object) (runtime.Object, error) {
+func (e *Store) Create(ctx genericapirequest.Context, obj runtime.Object) (runtime.Object, error) {
 	if err := rest.BeforeCreate(e.CreateStrategy, ctx, obj); err != nil {
 		return nil, err
 	}
@@ -276,15 +257,6 @@ func (e *Store) Create(ctx api.Context, obj runtime.Object) (runtime.Object, err
 		if accessor.GetDeletionTimestamp() != nil {
 			msg := &err.(*kubeerr.StatusError).ErrStatus.Message
 			*msg = fmt.Sprintf("object is being deleted: %s", *msg)
-			// TODO: remove this block after 1.6
-			userAgent, _ := api.UserAgentFrom(ctx)
-			if !isOldKubectl(userAgent) {
-				return nil, err
-			}
-			if e.QualifiedResource.Resource != "replicationcontrollers" {
-				return nil, err
-			}
-			*msg = fmt.Sprintf("%s: if you're using \"kubectl rolling-update\" with kubectl version older than v1.4.0, your rolling update has failed, though the pods are correctly updated. Please see https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG.md#kubectl-rolling-update for a workaround", *msg)
 		}
 		return nil, err
 	}
@@ -304,7 +276,7 @@ func (e *Store) Create(ctx api.Context, obj runtime.Object) (runtime.Object, err
 // shouldDelete checks if a Update is removing all the object's finalizers. If so,
 // it further checks if the object's DeletionGracePeriodSeconds is 0. If so, it
 // returns true.
-func (e *Store) shouldDelete(ctx api.Context, key string, obj, existing runtime.Object) bool {
+func (e *Store) shouldDelete(ctx genericapirequest.Context, key string, obj, existing runtime.Object) bool {
 	if !e.EnableGarbageCollection {
 		return false
 	}
@@ -321,7 +293,7 @@ func (e *Store) shouldDelete(ctx api.Context, key string, obj, existing runtime.
 	return len(newMeta.Finalizers) == 0 && oldMeta.DeletionGracePeriodSeconds != nil && *oldMeta.DeletionGracePeriodSeconds == 0
 }
 
-func (e *Store) deleteForEmptyFinalizers(ctx api.Context, name, key string, obj runtime.Object, preconditions *storage.Preconditions) (runtime.Object, bool, error) {
+func (e *Store) deleteForEmptyFinalizers(ctx genericapirequest.Context, name, key string, obj runtime.Object, preconditions *storage.Preconditions) (runtime.Object, bool, error) {
 	out := e.NewFunc()
 	glog.V(6).Infof("going to delete %s from registry, triggered by update", name)
 	if err := e.Storage.Delete(ctx, key, out, preconditions); err != nil {
@@ -347,7 +319,7 @@ func (e *Store) deleteForEmptyFinalizers(ctx api.Context, name, key string, obj 
 // Update performs an atomic update and set of the object. Returns the result of the update
 // or an error. If the registry allows create-on-update, the create flow will be executed.
 // A bool is returned along with the object and any errors, to indicate object creation.
-func (e *Store) Update(ctx api.Context, name string, objInfo rest.UpdatedObjectInfo) (runtime.Object, bool, error) {
+func (e *Store) Update(ctx genericapirequest.Context, name string, objInfo rest.UpdatedObjectInfo) (runtime.Object, bool, error) {
 	key, err := e.KeyFunc(ctx, name)
 	if err != nil {
 		return nil, false, err
@@ -481,7 +453,7 @@ func (e *Store) Update(ctx api.Context, name string, objInfo rest.UpdatedObjectI
 }
 
 // Get retrieves the item from storage.
-func (e *Store) Get(ctx api.Context, name string, options *metav1.GetOptions) (runtime.Object, error) {
+func (e *Store) Get(ctx genericapirequest.Context, name string, options *metav1.GetOptions) (runtime.Object, error) {
 	obj := e.NewFunc()
 	key, err := e.KeyFunc(ctx, name)
 	if err != nil {
@@ -569,7 +541,7 @@ func markAsDeleting(obj runtime.Object) (err error) {
 }
 
 // this functions need to be kept synced with updateForGracefulDeletionAndFinalizers.
-func (e *Store) updateForGracefulDeletion(ctx api.Context, name, key string, options *api.DeleteOptions, preconditions storage.Preconditions, in runtime.Object) (err error, ignoreNotFound, deleteImmediately bool, out, lastExisting runtime.Object) {
+func (e *Store) updateForGracefulDeletion(ctx genericapirequest.Context, name, key string, options *api.DeleteOptions, preconditions storage.Preconditions, in runtime.Object) (err error, ignoreNotFound, deleteImmediately bool, out, lastExisting runtime.Object) {
 	lastGraceful := int64(0)
 	out = e.NewFunc()
 	err = e.Storage.GuaranteedUpdate(
@@ -616,7 +588,7 @@ func (e *Store) updateForGracefulDeletion(ctx api.Context, name, key string, opt
 }
 
 // this functions need to be kept synced with updateForGracefulDeletion.
-func (e *Store) updateForGracefulDeletionAndFinalizers(ctx api.Context, name, key string, options *api.DeleteOptions, preconditions storage.Preconditions, in runtime.Object) (err error, ignoreNotFound, deleteImmediately bool, out, lastExisting runtime.Object) {
+func (e *Store) updateForGracefulDeletionAndFinalizers(ctx genericapirequest.Context, name, key string, options *api.DeleteOptions, preconditions storage.Preconditions, in runtime.Object) (err error, ignoreNotFound, deleteImmediately bool, out, lastExisting runtime.Object) {
 	lastGraceful := int64(0)
 	var pendingFinalizers bool
 	out = e.NewFunc()
@@ -692,7 +664,7 @@ func (e *Store) updateForGracefulDeletionAndFinalizers(ctx api.Context, name, ke
 }
 
 // Delete removes the item from storage.
-func (e *Store) Delete(ctx api.Context, name string, options *api.DeleteOptions) (runtime.Object, error) {
+func (e *Store) Delete(ctx genericapirequest.Context, name string, options *api.DeleteOptions) (runtime.Object, error) {
 	key, err := e.KeyFunc(ctx, name)
 	if err != nil {
 		return nil, err
@@ -770,7 +742,7 @@ func (e *Store) Delete(ctx api.Context, name string, options *api.DeleteOptions)
 // are removing all objects of a given type) with the current API (it's technically
 // possibly with storage API, but watch is not delivered correctly then).
 // It will be possible to fix it with v3 etcd API.
-func (e *Store) DeleteCollection(ctx api.Context, options *api.DeleteOptions, listOptions *api.ListOptions) (runtime.Object, error) {
+func (e *Store) DeleteCollection(ctx genericapirequest.Context, options *api.DeleteOptions, listOptions *api.ListOptions) (runtime.Object, error) {
 	listObj, err := e.List(ctx, listOptions)
 	if err != nil {
 		return nil, err
@@ -859,7 +831,7 @@ func (e *Store) finalizeDelete(obj runtime.Object, runHooks bool) (runtime.Objec
 // WatchPredicate. If possible, you should customize PredicateFunc to produre a
 // matcher that matches by key. SelectionPredicate does this for you
 // automatically.
-func (e *Store) Watch(ctx api.Context, options *api.ListOptions) (watch.Interface, error) {
+func (e *Store) Watch(ctx genericapirequest.Context, options *api.ListOptions) (watch.Interface, error) {
 	label := labels.Everything()
 	if options != nil && options.LabelSelector != nil {
 		label = options.LabelSelector
@@ -876,12 +848,9 @@ func (e *Store) Watch(ctx api.Context, options *api.ListOptions) (watch.Interfac
 }
 
 // WatchPredicate starts a watch for the items that m matches.
-func (e *Store) WatchPredicate(ctx api.Context, p storage.SelectionPredicate, resourceVersion string) (watch.Interface, error) {
+func (e *Store) WatchPredicate(ctx genericapirequest.Context, p storage.SelectionPredicate, resourceVersion string) (watch.Interface, error) {
 	if name, ok := p.MatchesSingle(); ok {
 		if key, err := e.KeyFunc(ctx, name); err == nil {
-			if err != nil {
-				return nil, err
-			}
 			w, err := e.Storage.Watch(ctx, key, resourceVersion, p)
 			if err != nil {
 				return nil, err
@@ -936,7 +905,7 @@ func exportObjectMeta(accessor meta.Object, exact bool) {
 }
 
 // Implements the rest.Exporter interface
-func (e *Store) Export(ctx api.Context, name string, opts metav1.ExportOptions) (runtime.Object, error) {
+func (e *Store) Export(ctx genericapirequest.Context, name string, opts metav1.ExportOptions) (runtime.Object, error) {
 	obj, err := e.Get(ctx, name, &metav1.GetOptions{})
 	if err != nil {
 		return nil, err
@@ -1006,17 +975,17 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
 	// Set the default behavior for storage key generation
 	if e.KeyRootFunc == nil && e.KeyFunc == nil {
 		if isNamespaced {
-			e.KeyRootFunc = func(ctx api.Context) string {
+			e.KeyRootFunc = func(ctx genericapirequest.Context) string {
 				return NamespaceKeyRootFunc(ctx, prefix)
 			}
-			e.KeyFunc = func(ctx api.Context, name string) (string, error) {
+			e.KeyFunc = func(ctx genericapirequest.Context, name string) (string, error) {
 				return NamespaceKeyFunc(ctx, prefix, name)
 			}
 		} else {
-			e.KeyRootFunc = func(ctx api.Context) string {
+			e.KeyRootFunc = func(ctx genericapirequest.Context) string {
 				return prefix
 			}
-			e.KeyFunc = func(ctx api.Context, name string) (string, error) {
+			e.KeyFunc = func(ctx genericapirequest.Context, name string) (string, error) {
 				return NoNamespaceKeyFunc(ctx, prefix, name)
 			}
 		}
@@ -1031,10 +1000,10 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
 		}
 
 		if isNamespaced {
-			return e.KeyFunc(api.WithNamespace(api.NewContext(), accessor.GetNamespace()), accessor.GetName())
+			return e.KeyFunc(genericapirequest.WithNamespace(genericapirequest.NewContext(), accessor.GetNamespace()), accessor.GetName())
 		}
 
-		return e.KeyFunc(api.NewContext(), accessor.GetName())
+		return e.KeyFunc(genericapirequest.NewContext(), accessor.GetName())
 	}
 
 	triggerFunc := options.TriggerFunc

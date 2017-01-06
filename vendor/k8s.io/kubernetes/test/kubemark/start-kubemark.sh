@@ -25,36 +25,31 @@ source "${KUBE_ROOT}/test/kubemark/common.sh"
 function writeEnvironmentFile() {
   cat > "${RESOURCE_DIRECTORY}/kubemark-master-env.sh" <<EOF
 # Generic variables.
-INSTANCE_PREFIX=${INSTANCE_PREFIX}
-SERVICE_CLUSTER_IP_RANGE=${SERVICE_CLUSTER_IP_RANGE}
+INSTANCE_PREFIX="${INSTANCE_PREFIX:-}"
+SERVICE_CLUSTER_IP_RANGE="${SERVICE_CLUSTER_IP_RANGE:-}"
 
 # Etcd related variables.
-ETCD_IMAGE=2.2.1
+ETCD_IMAGE="${ETCD_IMAGE:-2.2.1}"
+ETCD_VERSION="${ETCD_VERSION:-}"
 
 # Controller-manager related variables.
-CONTROLLER_MANAGER_TEST_ARGS="${CONTROLLER_MANAGER_TEST_ARGS}"
-ALLOCATE_NODE_CIDRS=${ALLOCATE_NODE_CIDRS}
-CLUSTER_IP_RANGE=${CLUSTER_IP_RANGE}
-TERMINATED_POD_GC_THRESHOLD=${TERMINATED_POD_GC_THRESHOLD}
+CONTROLLER_MANAGER_TEST_ARGS="${CONTROLLER_MANAGER_TEST_ARGS:-}"
+ALLOCATE_NODE_CIDRS="${ALLOCATE_NODE_CIDRS:-}"
+CLUSTER_IP_RANGE="${CLUSTER_IP_RANGE:-}"
+TERMINATED_POD_GC_THRESHOLD="${TERMINATED_POD_GC_THRESHOLD:-}"
 
 # Scheduler related variables.
-SCHEDULER_TEST_ARGS="${SCHEDULER_TEST_ARGS}"
+SCHEDULER_TEST_ARGS="${SCHEDULER_TEST_ARGS:-}"
 
 # Apiserver related variables.
-APISERVER_TEST_ARGS="${APISERVER_TEST_ARGS}"
-STORAGE_BACKEND=${STORAGE_BACKEND}
-NUM_NODES=${NUM_NODES}
+APISERVER_TEST_ARGS="${APISERVER_TEST_ARGS:-}"
+STORAGE_BACKEND="${STORAGE_BACKEND:-}"
+NUM_NODES="${NUM_NODES:-}"
+CUSTOM_ADMISSION_PLUGINS="${CUSTOM_ADMISSION_PLUGINS:-NamespaceLifecycle,LimitRanger,ServiceAccount,ResourceQuota}"
 EOF
-if [ -z "${CUSTOM_ADMISSION_PLUGINS:-}" ]; then
-  cat >> "${RESOURCE_DIRECTORY}/kubemark-master-env.sh" <<EOF
-CUSTOM_ADMISSION_PLUGINS=NamespaceLifecycle,LimitRanger,ServiceAccount,ResourceQuota
-EOF
-else
-  cat >> "${RESOURCE_DIRECTORY}/kubemark-master-env.sh" <<EOF
-CUSTOM_ADMISSION_PLUGINS=${CUSTOM_ADMISSION_PLUGINS}
-EOF
-fi
 }
+
+writeEnvironmentFile
 
 MAKE_DIR="${KUBE_ROOT}/cluster/images/kubemark"
 
@@ -150,18 +145,17 @@ done
 password=$(python -c 'import string,random; print("".join(random.SystemRandom().choice(string.ascii_letters + string.digits) for _ in range(16)))')
 
 gcloud compute ssh --zone="${ZONE}" --project="${PROJECT}" "${MASTER_NAME}" \
-  --command="sudo mkdir /home/kubernetes -p && sudo mkdir /srv/kubernetes -p && \
-    sudo bash -c \"echo ${MASTER_CERT_BASE64} | base64 --decode > /srv/kubernetes/server.cert\" && \
-    sudo bash -c \"echo ${MASTER_KEY_BASE64} | base64 --decode > /srv/kubernetes/server.key\" && \
-    sudo bash -c \"echo ${CA_CERT_BASE64} | base64 --decode > /srv/kubernetes/ca.crt\" && \
-    sudo bash -c \"echo ${KUBECFG_CERT_BASE64} | base64 --decode > /srv/kubernetes/kubecfg.crt\" && \
-    sudo bash -c \"echo ${KUBECFG_KEY_BASE64} | base64 --decode > /srv/kubernetes/kubecfg.key\" && \
-    sudo bash -c \"echo \"${KUBE_BEARER_TOKEN},admin,admin\" > /srv/kubernetes/known_tokens.csv\" && \
-    sudo bash -c \"echo \"${KUBELET_TOKEN},kubelet,kubelet\" >> /srv/kubernetes/known_tokens.csv\" && \
-    sudo bash -c \"echo \"${KUBE_PROXY_TOKEN},kube_proxy,kube_proxy\" >> /srv/kubernetes/known_tokens.csv\" && \
-    sudo bash -c \"echo ${password},admin,admin > /srv/kubernetes/basic_auth.csv\""
+  --command="sudo mkdir /home/kubernetes -p && sudo mkdir /etc/srv/kubernetes -p && \
+    sudo bash -c \"echo ${MASTER_CERT_BASE64} | base64 --decode > /etc/srv/kubernetes/server.cert\" && \
+    sudo bash -c \"echo ${MASTER_KEY_BASE64} | base64 --decode > /etc/srv/kubernetes/server.key\" && \
+    sudo bash -c \"echo ${CA_CERT_BASE64} | base64 --decode > /etc/srv/kubernetes/ca.crt\" && \
+    sudo bash -c \"echo ${KUBECFG_CERT_BASE64} | base64 --decode > /etc/srv/kubernetes/kubecfg.crt\" && \
+    sudo bash -c \"echo ${KUBECFG_KEY_BASE64} | base64 --decode > /etc/srv/kubernetes/kubecfg.key\" && \
+    sudo bash -c \"echo \"${KUBE_BEARER_TOKEN},admin,admin\" > /etc/srv/kubernetes/known_tokens.csv\" && \
+    sudo bash -c \"echo \"${KUBELET_TOKEN},kubelet,kubelet\" >> /etc/srv/kubernetes/known_tokens.csv\" && \
+    sudo bash -c \"echo \"${KUBE_PROXY_TOKEN},kube_proxy,kube_proxy\" >> /etc/srv/kubernetes/known_tokens.csv\" && \
+    sudo bash -c \"echo ${password},admin,admin > /etc/srv/kubernetes/basic_auth.csv\""
 
-writeEnvironmentFile
 
 gcloud compute copy-files --zone="${ZONE}" --project="${PROJECT}" \
   "${SERVER_BINARY_TAR}" \
@@ -173,12 +167,12 @@ gcloud compute copy-files --zone="${ZONE}" --project="${PROJECT}" \
   "${RESOURCE_DIRECTORY}/manifests/kube-apiserver.yaml" \
   "${RESOURCE_DIRECTORY}/manifests/kube-scheduler.yaml" \
   "${RESOURCE_DIRECTORY}/manifests/kube-controller-manager.yaml" \
-  "root@${MASTER_NAME}":/home/kubernetes/
+  "kubernetes@${MASTER_NAME}":/home/kubernetes/
 
 gcloud compute ssh "${MASTER_NAME}" --zone="${ZONE}" --project="${PROJECT}" \
   --command="sudo chmod a+x /home/kubernetes/configure-kubectl.sh && \
     sudo chmod a+x /home/kubernetes/start-kubemark-master.sh && \
-    sudo /home/kubernetes/start-kubemark-master.sh"
+    sudo bash /home/kubernetes/start-kubemark-master.sh"
 
 # create kubeconfig for Kubelet:
 KUBECONFIG_CONTENTS=$(echo "apiVersion: v1
@@ -270,6 +264,7 @@ sed -i'' -e "s/{{EVENTER_MEM}}/${eventer_mem}/g" "${RESOURCE_DIRECTORY}/addons/h
 "${KUBECTL}" create -f "${KUBECONFIG_SECRET}" --namespace="kubemark"
 "${KUBECTL}" create -f "${NODE_CONFIGMAP}" --namespace="kubemark"
 "${KUBECTL}" create -f "${RESOURCE_DIRECTORY}/addons" --namespace="kubemark"
+"${KUBECTL}" create configmap node-problem-detector-config --from-file="${RESOURCE_DIRECTORY}/kernel-monitor.json" --namespace="kubemark"
 "${KUBECTL}" create -f "${RESOURCE_DIRECTORY}/hollow-node.json" --namespace="kubemark"
 
 rm "${KUBECONFIG_SECRET}"

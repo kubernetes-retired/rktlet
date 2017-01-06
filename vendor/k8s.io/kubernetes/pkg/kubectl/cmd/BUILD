@@ -30,6 +30,7 @@ go_library(
         "create_namespace.go",
         "create_pdb.go",
         "create_quota.go",
+        "create_rolebinding.go",
         "create_secret.go",
         "create_service.go",
         "create_serviceaccount.go",
@@ -101,6 +102,7 @@ go_library(
         "//pkg/util/errors:go_default_library",
         "//pkg/util/exec:go_default_library",
         "//pkg/util/flag:go_default_library",
+        "//pkg/util/i18n:go_default_library",
         "//pkg/util/interrupt:go_default_library",
         "//pkg/util/intstr:go_default_library",
         "//pkg/util/sets:go_default_library",
@@ -164,10 +166,9 @@ go_test(
         "//examples:config",
         "//test/fixtures",
     ],
-    library = "go_default_library",
+    library = ":go_default_library",
     tags = [
         "automanaged",
-        "skip",
     ],
     deps = [
         "//pkg/api:go_default_library",

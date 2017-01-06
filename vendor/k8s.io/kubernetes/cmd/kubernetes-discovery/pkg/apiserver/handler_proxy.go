@@ -21,10 +21,10 @@ import (
 	"net/url"
 	"sync"
 
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/apiserver"
 	"k8s.io/kubernetes/pkg/client/restclient"
 	"k8s.io/kubernetes/pkg/client/transport"
+	"k8s.io/kubernetes/pkg/genericapiserver/api/handlers/responsewriters"
+	genericapirequest "k8s.io/kubernetes/pkg/genericapiserver/api/request"
 	genericrest "k8s.io/kubernetes/pkg/registry/generic/rest"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/util/httpstream/spdy"
@@ -35,7 +35,7 @@ import (
 // proxyHandler provides a http.Handler which will proxy traffic to locations
 // specified by items implementing Redirector.
 type proxyHandler struct {
-	contextMapper api.RequestContextMapper
+	contextMapper genericapirequest.RequestContextMapper
 
 	// proxyClientCert/Key are the client cert used to identify this proxy. Backing APIServices use
 	// this to confirm the proxy's identity
@@ -71,7 +71,7 @@ func (r *proxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "missing context", http.StatusInternalServerError)
 		return
 	}
-	user, ok := api.UserFrom(ctx)
+	user, ok := genericapirequest.UserFrom(ctx)
 	if !ok {
 		http.Error(w, "missing user", http.StatusInternalServerError)
 		return
@@ -98,8 +98,20 @@ func (r *proxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	upgrade := false
 	// we need to wrap the roundtripper in another roundtripper which will apply the front proxy headers
-	proxyRoundTripper = transport.NewAuthProxyRoundTripper(user.GetName(), user.GetGroups(), user.GetExtra(), proxyRoundTripper)
 	proxyRoundTripper, upgrade, err = r.maybeWrapForConnectionUpgrades(proxyRoundTripper, req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	proxyRoundTripper = transport.NewAuthProxyRoundTripper(user.GetName(), user.GetGroups(), user.GetExtra(), proxyRoundTripper)
+
+	// if we are upgrading, then the upgrade path tries to use this request with the TLS config we provide, but it does
+	// NOT use the roundtripper.  Its a direct call that bypasses the round tripper.  This means that we have to
+	// attach the "correct" user headers to the request ahead of time.  After the initial upgrade, we'll be back
+	// at the roundtripper flow, so we only have to muck with this request, but we do have to do it.
+	if upgrade {
+		transport.SetAuthProxyHeaders(newReq, user.GetName(), user.GetGroups(), user.GetExtra())
+	}
 
 	handler := genericrest.NewUpgradeAwareProxyHandler(location, proxyRoundTripper, true, upgrade, &responder{w: w})
 	handler.ServeHTTP(w, newReq)
@@ -142,7 +154,7 @@ type responder struct {
 // TODO this should properly handle content type negotiation
 // if the caller asked for protobuf and you write JSON bad things happen.
 func (r *responder) Object(statusCode int, obj runtime.Object) {
-	apiserver.WriteRawJSON(statusCode, obj, r.w)
+	responsewriters.WriteRawJSON(statusCode, obj, r.w)
 }
 
 func (r *responder) Error(err error) {

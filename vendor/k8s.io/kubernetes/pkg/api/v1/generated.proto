@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors.
+Copyright 2017 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -2517,6 +2517,10 @@ message PodSpec {
   // If not specified, the pod will not have a domainname at all.
   // +optional
   optional string subdomain = 17;
+
+  // If specified, the pod's scheduling constraints
+  // +optional
+  optional Affinity affinity = 18;
 }
 
 // PodStatus represents information about the status of a pod. Status may trail the actual

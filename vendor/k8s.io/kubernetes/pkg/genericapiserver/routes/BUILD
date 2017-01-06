@@ -5,7 +5,6 @@ licenses(["notice"])
 load(
     "@io_bazel_rules_go//go:def.bzl",
     "go_library",
-    "go_test",
 )
 
 go_library(
@@ -23,8 +22,8 @@ go_library(
     tags = ["automanaged"],
     deps = [
         "//pkg/apis/meta/v1:go_default_library",
-        "//pkg/apiserver:go_default_library",
-        "//pkg/apiserver/metrics:go_default_library",
+        "//pkg/genericapiserver/api/handlers/responsewriters:go_default_library",
+        "//pkg/genericapiserver/api/metrics:go_default_library",
         "//pkg/genericapiserver/mux:go_default_library",
         "//pkg/genericapiserver/openapi:go_default_library",
         "//pkg/genericapiserver/openapi/common:go_default_library",
@@ -36,16 +35,5 @@ go_library(
         "//vendor:github.com/emicklei/go-restful/swagger",
         "//vendor:github.com/golang/glog",
         "//vendor:github.com/prometheus/client_golang/prometheus",
-    ],
-)
-
-go_test(
-    name = "go_default_test",
-    srcs = ["swagger_test.go"],
-    library = "go_default_library",
-    tags = ["automanaged"],
-    deps = [
-        "//pkg/genericapiserver/mux:go_default_library",
-        "//vendor:github.com/stretchr/testify/assert",
     ],
 )

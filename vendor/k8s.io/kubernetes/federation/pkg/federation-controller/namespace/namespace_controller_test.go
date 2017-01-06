@@ -22,15 +22,15 @@ import (
 	"time"
 
 	federationapi "k8s.io/kubernetes/federation/apis/federation/v1beta1"
-	fakefedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_release_1_5/fake"
+	fakefedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset/fake"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util/deletionhelper"
 	. "k8s.io/kubernetes/federation/pkg/federation-controller/util/test"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 	extensionsv1 "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	kubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
-	fakekubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5/fake"
+	kubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	fakekubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/fake"
 	"k8s.io/kubernetes/pkg/client/testing/core"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/util/wait"
@@ -62,7 +62,7 @@ func TestNamespaceController(t *testing.T) {
 	cluster1Watch := RegisterFakeWatch("namespaces", &cluster1Client.Fake)
 	RegisterFakeList("namespaces", &cluster1Client.Fake, &apiv1.NamespaceList{Items: []apiv1.Namespace{}})
 	cluster1CreateChan := RegisterFakeCopyOnCreate("namespaces", &cluster1Client.Fake, cluster1Watch)
-	//	cluster1UpdateChan := RegisterFakeCopyOnUpdate("namespaces", &cluster1Client.Fake, cluster1Watch)
+	cluster1UpdateChan := RegisterFakeCopyOnUpdate("namespaces", &cluster1Client.Fake, cluster1Watch)
 
 	cluster2Client := &fakekubeclientset.Clientset{}
 	cluster2Watch := RegisterFakeWatch("namespaces", &cluster2Client.Fake)
@@ -132,25 +132,19 @@ func TestNamespaceController(t *testing.T) {
 		cluster1.Name, ns1.Name, wait.ForeverTestTimeout)
 	assert.Nil(t, err, "namespace should have appeared in the informer store")
 
-	/*
-		        // TODO: Uncomment this once we have figured out why this is flaky.
-			// Test update federated namespace.
-			ns1.Annotations = map[string]string{
-				"A": "B",
-			}
-			namespaceWatch.Modify(&ns1)
-			updatedNamespace = GetNamespaceFromChan(cluster1UpdateChan)
-			assert.NotNil(t, updatedNamespace)
-			assert.Equal(t, ns1.Name, updatedNamespace.Name)
-			// assert.Contains(t, updatedNamespace.Annotations, "A")
-	*/
+	// Test update federated namespace.
+	ns1.Annotations = map[string]string{
+		"A": "B",
+	}
+	namespaceWatch.Modify(&ns1)
+	assert.NoError(t, CheckObjectFromChan(cluster1UpdateChan, MetaAndSpecCheckingFunction(&ns1)))
 
 	// Test add cluster
 	clusterWatch.Add(cluster2)
 	createdNamespace2 := GetNamespaceFromChan(cluster2CreateChan)
 	assert.NotNil(t, createdNamespace2)
 	assert.Equal(t, ns1.Name, createdNamespace2.Name)
-	// assert.Contains(t, createdNamespace2.Annotations, "A")
+	assert.Contains(t, createdNamespace2.Annotations, "A")
 
 	// Delete the namespace with orphan finalizer (let namespaces
 	// in underlying clusters be as is).

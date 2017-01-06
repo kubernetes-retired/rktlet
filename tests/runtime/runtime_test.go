@@ -39,7 +39,7 @@ func TestHostNetwork(t *testing.T) {
 	// Test the container's output is what we expect
 	runConfig := &runtime.ContainerConfig{
 		Image: &runtime.ImageSpec{
-			Image: strptr(framework.TestImageBusybox),
+			Image: strptr(tc.ImageRef(framework.TestImageBusybox)),
 		},
 		Command: []string{"sh", "-c", `cat /etc/hosts`},
 		Metadata: &runtime.ContainerMetadata{
@@ -118,7 +118,7 @@ func TestPrivileged(t *testing.T) {
 	for i, testCase := range privilegedCases {
 		runConfig := &runtime.ContainerConfig{
 			Image: &runtime.ImageSpec{
-				Image: strptr(framework.TestImageFedora),
+				Image: strptr(tc.ImageRef(framework.TestImageFedora)),
 			},
 			Command: []string{"sh", "-c", testCase.Command},
 			Metadata: &runtime.ContainerMetadata{

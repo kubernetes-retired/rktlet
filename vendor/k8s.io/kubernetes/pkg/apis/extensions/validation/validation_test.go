@@ -80,6 +80,7 @@ func TestValidateDaemonSetStatusUpdate(t *testing.T) {
 					NumberMisscheduled:     2,
 					DesiredNumberScheduled: 3,
 					NumberReady:            1,
+					ObservedGeneration:     3,
 				},
 			},
 			update: extensions.DaemonSet{
@@ -93,6 +94,157 @@ func TestValidateDaemonSetStatusUpdate(t *testing.T) {
 					NumberMisscheduled:     -1,
 					DesiredNumberScheduled: -3,
 					NumberReady:            -1,
+					ObservedGeneration:     -3,
+				},
+			},
+		},
+		"negative CurrentNumberScheduled": {
+			old: extensions.DaemonSet{
+				ObjectMeta: api.ObjectMeta{
+					Name:            "abc",
+					Namespace:       api.NamespaceDefault,
+					ResourceVersion: "10",
+				},
+				Status: extensions.DaemonSetStatus{
+					CurrentNumberScheduled: 1,
+					NumberMisscheduled:     2,
+					DesiredNumberScheduled: 3,
+					NumberReady:            1,
+					ObservedGeneration:     3,
+				},
+			},
+			update: extensions.DaemonSet{
+				ObjectMeta: api.ObjectMeta{
+					Name:            "abc",
+					Namespace:       api.NamespaceDefault,
+					ResourceVersion: "10",
+				},
+				Status: extensions.DaemonSetStatus{
+					CurrentNumberScheduled: -1,
+					NumberMisscheduled:     1,
+					DesiredNumberScheduled: 3,
+					NumberReady:            1,
+					ObservedGeneration:     3,
+				},
+			},
+		},
+		"negative NumberMisscheduled": {
+			old: extensions.DaemonSet{
+				ObjectMeta: api.ObjectMeta{
+					Name:            "abc",
+					Namespace:       api.NamespaceDefault,
+					ResourceVersion: "10",
+				},
+				Status: extensions.DaemonSetStatus{
+					CurrentNumberScheduled: 1,
+					NumberMisscheduled:     2,
+					DesiredNumberScheduled: 3,
+					NumberReady:            1,
+					ObservedGeneration:     3,
+				},
+			},
+			update: extensions.DaemonSet{
+				ObjectMeta: api.ObjectMeta{
+					Name:            "abc",
+					Namespace:       api.NamespaceDefault,
+					ResourceVersion: "10",
+				},
+				Status: extensions.DaemonSetStatus{
+					CurrentNumberScheduled: 1,
+					NumberMisscheduled:     -1,
+					DesiredNumberScheduled: 3,
+					NumberReady:            1,
+					ObservedGeneration:     3,
+				},
+			},
+		},
+		"negative DesiredNumberScheduled": {
+			old: extensions.DaemonSet{
+				ObjectMeta: api.ObjectMeta{
+					Name:            "abc",
+					Namespace:       api.NamespaceDefault,
+					ResourceVersion: "10",
+				},
+				Status: extensions.DaemonSetStatus{
+					CurrentNumberScheduled: 1,
+					NumberMisscheduled:     2,
+					DesiredNumberScheduled: 3,
+					NumberReady:            1,
+					ObservedGeneration:     3,
+				},
+			},
+			update: extensions.DaemonSet{
+				ObjectMeta: api.ObjectMeta{
+					Name:            "abc",
+					Namespace:       api.NamespaceDefault,
+					ResourceVersion: "10",
+				},
+				Status: extensions.DaemonSetStatus{
+					CurrentNumberScheduled: 1,
+					NumberMisscheduled:     1,
+					DesiredNumberScheduled: -3,
+					NumberReady:            1,
+					ObservedGeneration:     3,
+				},
+			},
+		},
+		"negative NumberReady": {
+			old: extensions.DaemonSet{
+				ObjectMeta: api.ObjectMeta{
+					Name:            "abc",
+					Namespace:       api.NamespaceDefault,
+					ResourceVersion: "10",
+				},
+				Status: extensions.DaemonSetStatus{
+					CurrentNumberScheduled: 1,
+					NumberMisscheduled:     2,
+					DesiredNumberScheduled: 3,
+					NumberReady:            1,
+					ObservedGeneration:     3,
+				},
+			},
+			update: extensions.DaemonSet{
+				ObjectMeta: api.ObjectMeta{
+					Name:            "abc",
+					Namespace:       api.NamespaceDefault,
+					ResourceVersion: "10",
+				},
+				Status: extensions.DaemonSetStatus{
+					CurrentNumberScheduled: 1,
+					NumberMisscheduled:     1,
+					DesiredNumberScheduled: 3,
+					NumberReady:            -1,
+					ObservedGeneration:     3,
+				},
+			},
+		},
+		"negative ObservedGeneration": {
+			old: extensions.DaemonSet{
+				ObjectMeta: api.ObjectMeta{
+					Name:            "abc",
+					Namespace:       api.NamespaceDefault,
+					ResourceVersion: "10",
+				},
+				Status: extensions.DaemonSetStatus{
+					CurrentNumberScheduled: 1,
+					NumberMisscheduled:     2,
+					DesiredNumberScheduled: 3,
+					NumberReady:            1,
+					ObservedGeneration:     3,
+				},
+			},
+			update: extensions.DaemonSet{
+				ObjectMeta: api.ObjectMeta{
+					Name:            "abc",
+					Namespace:       api.NamespaceDefault,
+					ResourceVersion: "10",
+				},
+				Status: extensions.DaemonSetStatus{
+					CurrentNumberScheduled: 1,
+					NumberMisscheduled:     1,
+					DesiredNumberScheduled: 3,
+					NumberReady:            1,
+					ObservedGeneration:     -3,
 				},
 			},
 		},
@@ -638,7 +790,7 @@ func TestValidateDeployment(t *testing.T) {
 			MaxSurge: intstr.FromString("20Percent"),
 		},
 	}
-	errorCases["must match the regex"] = invalidMaxSurgeDeployment
+	errorCases["a valid percent string must be"] = invalidMaxSurgeDeployment
 
 	// MaxSurge and MaxUnavailable cannot both be zero.
 	invalidRollingUpdateDeployment := validDeployment()

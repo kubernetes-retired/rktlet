@@ -217,8 +217,9 @@ func NewMaxPDVolumeCountPredicate(filter VolumeFilter, maxVolumes int, pvInfo Pe
 }
 
 func (c *MaxPDVolumeCountChecker) filterVolumes(volumes []v1.Volume, namespace string, filteredVolumes map[string]bool) error {
-	for _, vol := range volumes {
-		if id, ok := c.filter.FilterVolume(&vol); ok {
+	for i := range volumes {
+		vol := &volumes[i]
+		if id, ok := c.filter.FilterVolume(vol); ok {
 			filteredVolumes[id] = true
 		} else if vol.PersistentVolumeClaim != nil {
 			pvcName := vol.PersistentVolumeClaim.ClaimName
@@ -582,14 +583,6 @@ func podMatchesNodeLabels(pod *v1.Pod, node *v1.Node) bool {
 		}
 	}
 
-	// Parse required node affinity scheduling requirements
-	// and check if the current node match the requirements.
-	affinity, err := v1.GetAffinityFromPodAnnotations(pod.Annotations)
-	if err != nil {
-		glog.V(10).Infof("Failed to get Affinity from Pod %+v, err: %+v", podName(pod), err)
-		return false
-	}
-
 	// 1. nil NodeSelector matches all nodes (i.e. does not filter out any nodes)
 	// 2. nil []NodeSelectorTerm (equivalent to non-nil empty NodeSelector) matches no nodes
 	// 3. zero-length non-nil []NodeSelectorTerm matches no nodes also, just for simplicity
@@ -597,6 +590,7 @@ func podMatchesNodeLabels(pod *v1.Pod, node *v1.Node) bool {
 	// 5. zero-length non-nil []NodeSelectorRequirement matches no nodes also, just for simplicity
 	// 6. non-nil empty NodeSelectorRequirement is not allowed
 	nodeAffinityMatches := true
+	affinity := pod.Spec.Affinity
 	if affinity != nil && affinity.NodeAffinity != nil {
 		nodeAffinity := affinity.NodeAffinity
 		// if no required NodeAffinity requirements, will do no-op, means select all nodes.
@@ -736,6 +730,11 @@ func NewServiceAffinityPredicate(podLister algorithm.PodLister, serviceLister al
 // (i.e. it returns true IFF this pod can be added to this node such that all other pods in
 // the same service are running on nodes with
 // the exact same ServiceAffinity.label values).
+//
+// For example:
+// If the first pod of a service was scheduled to a node with label "region=foo",
+// all the other subsequent pods belong to the same service will be schedule on
+// nodes with the same "region=foo" label.
 //
 // Details:
 //
@@ -1118,6 +1117,11 @@ func (c *PodAffinityChecker) satisfiesPodsAffinityAntiAffinity(pod *v1.Pod, node
 			// If the requirement matches a pod's own labels are namespace, and there are
 			// no other such pods, then disregard the requirement. This is necessary to
 			// not block forever because the first pod of the collection can't be scheduled.
+			if matchingPodExists {
+				glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAffinityTerm %v, err: %v",
+					podName(pod), node.Name, term, err)
+				return false
+			}
 			namespaces := priorityutil.GetNamespacesFromPodAffinityTerm(pod, &term)
 			selector, err := metav1.LabelSelectorAsSelector(term.LabelSelector)
 			if err != nil {
@@ -1126,7 +1130,7 @@ func (c *PodAffinityChecker) satisfiesPodsAffinityAntiAffinity(pod *v1.Pod, node
 				return false
 			}
 			match := priorityutil.PodMatchesTermsNamespaceAndSelector(pod, namespaces, selector)
-			if !match || matchingPodExists {
+			if !match {
 				glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAffinityTerm %v, err: %v",
 					podName(pod), node.Name, term, err)
 				return false

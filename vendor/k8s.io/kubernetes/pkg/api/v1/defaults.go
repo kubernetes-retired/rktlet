@@ -112,7 +112,6 @@ func SetDefaults_Container(obj *Container) {
 		_, tag, _, _ := parsers.ParseImageName(obj.Image)
 
 		// Check image tag
-
 		if tag == "latest" {
 			obj.ImagePullPolicy = PullAlways
 		} else {
@@ -174,6 +173,9 @@ func SetDefaults_PodSpec(obj *PodSpec) {
 	if obj.TerminationGracePeriodSeconds == nil {
 		period := int64(DefaultTerminationGracePeriodSeconds)
 		obj.TerminationGracePeriodSeconds = &period
+	}
+	if obj.Affinity == nil {
+		obj.Affinity = &Affinity{}
 	}
 }
 func SetDefaults_Probe(obj *Probe) {

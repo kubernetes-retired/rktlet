@@ -88,6 +88,7 @@ func NewCmdCreate(f cmdutil.Factory, out, errOut io.Writer) *cobra.Command {
 	cmd.AddCommand(NewCmdCreateService(f, out, errOut))
 	cmd.AddCommand(NewCmdCreateDeployment(f, out))
 	cmd.AddCommand(NewCmdCreateClusterRoleBinding(f, out))
+	cmd.AddCommand(NewCmdCreateRoleBinding(f, out))
 	cmd.AddCommand(NewCmdCreatePodDisruptionBudget(f, out))
 	return cmd
 }
@@ -130,6 +131,7 @@ func RunCreate(f cmdutil.Factory, cmd *cobra.Command, out, errOut io.Writer, opt
 	}
 
 	dryRun := cmdutil.GetFlagBool(cmd, "dry-run")
+	output := cmdutil.GetFlagString(cmd, "output")
 
 	count := 0
 	err = r.Visit(func(info *resource.Info, err error) error {
@@ -153,7 +155,11 @@ func RunCreate(f cmdutil.Factory, cmd *cobra.Command, out, errOut io.Writer, opt
 		}
 
 		count++
-		shortOutput := cmdutil.GetFlagString(cmd, "output") == "name"
+
+		shortOutput := output == "name"
+		if len(output) > 0 && !shortOutput {
+			return cmdutil.PrintResourceInfoForCommand(cmd, info, f, out)
+		}
 		if !shortOutput {
 			f.PrintObjectSpecificMessage(info.Object, out)
 		}

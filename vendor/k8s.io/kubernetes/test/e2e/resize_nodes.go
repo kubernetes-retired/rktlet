@@ -27,7 +27,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/util/intstr"
 	"k8s.io/kubernetes/test/e2e/framework"
 
@@ -120,8 +120,8 @@ func GroupSize(group string) (int, error) {
 }
 
 func WaitForGroupSize(group string, size int32) error {
-	timeout := 10 * time.Minute
-	for start := time.Now(); time.Since(start) < timeout; time.Sleep(5 * time.Second) {
+	timeout := 30 * time.Minute
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(20 * time.Second) {
 		currentSize, err := GroupSize(group)
 		if err != nil {
 			framework.Logf("Failed to get node instance group size: %v", err)

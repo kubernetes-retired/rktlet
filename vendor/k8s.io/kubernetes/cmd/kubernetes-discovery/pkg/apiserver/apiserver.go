@@ -21,11 +21,14 @@ import (
 	"os"
 	"time"
 
-	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/rest"
-	apiserverfilters "k8s.io/kubernetes/pkg/apiserver/filters"
 	authhandlers "k8s.io/kubernetes/pkg/auth/handlers"
+	kubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	kubeinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated"
+	v1listers "k8s.io/kubernetes/pkg/client/listers/core/v1"
 	"k8s.io/kubernetes/pkg/genericapiserver"
+	genericapifilters "k8s.io/kubernetes/pkg/genericapiserver/api/filters"
+	genericapirequest "k8s.io/kubernetes/pkg/genericapiserver/api/request"
 	genericfilters "k8s.io/kubernetes/pkg/genericapiserver/filters"
 	"k8s.io/kubernetes/pkg/registry/generic"
 	"k8s.io/kubernetes/pkg/util/wait"
@@ -33,8 +36,8 @@ import (
 
 	"k8s.io/kubernetes/cmd/kubernetes-discovery/pkg/apis/apiregistration"
 	"k8s.io/kubernetes/cmd/kubernetes-discovery/pkg/apis/apiregistration/v1alpha1"
+	discoveryclientset "k8s.io/kubernetes/cmd/kubernetes-discovery/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/cmd/kubernetes-discovery/pkg/client/clientset_generated/internalclientset"
-	clientset "k8s.io/kubernetes/cmd/kubernetes-discovery/pkg/client/clientset_generated/release_1_5"
 	"k8s.io/kubernetes/cmd/kubernetes-discovery/pkg/client/informers"
 	listers "k8s.io/kubernetes/cmd/kubernetes-discovery/pkg/client/listers/apiregistration/internalversion"
 	apiservicestorage "k8s.io/kubernetes/cmd/kubernetes-discovery/pkg/registry/apiservice/etcd"
@@ -44,7 +47,8 @@ import (
 const legacyAPIServiceName = "v1."
 
 type Config struct {
-	GenericConfig *genericapiserver.Config
+	GenericConfig       *genericapiserver.Config
+	CoreAPIServerClient kubeclientset.Interface
 
 	// ProxyClientCert/Key are the client cert used to identify this proxy. Backing APIServices use
 	// this to confirm the proxy's identity
@@ -59,7 +63,7 @@ type Config struct {
 type APIDiscoveryServer struct {
 	GenericAPIServer *genericapiserver.GenericAPIServer
 
-	contextMapper api.RequestContextMapper
+	contextMapper genericapirequest.RequestContextMapper
 
 	// proxyClientCert/Key are the client cert used to identify this proxy. Backing APIServices use
 	// this to confirm the proxy's identity
@@ -72,6 +76,11 @@ type APIDiscoveryServer struct {
 	// lister is used to add group handling for /apis/<group> discovery lookups based on
 	// controller state
 	lister listers.APIServiceLister
+
+	// serviceLister is used by the discovery handler to determine whether or not to try to expose the group
+	serviceLister v1listers.ServiceLister
+	// endpointsLister is used by the discovery handler to determine whether or not to try to expose the group
+	endpointsLister v1listers.EndpointsLister
 
 	// proxyMux intercepts requests that need to be proxied to backing API servers
 	proxyMux *http.ServeMux
@@ -100,16 +109,19 @@ func (c *Config) SkipComplete() completedConfig {
 func (c completedConfig) New() (*APIDiscoveryServer, error) {
 	informerFactory := informers.NewSharedInformerFactory(
 		internalclientset.NewForConfigOrDie(c.Config.GenericConfig.LoopbackClientConfig),
-		clientset.NewForConfigOrDie(c.Config.GenericConfig.LoopbackClientConfig),
+		discoveryclientset.NewForConfigOrDie(c.Config.GenericConfig.LoopbackClientConfig),
 		5*time.Minute, // this is effectively used as a refresh interval right now.  Might want to do something nicer later on.
 	)
+	kubeInformers := kubeinformers.NewSharedInformerFactory(nil, c.CoreAPIServerClient, 5*time.Minute)
 
 	proxyMux := http.NewServeMux()
 
 	// most API servers don't need to do this, but we need a custom handler chain to handle the special /apis handling here
 	c.Config.GenericConfig.BuildHandlerChainsFunc = (&handlerChainConfig{
-		informers: informerFactory,
-		proxyMux:  proxyMux,
+		informers:       informerFactory,
+		proxyMux:        proxyMux,
+		serviceLister:   kubeInformers.Core().V1().Services().Lister(),
+		endpointsLister: kubeInformers.Core().V1().Endpoints().Lister(),
 	}).handlerChain
 
 	genericServer, err := c.Config.GenericConfig.SkipComplete().New() // completion is done in Complete, no need for a second time
@@ -124,6 +136,8 @@ func (c completedConfig) New() (*APIDiscoveryServer, error) {
 		proxyClientKey:   c.ProxyClientKey,
 		proxyHandlers:    map[string]*proxyHandler{},
 		lister:           informerFactory.Apiregistration().InternalVersion().APIServices().Lister(),
+		serviceLister:    kubeInformers.Core().V1().Services().Lister(),
+		endpointsLister:  kubeInformers.Core().V1().Endpoints().Lister(),
 		proxyMux:         proxyMux,
 	}
 
@@ -141,6 +155,7 @@ func (c completedConfig) New() (*APIDiscoveryServer, error) {
 
 	s.GenericAPIServer.AddPostStartHook("start-informers", func(context genericapiserver.PostStartHookContext) error {
 		informerFactory.Start(wait.NeverStop)
+		kubeInformers.Start(wait.NeverStop)
 		return nil
 	})
 	s.GenericAPIServer.AddPostStartHook("apiservice-registration-controller", func(context genericapiserver.PostStartHookContext) error {
@@ -153,8 +168,10 @@ func (c completedConfig) New() (*APIDiscoveryServer, error) {
 
 // handlerChainConfig is the config used to build the custom handler chain for this api server
 type handlerChainConfig struct {
-	informers informers.SharedInformerFactory
-	proxyMux  *http.ServeMux
+	informers       informers.SharedInformerFactory
+	proxyMux        *http.ServeMux
+	serviceLister   v1listers.ServiceLister
+	endpointsLister v1listers.EndpointsLister
 }
 
 // handlerChain is a method to build the handler chain for this API server.  We need a custom handler chain so that we
@@ -162,26 +179,26 @@ type handlerChainConfig struct {
 // the endpoints differently, since we're proxying all groups except for apiregistration.k8s.io.
 func (h *handlerChainConfig) handlerChain(apiHandler http.Handler, c *genericapiserver.Config) (secure, insecure http.Handler) {
 	// add this as a filter so that we never collide with "already registered" failures on `/apis`
-	handler := WithAPIs(apiHandler, h.informers.Apiregistration().InternalVersion().APIServices())
+	handler := WithAPIs(apiHandler, h.informers.Apiregistration().InternalVersion().APIServices(), h.serviceLister, h.endpointsLister)
 
-	handler = apiserverfilters.WithAuthorization(handler, c.RequestContextMapper, c.Authorizer)
+	handler = genericapifilters.WithAuthorization(handler, c.RequestContextMapper, c.Authorizer)
 
 	// this mux is NOT protected by authorization, but DOES have authentication information
 	// this is so that everyone can hit the proxy and we can properly identify the user.  The backing
 	// API server will deal with authorization
 	handler = WithProxyMux(handler, h.proxyMux)
 
-	handler = apiserverfilters.WithImpersonation(handler, c.RequestContextMapper, c.Authorizer)
+	handler = genericapifilters.WithImpersonation(handler, c.RequestContextMapper, c.Authorizer)
 	// audit to stdout to help with debugging as we get this started
-	handler = apiserverfilters.WithAudit(handler, c.RequestContextMapper, os.Stdout)
+	handler = genericapifilters.WithAudit(handler, c.RequestContextMapper, os.Stdout)
 	handler = authhandlers.WithAuthentication(handler, c.RequestContextMapper, c.Authenticator, authhandlers.Unauthorized(c.SupportsBasicAuth))
 
 	handler = genericfilters.WithCORS(handler, c.CorsAllowedOriginList, nil, nil, nil, "true")
 	handler = genericfilters.WithPanicRecovery(handler, c.RequestContextMapper)
 	handler = genericfilters.WithTimeoutForNonLongRunningRequests(handler, c.RequestContextMapper, c.LongRunningFunc)
 	handler = genericfilters.WithMaxInFlightLimit(handler, c.MaxRequestsInFlight, c.MaxMutatingRequestsInFlight, c.RequestContextMapper, c.LongRunningFunc)
-	handler = apiserverfilters.WithRequestInfo(handler, genericapiserver.NewRequestInfoResolver(c), c.RequestContextMapper)
-	handler = api.WithRequestContext(handler, c.RequestContextMapper)
+	handler = genericapifilters.WithRequestInfo(handler, genericapiserver.NewRequestInfoResolver(c), c.RequestContextMapper)
+	handler = genericapirequest.WithRequestContext(handler, c.RequestContextMapper)
 
 	return handler, nil
 }
@@ -223,12 +240,14 @@ func (s *APIDiscoveryServer) AddAPIService(apiService *apiregistration.APIServic
 	// it's time to register the group discovery endpoint
 	groupPath := "/apis/" + apiService.Spec.Group
 	groupDiscoveryHandler := &apiGroupHandler{
-		groupName: apiService.Spec.Group,
-		lister:    s.lister,
+		groupName:       apiService.Spec.Group,
+		lister:          s.lister,
+		serviceLister:   s.serviceLister,
+		endpointsLister: s.endpointsLister,
 	}
 	// discovery is protected
-	s.GenericAPIServer.HandlerContainer.SecretRoutes.Handle(groupPath, groupDiscoveryHandler)
-	s.GenericAPIServer.HandlerContainer.SecretRoutes.Handle(groupPath+"/", groupDiscoveryHandler)
+	s.GenericAPIServer.HandlerContainer.UnlistedRoutes.Handle(groupPath, groupDiscoveryHandler)
+	s.GenericAPIServer.HandlerContainer.UnlistedRoutes.Handle(groupPath+"/", groupDiscoveryHandler)
 
 }
 

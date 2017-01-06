@@ -26,8 +26,8 @@ import (
 	kubeadmutil "k8s.io/kubernetes/cmd/kubeadm/app/util"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/apis/certificates"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
-	certclient "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5/typed/certificates/v1alpha1"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	certclient "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/certificates/v1alpha1"
 	"k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
 	"k8s.io/kubernetes/pkg/types"
 	"k8s.io/kubernetes/pkg/util/wait"
@@ -50,7 +50,7 @@ const retryTimeout = 5
 // The function builds a client for every endpoint and concurrently keeps trying to connect to any one
 // of the provided endpoints. Blocks until at least one connection is established, then it stops the
 // connection attempts for other endpoints.
-func EstablishMasterConnection(s *kubeadmapi.NodeConfiguration, clusterInfo *kubeadmapi.ClusterInfo) (*ConnectionDetails, error) {
+func EstablishMasterConnection(c *kubeadmapi.TokenDiscovery, clusterInfo *kubeadmapi.ClusterInfo) (*ConnectionDetails, error) {
 	hostName, err := os.Hostname()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node hostname [%v]", err)
@@ -65,7 +65,7 @@ func EstablishMasterConnection(s *kubeadmapi.NodeConfiguration, clusterInfo *kub
 	result := make(chan *ConnectionDetails)
 	var wg sync.WaitGroup
 	for _, endpoint := range endpoints {
-		clientSet, err := createClients(caCert, endpoint, s.Secrets.BearerToken, nodeName)
+		clientSet, err := createClients(caCert, endpoint, kubeadmutil.BearerToken(c), nodeName)
 		if err != nil {
 			fmt.Printf("[bootstrap] Warning: %s. Skipping endpoint %s\n", err, endpoint)
 			continue
@@ -126,7 +126,7 @@ func createClients(caCert []byte, endpoint, token string, nodeName types.NodeNam
 	return clientSet, nil
 }
 
-// check to see if there are other nodes in the cluster with identical node names.
+// CheckForNodeNameDuplicates checks whether there are other nodes in the cluster with identical node names.
 func CheckForNodeNameDuplicates(connection *ConnectionDetails) error {
 	hostName, err := os.Hostname()
 	if err != nil {

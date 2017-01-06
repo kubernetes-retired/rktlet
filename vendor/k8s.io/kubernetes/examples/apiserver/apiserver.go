@@ -18,7 +18,6 @@ package apiserver
 
 import (
 	"fmt"
-	"net"
 
 	"k8s.io/kubernetes/cmd/libs/go2idl/client-gen/test_apis/testgroup/v1"
 	testgroupetcd "k8s.io/kubernetes/examples/apiserver/rest"
@@ -28,7 +27,7 @@ import (
 	"k8s.io/kubernetes/pkg/genericapiserver"
 	"k8s.io/kubernetes/pkg/genericapiserver/authorizer"
 	genericoptions "k8s.io/kubernetes/pkg/genericapiserver/options"
-	genericvalidation "k8s.io/kubernetes/pkg/genericapiserver/validation"
+	kubeoptions "k8s.io/kubernetes/pkg/kubeapiserver/options"
 	"k8s.io/kubernetes/pkg/registry/generic"
 	"k8s.io/kubernetes/pkg/runtime/schema"
 	"k8s.io/kubernetes/pkg/storage/storagebackend"
@@ -62,7 +61,7 @@ type ServerRunOptions struct {
 	Etcd                    *genericoptions.EtcdOptions
 	SecureServing           *genericoptions.SecureServingOptions
 	InsecureServing         *genericoptions.ServingOptions
-	Authentication          *genericoptions.BuiltInAuthenticationOptions
+	Authentication          *kubeoptions.BuiltInAuthenticationOptions
 }
 
 func NewServerRunOptions() *ServerRunOptions {
@@ -71,7 +70,7 @@ func NewServerRunOptions() *ServerRunOptions {
 		Etcd:            genericoptions.NewEtcdOptions(),
 		SecureServing:   genericoptions.NewSecureServingOptions(),
 		InsecureServing: genericoptions.NewInsecureServingOptions(),
-		Authentication:  genericoptions.NewBuiltInAuthenticationOptions().WithAll(),
+		Authentication:  kubeoptions.NewBuiltInAuthenticationOptions().WithAll(),
 	}
 	s.InsecureServing.BindPort = InsecurePort
 	s.SecureServing.ServingOptions.BindPort = SecurePort
@@ -80,12 +79,17 @@ func NewServerRunOptions() *ServerRunOptions {
 }
 
 func (serverOptions *ServerRunOptions) Run(stopCh <-chan struct{}) error {
-	// Set ServiceClusterIPRange
-	_, serviceClusterIPRange, _ := net.ParseCIDR("10.0.0.0/24")
-	serverOptions.GenericServerRunOptions.ServiceClusterIPRange = *serviceClusterIPRange
 	serverOptions.Etcd.StorageConfig.ServerList = []string{"http://127.0.0.1:2379"}
 
-	genericvalidation.ValidateRunOptions(serverOptions.GenericServerRunOptions)
+	// set defaults
+	if err := serverOptions.GenericServerRunOptions.DefaultExternalHost(); err != nil {
+		return err
+	}
+	if err := serverOptions.SecureServing.MaybeDefaultWithSelfSignedCerts(serverOptions.GenericServerRunOptions.AdvertiseAddress.String()); err != nil {
+		glog.Fatalf("Error creating self-signed certificates: %v", err)
+	}
+
+	// validate options
 	if errs := serverOptions.Etcd.Validate(); len(errs) > 0 {
 		return utilerrors.NewAggregate(errs)
 	}
@@ -95,10 +99,8 @@ func (serverOptions *ServerRunOptions) Run(stopCh <-chan struct{}) error {
 	if errs := serverOptions.InsecureServing.Validate("insecure-port"); len(errs) > 0 {
 		return utilerrors.NewAggregate(errs)
 	}
-	if err := serverOptions.SecureServing.MaybeDefaultWithSelfSignedCerts(serverOptions.GenericServerRunOptions.AdvertiseAddress.String()); err != nil {
-		glog.Fatalf("Error creating self-signed certificates: %v", err)
-	}
 
+	// create config from options
 	config := genericapiserver.NewConfig().
 		ApplyOptions(serverOptions.GenericServerRunOptions).
 		ApplyInsecureServingOptions(serverOptions.InsecureServing)
@@ -106,11 +108,13 @@ func (serverOptions *ServerRunOptions) Run(stopCh <-chan struct{}) error {
 	if _, err := config.ApplySecureServingOptions(serverOptions.SecureServing); err != nil {
 		return fmt.Errorf("failed to configure https: %s", err)
 	}
-	if _, err := config.ApplyAuthenticationOptions(serverOptions.Authentication); err != nil {
+	if err := serverOptions.Authentication.Apply(config); err != nil {
 		return fmt.Errorf("failed to configure authentication: %s", err)
 	}
 
 	config.Authorizer = authorizer.NewAlwaysAllowAuthorizer()
+	config.SwaggerConfig = genericapiserver.DefaultSwaggerConfig()
+
 	s, err := config.Complete().New()
 	if err != nil {
 		return fmt.Errorf("Error in bringing up the server: %v", err)

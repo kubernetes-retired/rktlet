@@ -15,6 +15,7 @@ go_library(
         "client_config.go",
         "config.go",
         "doc.go",
+        "helpers.go",
         "loader.go",
         "merged_client_builder.go",
         "overrides.go",
@@ -47,7 +48,7 @@ go_test(
         "merged_client_builder_test.go",
         "validation_test.go",
     ],
-    library = "go_default_library",
+    library = ":go_default_library",
     tags = ["automanaged"],
     deps = [
         "//pkg/client/restclient:go_default_library",

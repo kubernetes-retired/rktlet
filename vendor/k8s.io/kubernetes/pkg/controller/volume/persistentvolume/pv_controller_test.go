@@ -23,7 +23,7 @@ import (
 	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/client/cache"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5/fake"
+	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset/fake"
 	fcache "k8s.io/kubernetes/pkg/client/testing/cache"
 )
 
@@ -176,7 +176,7 @@ func TestControllerSync(t *testing.T) {
 
 		// Start the controller
 		stopCh := make(chan struct{})
-		ctrl.Run(stopCh)
+		go ctrl.Run(stopCh)
 
 		// Wait for the controller to pass initial sync and fill its caches.
 		for !ctrl.volumeController.HasSynced() ||

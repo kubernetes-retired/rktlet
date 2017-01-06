@@ -201,15 +201,17 @@ func (s *ImageStore) PullImage(ctx context.Context, req *runtime.PullImageReques
 
 	// TODO auth
 	output, err := s.RunCommand("image", "fetch", "--no-store=true", "--full=true", "docker://"+canonicalImageName)
-
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch image %q: %v", canonicalImageName, err)
 	}
 	if len(output) < 1 {
 		return nil, fmt.Errorf("malformed fetch image response for %q; must include image id: %v", canonicalImageName, output)
 	}
+	imageId := output[len(output)-1]
 
-	return &runtime.PullImageResponse{}, nil
+	return &runtime.PullImageResponse{
+		ImageRef: &imageId,
+	}, nil
 }
 
 // passFilter returns whether the target image satisfies the filter.
