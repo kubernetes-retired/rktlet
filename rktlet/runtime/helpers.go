@@ -324,11 +324,11 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 	}
 
 	if req.GetConfig().GetLinux().GetSecurityContext().GetPrivileged() {
-		// TODO: this setting is inherited by all applications even though only
+		// TODO: the 'paths' setting is inherited by all applications even though only
 		// a subset of them may request to be privileged, however there is no way
-		// to modify this on a per-app basis currently, so this is the best we can
+		// to modify paths on a per-app basis currently, so this is the best we can
 		// do.
-		cmd = append(cmd, "--insecure-options=paths")
+		cmd = append(cmd, "--insecure-options=paths,all-run")
 	}
 
 	// Add port mappings only if it's not hostnetwork.

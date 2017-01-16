@@ -87,19 +87,19 @@ func TestPrivileged(t *testing.T) {
 	privilegedCases := []struct {
 		Name          string
 		Command       string
-		ShouldContain string
+		ShouldContain []string
 	}{
 		// 1: caps
 		{
 			Name:          "capabilities",
 			Command:       "capsh --print",
-			ShouldContain: "cap_sys_admin",
+			ShouldContain: []string{"cap_sys_admin", "cap_net_admin"},
 		},
 		// 2: no path masking
 		{
 			Name:          "unmasked-sysfs",
 			Command:       `ls /sys/fs/cgroup && echo success`,
-			ShouldContain: "success",
+			ShouldContain: []string{"success"},
 		},
 		// 3. RW sysfs and proc. TODO, currently rkt does not support this
 		// $ touch /proc/sys/vm/panic_on_oom
@@ -108,7 +108,7 @@ func TestPrivileged(t *testing.T) {
 		{
 			Name:          "seccomp",
 			Command:       "mount -o remount / && echo success",
-			ShouldContain: "success",
+			ShouldContain: []string{"success"},
 		},
 		// 6: device cgroup: TODO, currently rkt does not support this
 		// 7: All devices from the host: TODO, currently rkt does not support this
@@ -136,7 +136,8 @@ func TestPrivileged(t *testing.T) {
 			t.Fatalf("%s: expected %d, got %d: %v", testCase.Name, 0, exitCode, output)
 		}
 
-		assert.Contains(t, output, testCase.ShouldContain)
+		for _, el := range testCase.ShouldContain {
+			assert.Contains(t, output, el)
+		}
 	}
-
 }
