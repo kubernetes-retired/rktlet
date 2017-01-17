@@ -75,7 +75,8 @@ func TestPrivileged(t *testing.T) {
 	tc := framework.Setup(t)
 	defer tc.Teardown()
 
-	p := tc.RunPod("test_privileged", &runtime.PodSandboxConfig{
+	podName := "test_privileged"
+	p := tc.RunPod(podName, &runtime.PodSandboxConfig{
 		Linux: &runtime.LinuxPodSandboxConfig{
 			SecurityContext: &runtime.LinuxSandboxSecurityContext{
 				Privileged: boolptr(true),
@@ -116,6 +117,7 @@ func TestPrivileged(t *testing.T) {
 	}
 
 	for i, testCase := range privilegedCases {
+		t.Logf("Checking for %q on pod %q", testCase.Name, podName)
 		runConfig := &runtime.ContainerConfig{
 			Image: &runtime.ImageSpec{
 				Image: strptr(tc.ImageRef(framework.TestImageFedora)),

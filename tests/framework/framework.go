@@ -63,11 +63,15 @@ type TestContext struct {
 }
 
 func Setup(t *testing.T) *TestContext {
+	var err error
 	RequireRoot(t)
 
-	tmpDir, err := ioutil.TempDir(os.Getenv("TMPDIR"), fmt.Sprintf("rktlet_test_%d", time.Now().Unix()))
-	if err != nil {
-		t.Fatalf("unable to make tmpdir for test: %v", err)
+	tmpDir := os.Getenv("RKTLET_TESTDIR")
+	if tmpDir == "" {
+		tmpDir, err = ioutil.TempDir(os.Getenv("TMPDIR"), fmt.Sprintf("rktlet_test_%d", time.Now().Unix()))
+		if err != nil {
+			t.Fatalf("unable to make tmpdir for test: %v", err)
+		}
 	}
 
 	rktRuntime, err := rktlet.New(&rktlet.Config{
@@ -133,7 +137,10 @@ func (t *TestContext) Teardown() {
 		}
 	}
 
-	os.RemoveAll(t.TmpDir)
+	tmpDir := os.Getenv("RKTLET_TESTDIR")
+	if tmpDir == "" {
+		os.RemoveAll(t.TmpDir)
+	}
 }
 
 func (t *TestContext) PullImages() {
