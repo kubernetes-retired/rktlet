@@ -3,15 +3,16 @@ import:
 - package: k8s.io/kubernetes
   version: 3951ae4e1d0c23ee7fc91f66c73d56ab1ed983fb
   subpackages:
+  - pkg/api
+  - pkg/api/resource
   - pkg/kubelet/api/v1alpha1/runtime
   - pkg/kubelet/container
   - pkg/kubelet/kuberuntime
-  - pkg/api/resource
-  - pkg/api
+  - pkg/kubelet/server/streaming
+  - pkg/kubelet/util/ioutils
   - pkg/util/exec
   - pkg/util/flag
   - pkg/util/logs
-  - pkg/kubelet/server/streaming
 - package: golang.org/x/net
   version: e90d6d0afc4c315a0d87a568ae68577cc15149a0
   subpackages:
