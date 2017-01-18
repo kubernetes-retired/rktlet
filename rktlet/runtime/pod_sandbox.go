@@ -45,7 +45,7 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 	}
 
 	// Let the init process to run the pod sandbox.
-	command := generateAppSandboxCommand(req, podUUIDFile.Name())
+	command := generateAppSandboxCommand(req, podUUIDFile.Name(), r.stage1Name)
 
 	cmd := r.Command(command[0], command[1:]...)
 

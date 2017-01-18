@@ -57,7 +57,7 @@ func New(config *Config) (ContainerAndImageService, error) {
 
 	imageStore := image.NewImageStore(image.ImageStoreConfig{CLI: rktCli})
 
-	rktRuntime, err := runtime.New(rktCli, init, imageStore, config.StreamServerAddress)
+	rktRuntime, err := runtime.New(rktCli, init, imageStore, config.StreamServerAddress, config.RktStage1Name)
 	if err != nil {
 		return nil, err
 	}
@@ -69,8 +69,9 @@ func New(config *Config) (ContainerAndImageService, error) {
 }
 
 type Config struct {
-	RktDatadir string
-	RktPath    string
+	RktDatadir    string
+	RktPath       string
+	RktStage1Name string
 
 	// StreamServerAddress is the address the rktlet stream server should listen on.
 	// This address must be accessible by the api-server. However, it also allows

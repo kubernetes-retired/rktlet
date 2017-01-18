@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/coreos/rkt/lib"
+	rkt "github.com/coreos/rkt/lib"
 	"github.com/coreos/rkt/networking/netinfo"
 	"github.com/golang/glog"
 	"github.com/pborman/uuid"
@@ -38,6 +38,17 @@ const (
 	kubernetesReservedAnnoPodName      = "k8s.io/reserved/pod-name"
 	kubernetesReservedAnnoPodNamespace = "k8s.io/reserved/pod-namespace"
 	kubernetesReservedAnnoPodAttempt   = "k8s.io/reserved/pod-attempt"
+
+	// TODO(euank): This has significant security concerns as a stage1 image is
+	// effectively root.
+	// Furthermore, this (using an annotation) is a hack to pass an extra
+	// non-portable argument in. It should not be relied on to be stable.
+	// In the future, this might be subsumed by a first-class api object, or by a
+	// kitchen-sink params object (#17064).
+	// See discussion in #23944
+	// Also, do we want more granularity than path-at-the-kubelet-level and
+	// image/name-at-the-pod-level?
+	k8sRktStage1NameAnno = "rkt.alpha.kubernetes.io/stage1-name-override"
 )
 
 // List of reserved keys in the annotations.
@@ -301,8 +312,17 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 	return cmd, nil
 }
 
-func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile string) []string {
+func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile, stage1Name string) []string {
 	cmd := []string{"app", "sandbox", "--uuid-file-save=" + uuidfile}
+
+	// annotation takes preference over configuration
+	if val, ok := req.Config.Annotations[k8sRktStage1NameAnno]; ok {
+		stage1Name = val
+	}
+
+	if stage1Name != "" {
+		cmd = append(cmd, "--stage1-name="+stage1Name)
+	}
 
 	if req.Config.Hostname != "" {
 		cmd = append(cmd, "--hostname="+req.Config.Hostname)
@@ -370,6 +390,7 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 	for _, label := range labels {
 		cmd = append(cmd, "--user-label="+label)
 	}
+
 	return cmd
 }
 

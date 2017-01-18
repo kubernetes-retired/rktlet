@@ -78,6 +78,7 @@ func Setup(t *testing.T) *TestContext {
 	rktRuntime, err := rktlet.New(&rktlet.Config{
 		RktDatadir:          filepath.Join(tmpDir, "rkt_data"),
 		StreamServerAddress: "127.0.0.1:0", // :0 so multiple setup instances don't conflict
+		RktStage1Name:       os.Getenv("RKT_STAGE1_NAME"),
 	})
 	if err != nil {
 		t.Fatalf("unable to initialize rktlet: %v", err)
