@@ -12,10 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: all build-in-rkt glide generate test integ clean
+GP := .gopath
+PARENT := github.com/kubernetes-incubator
+PKG := rktlet
+PKGPATH := ${PWD}/${GP}/src/${PARENT}/${PKG}
+export GOPATH=${PWD}/${GP}
 
-all:
+all: build
+
+build: path-setup
+	cd "${PKGPATH}" && \
 	go build -o bin/rktlet ./cmd/server/main.go
+
+path-setup:
+	@if [ ! -d "${GP}" ]; then mkdir -p "${GP}/src/${PARENT}" "${GP}/pkg" "${GP}/bin"; fi && \
+	if [ ! -e "${PKGPATH}" ]; then ln -s "${PWD}" "${PKGPATH}"; fi && \
+	echo "Local GOPATH set up at ${GOPATH}"
 
 build-in-rkt:
 	sudo rkt run --uuid-file-save=/tmp/rktlet-build-uuid \
@@ -28,19 +40,28 @@ build-in-rkt:
 glide:
 	glide update --strip-vendor
 
-generate: ./hack/bin/mockery
+generate: ./hack/bin/mockery path-setup
 	go generate -x ./rktlet/...
 
-test:
+test: path-setup
+	cd "${PKGPATH}" && \
 	go test ./rktlet/... ./journal2cri/...
 
-integ:
-	sudo -E go test ./tests/...
+integ: path-setup
+	@export RKTLET_TESTDIR=`mktemp -d` && \
+	echo "Running integration tests, tempdir at $${RKTLET_TESTDIR}" && \
+	cd "${PKGPATH}" && \
+	sudo -E go test -v ./tests/... && \
+	sudo rm -rf $${RKTLET_TESTDIR}
+
 
 clean:
-	rm -f ./bin/rktlet ./hack/bin/mockery ./bin/container/rktlet
+	rm -rf ./bin/rktlet ./hack/bin/mockery ./bin/container/rktlet ./${GP}
 
 
 MOCKERY_SOURCES := $(shell find ./vendor/github.com/vektra/mockery/ -name '*.go')
-./hack/bin/mockery: $(MOCKERY_SOURCES)
+./hack/bin/mockery: $(MOCKERY_SOURCES) path-setup
+	cd "${PKGPATH}" && \
 	go build -o ./hack/bin/mockery ./vendor/github.com/vektra/mockery/cmd/mockery
+
+.PHONY: all build-in-rkt glide generate test integ clean path-setup
