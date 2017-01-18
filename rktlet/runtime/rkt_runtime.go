@@ -172,6 +172,7 @@ func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListCon
 	// TODO(yifan): Could optimize this so that we don't have to check ContainerStatus on every container.
 	var containers []*runtimeApi.Container
 	for _, p := range pods {
+		p := p
 		for _, appName := range p.AppNames {
 			if strings.HasPrefix(appName, internalAppPrefix) {
 				continue
@@ -186,13 +187,15 @@ func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListCon
 			}
 
 			container := &runtimeApi.Container{
-				Id:          resp.Status.Id,
-				Metadata:    resp.Status.Metadata,
-				Image:       resp.Status.Image,
-				ImageRef:    resp.Status.ImageRef,
-				State:       resp.Status.State,
-				Labels:      resp.Status.Labels,
-				Annotations: resp.Status.Annotations,
+				Annotations:  resp.Status.Annotations,
+				CreatedAt:    resp.Status.CreatedAt,
+				Id:           resp.Status.Id,
+				Image:        resp.Status.Image,
+				ImageRef:     resp.Status.ImageRef,
+				Labels:       resp.Status.Labels,
+				Metadata:     resp.Status.Metadata,
+				PodSandboxId: &p.UUID,
+				State:        resp.Status.State,
 			}
 
 			if passFilter(container, req.Filter) {
