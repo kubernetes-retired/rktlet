@@ -239,6 +239,11 @@ func (p *Pod) RunContainerToExit(ctx context.Context, cfg *runtime.ContainerConf
 		p.t.Fatalf("expected status to have exit code set after exiting in %v: %+v", p.Name, statusResp.GetStatus())
 	}
 
+	// This is a hack to dodge a slight race between a container exiting and
+	// readlogs. The time it takes journal2cri to convert the journald output of
+	// a container to the cri log format is non-zero, so this is to wait for the output to be ready for being read
+	time.Sleep(1 * time.Second)
+
 	var stdout, stderr bytes.Buffer
 	err = kuberuntime.ReadLogs(logPath(p.t.LogDir, *p.Metadata.Uid, *cfg.Metadata.Name, *cfg.Metadata.Attempt), &v1.PodLogOptions{}, &stdout, &stderr)
 	if err != nil {

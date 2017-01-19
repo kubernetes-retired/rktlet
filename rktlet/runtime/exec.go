@@ -47,6 +47,7 @@ func (r *RktRuntime) Exec(ctx context.Context, req *runtimeapi.ExecRequest) (*ru
 func (r *RktRuntime) ExecSync(ctx context.Context, req *runtimeapi.ExecSyncRequest) (*runtimeapi.ExecSyncResponse, error) {
 	var stdout, stderr bytes.Buffer
 
+	// TODO: Respect req.Timeout
 	exitCode := int32(0)
 	err := r.execShim.Exec(req.GetContainerId(), req.GetCmd(), nil, ioutils.WriteCloserWrapper(&stdout), ioutils.WriteCloserWrapper(&stderr), false, nil)
 	if exitErr, ok := err.(utilexec.ExitError); ok {
