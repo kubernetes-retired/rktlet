@@ -2,8 +2,10 @@ package runtime_integ_test
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"strings"
+	"sync"
 	"testing"
 
 	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
@@ -142,4 +144,53 @@ func TestPrivileged(t *testing.T) {
 			assert.Contains(t, output, el)
 		}
 	}
+}
+
+func TestExecSync(t *testing.T) {
+	tc := framework.Setup(t)
+	defer tc.Teardown()
+
+	p := tc.RunPod("test_execsync", &runtime.PodSandboxConfig{
+		Linux: &runtime.LinuxPodSandboxConfig{
+			SecurityContext: &runtime.LinuxSandboxSecurityContext{
+				Privileged: boolptr(true),
+			},
+		},
+	})
+
+	containerDone := &sync.WaitGroup{}
+	containerDone.Add(1)
+	name := "testexecsync"
+
+	go func() {
+		runConfig := &runtime.ContainerConfig{
+			Image: &runtime.ImageSpec{
+				Image: strptr(tc.ImageRef(framework.TestImageBusybox)),
+			},
+			Command: []string{"sh", "-c", `while true; do if [ -f /exit ]; then exit $(cat /exit); fi; sleep 1; done`},
+			Metadata: &runtime.ContainerMetadata{
+				Name:    &name,
+				Attempt: uint32ptr(0),
+			},
+		}
+		_, exitCode := p.RunContainerToExit(context.TODO(), runConfig)
+		assert.Equal(t, int32(42), exitCode)
+		containerDone.Done()
+	}()
+
+	err := p.WaitStable(context.TODO(), 1)
+	assert.Nil(t, err, "could not wait stable")
+	containerID, err := p.ContainerID(context.TODO(), name)
+	assert.Nil(t, err, "could not get container ID")
+	fmt.Printf("got containerID %s\n", containerID)
+
+	execRes, err := tc.Rktlet.ExecSync(context.TODO(), &runtime.ExecSyncRequest{
+		ContainerId: &containerID,
+		Cmd:         []string{"sh", "-c", "echo 42 > /exit; echo success; sleep 0.5"},
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, int32(0), execRes.GetExitCode())
+	assert.Equal(t, "success", strings.TrimSpace(string(execRes.GetStdout())))
+
+	containerDone.Wait()
 }

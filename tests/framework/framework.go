@@ -25,6 +25,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -221,7 +222,6 @@ func (p *Pod) RunContainerToExit(ctx context.Context, cfg *runtime.ContainerConf
 	// Wait for it to finish running
 	var statusResp *runtime.ContainerStatusResponse
 	for {
-		time.Sleep(1 * time.Second)
 		statusResp, err = p.t.Rktlet.ContainerStatus(ctx, &runtime.ContainerStatusRequest{
 			ContainerId: resp.ContainerId,
 		})
@@ -231,16 +231,27 @@ func (p *Pod) RunContainerToExit(ctx context.Context, cfg *runtime.ContainerConf
 		if statusResp.GetStatus().GetState() == runtime.ContainerState_CONTAINER_EXITED {
 			break
 		}
+		p.t.Logf("waiting more for status; currently have %v", statusResp.GetStatus().GetState())
+		time.Sleep(1 * time.Second)
 	}
 
 	if statusResp.GetStatus().ExitCode == nil {
 		p.t.Fatalf("expected status to have exit code set after exiting in %v: %+v", p.Name, statusResp.GetStatus())
 	}
 
+	// This is a hack to dodge a slight race between a container exiting and
+	// readlogs. The time it takes journal2cri to convert the journald output of
+	// a container to the cri log format is non-zero, so this is to wait for the output to be ready for being read
+	time.Sleep(1 * time.Second)
+
 	var stdout, stderr bytes.Buffer
 	err = kuberuntime.ReadLogs(logPath(p.t.LogDir, *p.Metadata.Uid, *cfg.Metadata.Name, *cfg.Metadata.Attempt), &v1.PodLogOptions{}, &stdout, &stderr)
 	if err != nil {
-		p.t.Errorf("unable to get logs for pod %v", err)
+		// Hack warning! Work around https://github.com/kubernetes-incubator/rktlet/issues/88
+		// ReadLogs wraps errors so os.IsNotExist doesn't work
+		if !strings.Contains(err.Error(), "no such file or directory") {
+			p.t.Errorf("unable to get logs for pod %v", err)
+		}
 	}
 
 	// merge stdout/stderr
@@ -253,4 +264,64 @@ func logPath(root string, uid string, name string, attempt uint32) string {
 	containerLogsPath := fmt.Sprintf("%s_%d.log", name, attempt)
 	podLogsDir := filepath.Join(root, uid)
 	return filepath.Join(podLogsDir, containerLogsPath)
+}
+
+// WaitStable waits for the given pod to be in a 'running' state and for at
+// least numContainers of its containers to likewise be running
+func (p *Pod) WaitStable(ctx context.Context, numContainers int) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for stable pod: %v", ctx.Err())
+		default:
+		}
+
+		sandboxStatus, err := p.t.Rktlet.PodSandboxStatus(ctx, &runtime.PodSandboxStatusRequest{
+			PodSandboxId: &p.SandboxId,
+		})
+		if err != nil {
+			return err
+		}
+		if sandboxStatus.GetStatus().GetState() != runtime.PodSandboxState_SANDBOX_READY {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		containers, err := p.t.Rktlet.ListContainers(ctx, &runtime.ListContainersRequest{
+			Filter: &runtime.ContainerFilter{
+				PodSandboxId: &p.SandboxId,
+			},
+		})
+		if err != nil {
+			return err
+		}
+		numRunning := 0
+		for _, container := range containers.Containers {
+			if container.GetState() == runtime.ContainerState_CONTAINER_RUNNING {
+				numRunning++
+			}
+		}
+		if numRunning == numContainers {
+			return nil
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+}
+
+func (p *Pod) ContainerID(ctx context.Context, name string) (string, error) {
+	containers, err := p.t.Rktlet.ListContainers(ctx, &runtime.ListContainersRequest{
+		Filter: &runtime.ContainerFilter{
+			PodSandboxId: &p.SandboxId,
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	for _, container := range containers.GetContainers() {
+		if container.GetMetadata().GetName() == name {
+			return container.GetId(), nil
+		}
+	}
+	return "", fmt.Errorf("could not find container named %v in pod", name)
 }

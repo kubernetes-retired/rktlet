@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"io/ioutil"
 	"os/exec"
 	"syscall"
 
@@ -33,6 +32,7 @@ import (
 
 	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/kubelet/server/streaming"
+	"k8s.io/kubernetes/pkg/kubelet/util/ioutils"
 	"k8s.io/kubernetes/pkg/util/term"
 )
 
@@ -44,30 +44,19 @@ func (r *RktRuntime) Exec(ctx context.Context, req *runtimeapi.ExecRequest) (*ru
 	return r.streamServer.GetExec(req)
 }
 
-type nopWriteCloser bytes.Buffer
-
-func (n nopWriteCloser) Bytes() []byte {
-	return n.Bytes()
-}
-
-func (n nopWriteCloser) Write(p []byte) (int, error) {
-	return n.Write(p)
-}
-
-func (nopWriteCloser) Close() error {
-	return nil
-}
-
 func (r *RktRuntime) ExecSync(ctx context.Context, req *runtimeapi.ExecSyncRequest) (*runtimeapi.ExecSyncResponse, error) {
-	var stdout, stderr nopWriteCloser
-	nopStdin := ioutil.NopCloser(bytes.NewReader([]byte{}))
+	var stdout, stderr bytes.Buffer
 
-	err := r.execShim.Exec(req.GetContainerId(), req.GetCmd(), nopStdin, stdout, stderr, false, make(chan term.Size))
+	// TODO: Respect req.Timeout
+	exitCode := int32(0)
+	err := r.execShim.Exec(req.GetContainerId(), req.GetCmd(), nil, ioutils.WriteCloserWrapper(&stdout), ioutils.WriteCloserWrapper(&stderr), false, nil)
+	if exitErr, ok := err.(utilexec.ExitError); ok {
+		exitCode = int32(exitErr.ExitStatus())
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	var exitCode int32 = 0 // TODO
 	return &runtimeapi.ExecSyncResponse{
 		ExitCode: &exitCode,
 		Stderr:   stderr.Bytes(),
@@ -112,7 +101,9 @@ func (es *execShim) Exec(containerID string, cmd []string, in io.Reader, out, er
 		return execWithTty(execCmd, in, out, resize)
 	}
 
-	execCmd.Stdin = in
+	if in != nil {
+		execCmd.Stdin = in
+	}
 	execCmd.Stdout = out
 	execCmd.Stderr = errOut
 

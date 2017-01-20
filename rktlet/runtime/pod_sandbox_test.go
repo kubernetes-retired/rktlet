@@ -36,7 +36,6 @@ var podsandboxReady = runtime.PodSandboxState_SANDBOX_READY
 var podsandboxNotReady = runtime.PodSandboxState_SANDBOX_NOTREADY
 
 func TestListPodSandbox(t *testing.T) {
-
 	testCases := []struct {
 		Filter   *runtime.PodSandboxFilter
 		RktPods  []rktlib.Pod
@@ -343,5 +342,4 @@ func TestListPodSandbox(t *testing.T) {
 		assert.Equal(t, testCase.Response, *resp)
 		mockCli.AssertExpectations(t)
 	}
-
 }
