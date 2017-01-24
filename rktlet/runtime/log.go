@@ -42,7 +42,7 @@ func (r *RktRuntime) initializeLoggingAppImage(ctx context.Context) error {
 	glog.Infof("downloading %q logging helper, this may take some time", loggingHelperImage)
 	_, err = r.imageStore.PullImage(ctx, &runtimeapi.PullImageRequest{
 		Image: &runtimeapi.ImageSpec{
-			Image: &imageName,
+			Image: imageName,
 		},
 	})
 	glog.Infof("finished downloading logging helper image")

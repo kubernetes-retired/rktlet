@@ -16,6 +16,7 @@ GP := .gopath
 PARENT := github.com/kubernetes-incubator
 PKG := rktlet
 PKGPATH := ${PWD}/${GP}/src/${PARENT}/${PKG}
+GO_TEST_ARGS ?= 
 export GOPATH=${PWD}/${GP}
 
 all: build
@@ -51,7 +52,7 @@ integ: path-setup
 	@export RKTLET_TESTDIR=`mktemp -d` && \
 	echo "Running integration tests, tempdir at $${RKTLET_TESTDIR}" && \
 	cd "${PKGPATH}" && \
-	sudo -E go test -v ./tests/... && \
+	sudo -E go test -v ./tests/... $(GO_TEST_ARGS) && \
 	sudo rm -rf $${RKTLET_TESTDIR}
 
 

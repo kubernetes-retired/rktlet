@@ -32,7 +32,7 @@ func TestHostNetwork(t *testing.T) {
 		Linux: &runtime.LinuxPodSandboxConfig{
 			SecurityContext: &runtime.LinuxSandboxSecurityContext{
 				NamespaceOptions: &runtime.NamespaceOption{
-					HostNetwork: boolptr(true),
+					HostNetwork: true,
 				},
 			},
 		},
@@ -41,12 +41,12 @@ func TestHostNetwork(t *testing.T) {
 	// Test the container's output is what we expect
 	runConfig := &runtime.ContainerConfig{
 		Image: &runtime.ImageSpec{
-			Image: strptr(tc.ImageRef(framework.TestImageBusybox)),
+			Image: tc.ImageRef(framework.TestImageBusybox),
 		},
 		Command: []string{"sh", "-c", `cat /etc/hosts`},
 		Metadata: &runtime.ContainerMetadata{
-			Name:    strptr("etchosts"),
-			Attempt: uint32ptr(0),
+			Name:    "etchosts",
+			Attempt: 0,
 		},
 	}
 	output, exitCode := p.RunContainerToExit(context.TODO(), runConfig)
@@ -81,7 +81,7 @@ func TestPrivileged(t *testing.T) {
 	p := tc.RunPod(podName, &runtime.PodSandboxConfig{
 		Linux: &runtime.LinuxPodSandboxConfig{
 			SecurityContext: &runtime.LinuxSandboxSecurityContext{
-				Privileged: boolptr(true),
+				Privileged: true,
 			},
 		},
 	})
@@ -122,16 +122,16 @@ func TestPrivileged(t *testing.T) {
 		t.Logf("Checking for %q on pod %q", testCase.Name, podName)
 		runConfig := &runtime.ContainerConfig{
 			Image: &runtime.ImageSpec{
-				Image: strptr(tc.ImageRef(framework.TestImageFedora)),
+				Image: tc.ImageRef(framework.TestImageFedora),
 			},
 			Command: []string{"sh", "-c", testCase.Command},
 			Metadata: &runtime.ContainerMetadata{
-				Name:    strptr(testCase.Name),
-				Attempt: uint32ptr(uint32(i)),
+				Name:    testCase.Name,
+				Attempt: uint32(i),
 			},
 			Linux: &runtime.LinuxContainerConfig{
 				SecurityContext: &runtime.LinuxContainerSecurityContext{
-					Privileged: boolptr(true),
+					Privileged: true,
 				},
 			},
 		}
@@ -153,7 +153,7 @@ func TestExecSync(t *testing.T) {
 	p := tc.RunPod("test_execsync", &runtime.PodSandboxConfig{
 		Linux: &runtime.LinuxPodSandboxConfig{
 			SecurityContext: &runtime.LinuxSandboxSecurityContext{
-				Privileged: boolptr(true),
+				Privileged: true,
 			},
 		},
 	})
@@ -165,12 +165,12 @@ func TestExecSync(t *testing.T) {
 	go func() {
 		runConfig := &runtime.ContainerConfig{
 			Image: &runtime.ImageSpec{
-				Image: strptr(tc.ImageRef(framework.TestImageBusybox)),
+				Image: tc.ImageRef(framework.TestImageBusybox),
 			},
 			Command: []string{"sh", "-c", `while true; do if [ -f /exit ]; then exit $(cat /exit); fi; sleep 1; done`},
 			Metadata: &runtime.ContainerMetadata{
-				Name:    &name,
-				Attempt: uint32ptr(0),
+				Name:    name,
+				Attempt: 0,
 			},
 		}
 		_, exitCode := p.RunContainerToExit(context.TODO(), runConfig)
@@ -185,12 +185,13 @@ func TestExecSync(t *testing.T) {
 	fmt.Printf("got containerID %s\n", containerID)
 
 	execRes, err := tc.Rktlet.ExecSync(context.TODO(), &runtime.ExecSyncRequest{
-		ContainerId: &containerID,
+		ContainerId: containerID,
 		Cmd:         []string{"sh", "-c", "echo 42 > /exit; echo success; sleep 0.5"},
 	})
 	assert.Nil(t, err)
-	assert.Equal(t, int32(0), execRes.GetExitCode())
-	assert.Equal(t, "success", strings.TrimSpace(string(execRes.GetStdout())))
+	assert.NotNil(t, execRes)
+	assert.Equal(t, int32(0), execRes.ExitCode)
+	assert.Equal(t, "success", strings.TrimSpace(string(execRes.Stdout)))
 
 	containerDone.Wait()
 }

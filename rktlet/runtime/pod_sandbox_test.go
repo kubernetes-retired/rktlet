@@ -58,14 +58,14 @@ func TestListPodSandbox(t *testing.T) {
 			}},
 			Response: runtime.ListPodSandboxResponse{
 				Items: []*runtime.PodSandbox{{
-					Id:        strptr("1"),
-					CreatedAt: int64ptr(100),
-					State:     &podsandboxReady,
+					Id:        "1",
+					CreatedAt: 100,
+					State:     podsandboxReady,
 					Metadata: &runtime.PodSandboxMetadata{
-						Name:      strptr("foo"),
-						Attempt:   uint32ptr(0),
-						Namespace: strptr("default"),
-						Uid:       strptr("0"),
+						Name:      "foo",
+						Attempt:   0,
+						Namespace: "default",
+						Uid:       "0",
 					},
 				}},
 			},
@@ -116,36 +116,36 @@ func TestListPodSandbox(t *testing.T) {
 			Response: runtime.ListPodSandboxResponse{
 				Items: []*runtime.PodSandbox{
 					{
-						Id:        strptr("1"),
-						CreatedAt: int64ptr(100),
-						State:     &podsandboxReady,
+						Id:        "1",
+						CreatedAt: 100,
+						State:     podsandboxReady,
 						Metadata: &runtime.PodSandboxMetadata{
-							Name:      strptr("foo"),
-							Attempt:   uint32ptr(0),
-							Namespace: strptr("default"),
-							Uid:       strptr("0"),
+							Name:      "foo",
+							Attempt:   0,
+							Namespace: "default",
+							Uid:       "0",
 						},
 					},
 					{
-						Id:        strptr("2"),
-						CreatedAt: int64ptr(102),
-						State:     &podsandboxReady,
+						Id:        "2",
+						CreatedAt: 102,
+						State:     podsandboxReady,
 						Metadata: &runtime.PodSandboxMetadata{
-							Name:      strptr("foo2"),
-							Attempt:   uint32ptr(5),
-							Namespace: strptr("not-default"),
-							Uid:       strptr("10"),
+							Name:      "foo2",
+							Attempt:   5,
+							Namespace: "not-default",
+							Uid:       "10",
 						},
 					},
 					{
-						Id:        strptr("3"),
-						CreatedAt: int64ptr(104),
-						State:     &podsandboxNotReady,
+						Id:        "3",
+						CreatedAt: 104,
+						State:     podsandboxNotReady,
 						Metadata: &runtime.PodSandboxMetadata{
-							Name:      strptr("foo3"),
-							Attempt:   uint32ptr(0),
-							Namespace: strptr("default"),
-							Uid:       strptr("0"),
+							Name:      "foo3",
+							Attempt:   0,
+							Namespace: "default",
+							Uid:       "0",
 						},
 					},
 				},
@@ -153,7 +153,7 @@ func TestListPodSandbox(t *testing.T) {
 		},
 		{ // filter for one pod by id
 			Filter: &runtime.PodSandboxFilter{
-				Id: strptr("1"),
+				Id: "1",
 			},
 			RktPods: []rktlib.Pod{
 				{
@@ -186,14 +186,14 @@ func TestListPodSandbox(t *testing.T) {
 			Response: runtime.ListPodSandboxResponse{
 				Items: []*runtime.PodSandbox{
 					{
-						Id:        strptr("1"),
-						CreatedAt: int64ptr(100),
-						State:     &podsandboxReady,
+						Id:        "1",
+						CreatedAt: 100,
+						State:     podsandboxReady,
 						Metadata: &runtime.PodSandboxMetadata{
-							Name:      strptr("foo"),
-							Attempt:   uint32ptr(0),
-							Namespace: strptr("default"),
-							Uid:       strptr("0"),
+							Name:      "foo",
+							Attempt:   0,
+							Namespace: "default",
+							Uid:       "0",
 						},
 					},
 				},
@@ -201,7 +201,7 @@ func TestListPodSandbox(t *testing.T) {
 		},
 		{ // Simple filter for one pod by state
 			Filter: &runtime.PodSandboxFilter{
-				State: &podsandboxReady,
+				State: &runtime.PodSandboxStateValue{podsandboxReady},
 			},
 			RktPods: []rktlib.Pod{
 				{
@@ -234,14 +234,14 @@ func TestListPodSandbox(t *testing.T) {
 			Response: runtime.ListPodSandboxResponse{
 				Items: []*runtime.PodSandbox{
 					{
-						Id:        strptr("1"),
-						CreatedAt: int64ptr(100),
-						State:     &podsandboxReady,
+						Id:        "1",
+						CreatedAt: 100,
+						State:     podsandboxReady,
 						Metadata: &runtime.PodSandboxMetadata{
-							Name:      strptr("foo"),
-							Attempt:   uint32ptr(0),
-							Namespace: strptr("default"),
-							Uid:       strptr("0"),
+							Name:      "foo",
+							Attempt:   0,
+							Namespace: "default",
+							Uid:       "0",
 						},
 					},
 				},
@@ -301,14 +301,14 @@ func TestListPodSandbox(t *testing.T) {
 			Response: runtime.ListPodSandboxResponse{
 				Items: []*runtime.PodSandbox{
 					{
-						Id:        strptr("1"),
-						CreatedAt: int64ptr(100),
-						State:     &podsandboxReady,
+						Id:        "1",
+						CreatedAt: 100,
+						State:     podsandboxReady,
 						Metadata: &runtime.PodSandboxMetadata{
-							Name:      strptr("foo"),
-							Attempt:   uint32ptr(0),
-							Namespace: strptr("default"),
-							Uid:       strptr("0"),
+							Name:      "foo",
+							Attempt:   0,
+							Namespace: "default",
+							Uid:       "0",
 						},
 						Labels: map[string]string{
 							"foo": "bar",

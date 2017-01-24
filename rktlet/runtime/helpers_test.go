@@ -43,9 +43,9 @@ func TestPassFilter(t *testing.T) {
 		// Case 0, no filters.
 		{
 			&runtimeApi.Container{
-				Id:           &id1,
-				State:        &state1,
-				PodSandboxId: &podSandboxId1,
+				Id:           id1,
+				State:        state1,
+				PodSandboxId: podSandboxId1,
 				Labels:       labels1,
 			},
 			nil,
@@ -55,15 +55,15 @@ func TestPassFilter(t *testing.T) {
 		// Case 1, matched.
 		{
 			&runtimeApi.Container{
-				Id:           &id1,
-				State:        &state1,
-				PodSandboxId: &podSandboxId1,
+				Id:           id1,
+				State:        state1,
+				PodSandboxId: podSandboxId1,
 				Labels:       labels1,
 			},
 			&runtimeApi.ContainerFilter{
-				Id:            &id1,
-				State:         &state1,
-				PodSandboxId:  &podSandboxId1,
+				Id:            id1,
+				State:         &runtimeApi.ContainerStateValue{state1},
+				PodSandboxId:  podSandboxId1,
 				LabelSelector: labels1,
 			},
 			true,
@@ -72,15 +72,15 @@ func TestPassFilter(t *testing.T) {
 		// Case 2, ids are not matched.
 		{
 			&runtimeApi.Container{
-				Id:           &id1,
-				State:        &state1,
-				PodSandboxId: &podSandboxId1,
+				Id:           id1,
+				State:        state1,
+				PodSandboxId: podSandboxId1,
 				Labels:       labels1,
 			},
 			&runtimeApi.ContainerFilter{
-				Id:            &id2,
-				State:         &state1,
-				PodSandboxId:  &podSandboxId1,
+				Id:            id2,
+				State:         &runtimeApi.ContainerStateValue{state1},
+				PodSandboxId:  podSandboxId1,
 				LabelSelector: labels1,
 			},
 			false,
@@ -89,15 +89,15 @@ func TestPassFilter(t *testing.T) {
 		// Case 3, states are not matched.
 		{
 			&runtimeApi.Container{
-				Id:           &id1,
-				State:        &state1,
-				PodSandboxId: &podSandboxId1,
+				Id:           id1,
+				State:        state1,
+				PodSandboxId: podSandboxId1,
 				Labels:       labels1,
 			},
 			&runtimeApi.ContainerFilter{
-				Id:            &id1,
-				State:         &state2,
-				PodSandboxId:  &podSandboxId1,
+				Id:            id1,
+				State:         &runtimeApi.ContainerStateValue{state2},
+				PodSandboxId:  podSandboxId1,
 				LabelSelector: labels1,
 			},
 			false,
@@ -106,15 +106,15 @@ func TestPassFilter(t *testing.T) {
 		// Case 4, pod sandbox ids are not matched.
 		{
 			&runtimeApi.Container{
-				Id:           &id1,
-				State:        &state1,
-				PodSandboxId: &podSandboxId1,
+				Id:           id1,
+				State:        state1,
+				PodSandboxId: podSandboxId1,
 				Labels:       labels1,
 			},
 			&runtimeApi.ContainerFilter{
-				Id:            &id1,
-				State:         &state1,
-				PodSandboxId:  &podSandboxId2,
+				Id:            id1,
+				State:         &runtimeApi.ContainerStateValue{state1},
+				PodSandboxId:  podSandboxId2,
 				LabelSelector: labels1,
 			},
 			false,
@@ -123,15 +123,15 @@ func TestPassFilter(t *testing.T) {
 		// Case 5, labels are matched, superset.
 		{
 			&runtimeApi.Container{
-				Id:           &id1,
-				State:        &state1,
-				PodSandboxId: &podSandboxId1,
+				Id:           id1,
+				State:        state1,
+				PodSandboxId: podSandboxId1,
 				Labels:       labels2,
 			},
 			&runtimeApi.ContainerFilter{
-				Id:            &id1,
-				State:         &state1,
-				PodSandboxId:  &podSandboxId1,
+				Id:            id1,
+				State:         &runtimeApi.ContainerStateValue{state1},
+				PodSandboxId:  podSandboxId1,
 				LabelSelector: labels1,
 			},
 			true,
@@ -140,15 +140,15 @@ func TestPassFilter(t *testing.T) {
 		// Case 6, labels are not matched, subset.
 		{
 			&runtimeApi.Container{
-				Id:           &id1,
-				State:        &state1,
-				PodSandboxId: &podSandboxId1,
+				Id:           id1,
+				State:        state1,
+				PodSandboxId: podSandboxId1,
 				Labels:       labels1,
 			},
 			&runtimeApi.ContainerFilter{
-				Id:            &id1,
-				State:         &state1,
-				PodSandboxId:  &podSandboxId1,
+				Id:            id1,
+				State:         &runtimeApi.ContainerStateValue{state1},
+				PodSandboxId:  podSandboxId1,
 				LabelSelector: labels2,
 			},
 			false,
@@ -174,10 +174,10 @@ func TestGeneratePortArgs(t *testing.T) {
 		// Case 0.
 		{
 			&runtimeApi.PortMapping{
-				Protocol:      &protocol,
-				ContainerPort: &containerPort,
-				HostPort:      &hostPort,
-				HostIp:        &hostIP,
+				Protocol:      protocol,
+				ContainerPort: containerPort,
+				HostPort:      hostPort,
+				HostIp:        hostIP,
 			},
 			"--port=tcp-80-8080:tcp:80:127.0.0.1:8080",
 		},
@@ -185,9 +185,9 @@ func TestGeneratePortArgs(t *testing.T) {
 		// Case 1, empty host IP, should default to "0.0.0.0".
 		{
 			&runtimeApi.PortMapping{
-				Protocol:      &protocol,
-				ContainerPort: &containerPort,
-				HostPort:      &hostPort,
+				Protocol:      protocol,
+				ContainerPort: containerPort,
+				HostPort:      hostPort,
 			},
 			"--port=tcp-80-8080:tcp:80:0.0.0.0:8080",
 		},

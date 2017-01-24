@@ -88,7 +88,7 @@ func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, 
 	var status runtimeApi.ContainerStatus
 
 	id := buildContainerID(uuid, app.Name)
-	status.Id = &id
+	status.Id = id
 
 	attempt, containerName, err := parseAppName(app.Name)
 	if err != nil {
@@ -96,8 +96,8 @@ func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, 
 	}
 
 	status.Metadata = &runtimeApi.ContainerMetadata{
-		Name:    &containerName,
-		Attempt: &attempt,
+		Name:    containerName,
+		Attempt: attempt,
 	}
 
 	state := runtimeApi.ContainerState_CONTAINER_UNKNOWN
@@ -114,12 +114,12 @@ func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, 
 		state = runtimeApi.ContainerState_CONTAINER_UNKNOWN
 	}
 
-	status.State = &state
-	status.CreatedAt = app.CreatedAt
-	status.StartedAt = app.StartedAt
-	status.FinishedAt = app.FinishedAt
-	status.ExitCode = app.ExitCode
-	status.ImageRef = &app.ImageID
+	status.State = state
+	status.CreatedAt = nilToZero64(app.CreatedAt)
+	status.StartedAt = nilToZero64(app.StartedAt)
+	status.FinishedAt = nilToZero64(app.FinishedAt)
+	status.ExitCode = nilToZero32(app.ExitCode)
+	status.ImageRef = app.ImageID
 	status.Image = &runtimeApi.ImageSpec{Image: getImageName(app.UserAnnotations)}
 
 	status.Labels = getKubernetesLabels(app.UserLabels)
@@ -127,9 +127,9 @@ func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, 
 
 	for _, mnt := range app.Mounts {
 		status.Mounts = append(status.Mounts, &runtimeApi.Mount{
-			ContainerPath: &mnt.ContainerPath,
-			HostPath:      &mnt.HostPath,
-			Readonly:      &mnt.ReadOnly,
+			ContainerPath: mnt.ContainerPath,
+			HostPath:      mnt.HostPath,
+			Readonly:      mnt.ReadOnly,
 			// TODO: Selinux relabeling.
 		})
 	}
@@ -153,9 +153,9 @@ func getKubernetesAnnotations(annotations map[string]string) map[string]string {
 	return ret
 }
 
-func getImageName(annotations map[string]string) *string {
+func getImageName(annotations map[string]string) string {
 	name := annotations[kubernetesReservedAnnoImageNameKey]
-	return &name
+	return name
 }
 
 func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID string) ([]string, error) {
@@ -169,14 +169,14 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 	for k, v := range config.Annotations {
 		annotations = append(annotations, fmt.Sprintf("%s=%s", k, v))
 	}
-	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoImageNameKey, *config.Image.Image))
+	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoImageNameKey, config.Image.Image))
 
 	// Generate app name.
-	appName := buildAppName(*config.Metadata.Attempt, *config.Metadata.Name)
+	appName := buildAppName(config.Metadata.Attempt, config.Metadata.Name)
 
 	// TODO(yifan): Split the function into sub-functions.
 	// Generate the command and arguments for 'rkt app add'.
-	cmd := []string{"app", "add", *req.PodSandboxId, imageID}
+	cmd := []string{"app", "add", req.PodSandboxId, imageID}
 
 	// Add app name
 	cmd = append(cmd, "--name="+appName)
@@ -191,29 +191,27 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 
 	// Add environments
 	for _, env := range config.Envs {
-		cmd = append(cmd, fmt.Sprintf("--environment=%s=%s", *env.Key, *env.Value))
+		cmd = append(cmd, fmt.Sprintf("--environment=%s=%s", env.Key, env.Value))
 	}
 
 	// Add Linux options. (resources, caps, uid, gid).
 	if linux := config.GetLinux(); linux != nil {
 		// Add resources.
 		if resources := linux.Resources; resources != nil {
-			if cpuShares := resources.GetCpuShares(); cpuShares > 0 {
-				cmd = append(cmd, fmt.Sprintf("--cpu-shares=%d", cpuShares))
+			if resources.CpuShares > 0 {
+				cmd = append(cmd, fmt.Sprintf("--cpu-shares=%d", resources.CpuShares))
 			}
 			var cpuMilliCores int64
-			if resources.GetCpuPeriod() > 0 && resources.GetCpuQuota() > 0 {
-				cpuMilliCores = cpuQuotaToMilliCores(resources.GetCpuQuota(), resources.GetCpuPeriod())
-			}
+			cpuMilliCores = cpuQuotaToMilliCores(resources.CpuQuota, resources.CpuPeriod)
 			if cpuMilliCores > 0 {
 				cmd = append(cmd, fmt.Sprintf("--cpu=%dm", cpuMilliCores))
 			}
 
-			if resources.MemoryLimitInBytes != nil {
-				cmd = append(cmd, fmt.Sprintf("--memory=%d", *resources.MemoryLimitInBytes))
+			if resources.MemoryLimitInBytes != 0 {
+				cmd = append(cmd, fmt.Sprintf("--memory=%d", resources.MemoryLimitInBytes))
 			}
-			if oomScoreAdj := resources.OomScoreAdj; oomScoreAdj != nil {
-				cmd = append(cmd, fmt.Sprintf("--oom-score-adj=%d", *oomScoreAdj))
+			if resources.OomScoreAdj != 0 {
+				cmd = append(cmd, fmt.Sprintf("--oom-score-adj=%d", resources.OomScoreAdj))
 			}
 		}
 
@@ -224,14 +222,14 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 		var caplist []string
 		var err error
 		if secContext := linux.GetSecurityContext(); secContext != nil {
-			if secContext.GetPrivileged() {
+			if secContext.Privileged {
 				cmd = append(cmd, "--seccomp=mode=retain,@appc.io/all")
 				caplist = getAllCapabilites()
 				// TODO: device cgroup should be made permissive
 				// TODO: host's /dev's devices should all be visible in the container
 			} else {
-				if capabilities := secContext.GetCapabilities(); capabilities != nil {
-					caplist, err = tweakCapabilities(defaultCapabilities, capabilities.AddCapabilities, capabilities.DropCapabilities)
+				if secContext.Capabilities != nil {
+					caplist, err = tweakCapabilities(defaultCapabilities, secContext.Capabilities.AddCapabilities, secContext.Capabilities.DropCapabilities)
 					if err != nil {
 						return nil, err
 					}
@@ -241,27 +239,27 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 				cmd = append(cmd, "--caps-retain="+strings.Join(caplist, ","))
 			}
 
-			if secContext.RunAsUser != nil && secContext.RunAsUsername != nil {
+			if secContext.RunAsUser != nil && secContext.RunAsUsername != "" {
 				return nil, fmt.Errorf("invalid request; both username and user fields of SecurityContext set")
 			}
 			// Add uid, addtional gids.
-			if uid := secContext.RunAsUser; uid != nil {
-				cmd = append(cmd, fmt.Sprintf("--user=%d", *uid))
+			if secContext.RunAsUser != nil {
+				cmd = append(cmd, fmt.Sprintf("--user=%d", *secContext.RunAsUser))
 			}
-			if uname := secContext.RunAsUsername; uname != nil {
-				cmd = append(cmd, fmt.Sprintf("--user=%s", *uname))
+			if secContext.RunAsUsername != "" {
+				cmd = append(cmd, fmt.Sprintf("--user=%s", secContext.RunAsUsername))
 			}
 
-			if addGids := secContext.GetSupplementalGroups(); len(addGids) > 0 {
+			if len(secContext.SupplementalGroups) > 0 {
 				var gids []string
-				for _, gid := range addGids {
+				for _, gid := range secContext.SupplementalGroups {
 					gids = append(gids, fmt.Sprintf("%d", gid))
 				}
 				cmd = append(cmd, "--supplementary-gids="+strings.Join(gids, ","))
 			}
 
 			// Add ReadOnlyRootFs.
-			if secContext.GetReadonlyRootfs() {
+			if secContext.ReadonlyRootfs {
 				cmd = append(cmd, "--readonly-rootfs=true")
 			}
 		}
@@ -272,8 +270,8 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 	}
 
 	// Add working dir
-	if workingDir := config.GetWorkingDir(); len(workingDir) > 0 {
-		cmd = append(cmd, "--working-dir="+workingDir)
+	if config.WorkingDir != "" {
+		cmd = append(cmd, "--working-dir="+config.WorkingDir)
 	}
 
 	for _, mnt := range config.GetMounts() {
@@ -282,7 +280,7 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 			continue
 		}
 		volumeName := uuid.NewUUID()
-		cmd = append(cmd, fmt.Sprintf("--mnt-volume=name=%s,kind=host,source=%s,target=%s,readOnly=%t", volumeName, mnt.GetHostPath(), mnt.GetContainerPath(), mnt.GetReadonly()))
+		cmd = append(cmd, fmt.Sprintf("--mnt-volume=name=%s,kind=host,source=%s,target=%s,readOnly=%t", volumeName, mnt.HostPath, mnt.ContainerPath, mnt.Readonly))
 	}
 
 	// Add app commands and args.
@@ -306,8 +304,8 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile string) []string {
 	cmd := []string{"app", "sandbox", "--uuid-file-save=" + uuidfile}
 
-	if req.Config.Hostname != nil {
-		cmd = append(cmd, "--hostname="+*req.Config.Hostname)
+	if req.Config.Hostname != "" {
+		cmd = append(cmd, "--hostname="+req.Config.Hostname)
 	}
 
 	// Add DNS options.
@@ -323,7 +321,7 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 		}
 	}
 
-	if req.GetConfig().GetLinux().GetSecurityContext().GetPrivileged() {
+	if req.GetConfig().GetLinux().GetSecurityContext().Privileged {
 		// TODO: the 'paths' setting is applied to all applications even though only
 		// a subset of them may request to be privileged, however there is no way
 		// to modify paths on a per-app basis currently, so this is the best we can
@@ -334,7 +332,7 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 	// Add port mappings only if it's not hostnetwork.
 	if !hasHostNetwork(req.GetConfig()) {
 		for _, portMapping := range req.Config.PortMappings {
-			if portMapping.GetHostPort() == 0 {
+			if portMapping.HostPort == 0 || portMapping.ContainerPort == 0 {
 				// If no host port is specified, then ignore.
 				// TODO(yifan): Do this check in kubelet.
 				continue
@@ -361,10 +359,10 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile st
 	}
 
 	// Reserved annotations.
-	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodUid, *req.Config.Metadata.Uid))
-	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodName, *req.Config.Metadata.Name))
-	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodNamespace, *req.Config.Metadata.Namespace))
-	annotations = append(annotations, fmt.Sprintf("%s=%d", kubernetesReservedAnnoPodAttempt, req.GetConfig().GetMetadata().GetAttempt()))
+	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodUid, req.Config.GetMetadata().Uid))
+	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodName, req.Config.Metadata.Name))
+	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodNamespace, req.Config.Metadata.Namespace))
+	annotations = append(annotations, fmt.Sprintf("%s=%d", kubernetesReservedAnnoPodAttempt, req.GetConfig().GetMetadata().Attempt))
 
 	for _, anno := range annotations {
 		cmd = append(cmd, "--user-annotation="+anno)
@@ -388,10 +386,10 @@ func getKubernetesMetadata(annotations map[string]string) (*runtimeApi.PodSandbo
 	podAttempt := uint32(attempt)
 
 	return &runtimeApi.PodSandboxMetadata{
-		Uid:       &podUid,
-		Name:      &podName,
-		Namespace: &podNamespace,
-		Attempt:   &podAttempt,
+		Uid:       podUid,
+		Name:      podName,
+		Namespace: podNamespace,
+		Attempt:   podAttempt,
 	}, nil
 }
 
@@ -411,14 +409,14 @@ func toPodSandboxStatus(pod *rkt.Pod) (*runtimeApi.PodSandboxStatus, error) {
 		state = runtimeApi.PodSandboxState_SANDBOX_READY
 	}
 
-	ip := getIP(pod.Networks)
+	ip := getIP(pod.Networks) // TODO: no network case
 
 	return &runtimeApi.PodSandboxStatus{
-		Id:          &pod.UUID,
+		Id:          pod.UUID,
 		Metadata:    metadata,
-		State:       &state,
-		CreatedAt:   &startedAt,
-		Network:     &runtimeApi.PodSandboxNetworkStatus{Ip: &ip},
+		State:       state,
+		CreatedAt:   startedAt,
+		Network:     &runtimeApi.PodSandboxNetworkStatus{Ip: ip},
 		Linux:       nil, // TODO
 		Labels:      getKubernetesLabels(pod.UserLabels),
 		Annotations: getKubernetesAnnotations(pod.UserAnnotations),
@@ -462,13 +460,13 @@ func passFilter(container *runtimeApi.Container, filter *runtimeApi.ContainerFil
 	if filter == nil {
 		return true
 	}
-	if filter.Id != nil && filter.GetId() != container.GetId() {
+	if filter.Id != "" && filter.Id != container.Id {
 		return false
 	}
-	if filter.State != nil && filter.GetState() != container.GetState() {
+	if filter.GetState() != nil && filter.GetState().State != container.State {
 		return false
 	}
-	if filter.PodSandboxId != nil && filter.GetPodSandboxId() != container.GetPodSandboxId() {
+	if filter.PodSandboxId != "" && filter.PodSandboxId != container.PodSandboxId {
 		return false
 	}
 	for key, value := range filter.LabelSelector {
@@ -485,15 +483,18 @@ func cpuSharesToMilliCores(cpushare int64) int64 {
 }
 
 func cpuQuotaToMilliCores(cpuQuota, cpuPeriod int64) int64 {
+	if cpuQuota == 0 || cpuPeriod == 0 {
+		return 0
+	}
 	return cpuQuota * 1000 / cpuPeriod
 }
 
 // generatePortArgs returns the `--port` argument derived from the port mapping.
 func generatePortArgs(port *runtimeApi.PortMapping) string {
 	protocol := strings.ToLower(port.Protocol.String())
-	containerPort := port.GetContainerPort()
-	hostPort := port.GetHostPort()
-	hostIP := port.GetHostIp()
+	containerPort := port.ContainerPort
+	hostPort := port.HostPort
+	hostIP := port.HostIp
 	if hostIP == "" {
 		hostIP = "0.0.0.0"
 	}
@@ -505,41 +506,38 @@ func generatePortArgs(port *runtimeApi.PortMapping) string {
 }
 
 func hasHostNetwork(req *runtimeApi.PodSandboxConfig) bool {
-	if linux := req.GetLinux(); linux != nil {
-		if secContext := linux.GetSecurityContext(); secContext != nil {
-			if nsOpts := secContext.GetNamespaceOptions(); nsOpts != nil {
-				return nsOpts.GetHostNetwork()
-			}
-		}
+	if nsOpts := req.GetLinux().GetSecurityContext().GetNamespaceOptions(); nsOpts != nil {
+		return nsOpts.HostNetwork
 	}
+
 	return false
 }
 
 func (r *RktRuntime) getImageHash(ctx context.Context, imageName string) (string, error) {
 	resp, err := r.imageStore.ImageStatus(ctx, &runtimeApi.ImageStatusRequest{
 		Image: &runtimeApi.ImageSpec{
-			Image: &imageName,
+			Image: imageName,
 		},
 	})
 	if err != nil {
 		return "", fmt.Errorf("unable to get status for image %q: %v", imageName, err)
 	}
-	if resp.GetImage().GetId() == "" {
+	if resp.GetImage() == nil {
 		return "", fmt.Errorf("could not find image %q", imageName)
 	}
 
-	return resp.GetImage().GetId(), nil
+	return resp.GetImage().Id, nil
 }
 
 func podSandboxStatusMatchesFilter(sbx *runtimeApi.PodSandboxStatus, filter *runtimeApi.PodSandboxFilter) bool {
 	if filter == nil {
 		return true
 	}
-	if filter.Id != nil && filter.GetId() != sbx.GetId() {
+	if filter.Id != "" && filter.Id != sbx.Id {
 		return false
 	}
 
-	if filter.State != nil && filter.GetState() != sbx.GetState() {
+	if filter.State != nil && filter.GetState().State != sbx.State {
 		return false
 	}
 
@@ -554,4 +552,17 @@ func podSandboxStatusMatchesFilter(sbx *runtimeApi.PodSandboxStatus, filter *run
 	}
 
 	return true
+}
+
+func nilToZero64(i *int64) int64 {
+	if i == nil {
+		return 0
+	}
+	return *i
+}
+func nilToZero32(i *int32) int32 {
+	if i == nil {
+		return 0
+	}
+	return *i
 }

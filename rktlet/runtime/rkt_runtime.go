@@ -74,16 +74,16 @@ func (r *RktRuntime) Version(ctx context.Context, req *runtimeApi.VersionRequest
 	name := "rkt"
 	version := "0.1.0"
 	return &runtimeApi.VersionResponse{
-		Version:           &version, // kubelet/remote version, must be 0.1.0
-		RuntimeName:       &name,
-		RuntimeVersion:    &version, // todo, rkt version
-		RuntimeApiVersion: &version, // todo, rkt version
+		Version:           version, // kubelet/remote version, must be 0.1.0
+		RuntimeName:       name,
+		RuntimeVersion:    version, // todo, rkt version
+		RuntimeApiVersion: version, // todo, rkt version
 	}, nil
 }
 
 func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.ContainerStatusRequest) (*runtimeApi.ContainerStatusResponse, error) {
 	// Container ID is in the form of "uuid:appName".
-	uuid, appName, err := parseContainerID(*req.ContainerId)
+	uuid, appName, err := parseContainerID(req.ContainerId)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +110,7 @@ func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.Contai
 }
 
 func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.CreateContainerRequest) (*runtimeApi.CreateContainerResponse, error) {
-	imageID := req.GetConfig().GetImage().GetImage()
+	imageID := req.GetConfig().GetImage().Image
 
 	command, err := generateAppAddCommand(req, imageID)
 	if err != nil {
@@ -120,15 +120,15 @@ func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.Create
 		return nil, err
 	}
 
-	appName := buildAppName(*req.Config.Metadata.Attempt, *req.Config.Metadata.Name)
-	containerID := buildContainerID(*req.PodSandboxId, appName)
+	appName := buildAppName(req.Config.Metadata.Attempt, req.Config.Metadata.Name)
+	containerID := buildContainerID(req.PodSandboxId, appName)
 
-	return &runtimeApi.CreateContainerResponse{ContainerId: &containerID}, nil
+	return &runtimeApi.CreateContainerResponse{ContainerId: containerID}, nil
 }
 
 func (r *RktRuntime) StartContainer(ctx context.Context, req *runtimeApi.StartContainerRequest) (*runtimeApi.StartContainerResponse, error) {
 	// Container ID is in the form of "uuid:appName".
-	uuid, appName, err := parseContainerID(*req.ContainerId)
+	uuid, appName, err := parseContainerID(req.ContainerId)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (r *RktRuntime) StartContainer(ctx context.Context, req *runtimeApi.StartCo
 
 func (r *RktRuntime) StopContainer(ctx context.Context, req *runtimeApi.StopContainerRequest) (*runtimeApi.StopContainerResponse, error) {
 	// Container ID is in the form of "uuid:appName".
-	uuid, appName, err := parseContainerID(*req.ContainerId)
+	uuid, appName, err := parseContainerID(req.ContainerId)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +179,7 @@ func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListCon
 			}
 			containerID := buildContainerID(p.UUID, appName)
 			resp, err := r.ContainerStatus(ctx, &runtimeApi.ContainerStatusRequest{
-				ContainerId: &containerID,
+				ContainerId: containerID,
 			})
 			if err != nil {
 				glog.Warningf("rkt: cannot get container status for pod %q, app %q: %v", p.UUID, appName, err)
@@ -194,7 +194,7 @@ func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListCon
 				ImageRef:     resp.Status.ImageRef,
 				Labels:       resp.Status.Labels,
 				Metadata:     resp.Status.Metadata,
-				PodSandboxId: &p.UUID,
+				PodSandboxId: p.UUID,
 				State:        resp.Status.State,
 			}
 
@@ -209,7 +209,7 @@ func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListCon
 
 func (r *RktRuntime) RemoveContainer(ctx context.Context, req *runtimeApi.RemoveContainerRequest) (*runtimeApi.RemoveContainerResponse, error) {
 	// Container ID is in the form of "uuid:appName".
-	uuid, appName, err := parseContainerID(*req.ContainerId)
+	uuid, appName, err := parseContainerID(req.ContainerId)
 	if err != nil {
 		return nil, err
 	}
@@ -236,12 +236,12 @@ func (r *RktRuntime) Status(ctx context.Context, req *runtimeApi.StatusRequest) 
 
 	conditions := []*runtimeApi.RuntimeCondition{
 		&runtimeApi.RuntimeCondition{
-			Type:   &runtimeReady,
-			Status: &tv,
+			Type:   runtimeReady,
+			Status: tv,
 		},
 		&runtimeApi.RuntimeCondition{
-			Type:   &networkReady,
-			Status: &tv,
+			Type:   networkReady,
+			Status: tv,
 		},
 	}
 	resp := runtimeApi.StatusResponse{
