@@ -21,12 +21,12 @@ import (
 	"runtime"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubernetes/pkg/api"
-	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/kubelet/qos"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 	"k8s.io/kubernetes/pkg/master/ports"
-	kruntime "k8s.io/kubernetes/pkg/runtime"
 )
 
 const (
@@ -277,7 +277,7 @@ func SetDefaults_KubeletConfiguration(obj *KubeletConfiguration) {
 		obj.LowDiskSpaceThresholdMB = 256
 	}
 	if obj.MasterServiceNamespace == "" {
-		obj.MasterServiceNamespace = api.NamespaceDefault
+		obj.MasterServiceNamespace = metav1.NamespaceDefault
 	}
 	if obj.MaxContainerCount == nil {
 		temp := int32(-1)

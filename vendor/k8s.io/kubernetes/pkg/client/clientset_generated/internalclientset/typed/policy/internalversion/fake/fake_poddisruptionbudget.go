@@ -17,13 +17,14 @@ limitations under the License.
 package fake
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
 	api "k8s.io/kubernetes/pkg/api"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	policy "k8s.io/kubernetes/pkg/apis/policy"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
-	labels "k8s.io/kubernetes/pkg/labels"
-	schema "k8s.io/kubernetes/pkg/runtime/schema"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // FakePodDisruptionBudgets implements PodDisruptionBudgetInterface
@@ -71,7 +72,7 @@ func (c *FakePodDisruptionBudgets) Delete(name string, options *api.DeleteOption
 	return err
 }
 
-func (c *FakePodDisruptionBudgets) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *FakePodDisruptionBudgets) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	action := core.NewDeleteCollectionAction(poddisruptionbudgetsResource, c.ns, listOptions)
 
 	_, err := c.Fake.Invokes(action, &policy.PodDisruptionBudgetList{})
@@ -88,7 +89,7 @@ func (c *FakePodDisruptionBudgets) Get(name string, options v1.GetOptions) (resu
 	return obj.(*policy.PodDisruptionBudget), err
 }
 
-func (c *FakePodDisruptionBudgets) List(opts api.ListOptions) (result *policy.PodDisruptionBudgetList, err error) {
+func (c *FakePodDisruptionBudgets) List(opts v1.ListOptions) (result *policy.PodDisruptionBudgetList, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewListAction(poddisruptionbudgetsResource, c.ns, opts), &policy.PodDisruptionBudgetList{})
 
@@ -110,14 +111,14 @@ func (c *FakePodDisruptionBudgets) List(opts api.ListOptions) (result *policy.Po
 }
 
 // Watch returns a watch.Interface that watches the requested podDisruptionBudgets.
-func (c *FakePodDisruptionBudgets) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *FakePodDisruptionBudgets) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
 		InvokesWatch(core.NewWatchAction(poddisruptionbudgetsResource, c.ns, opts))
 
 }
 
 // Patch applies the patch and returns the patched podDisruptionBudget.
-func (c *FakePodDisruptionBudgets) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *policy.PodDisruptionBudget, err error) {
+func (c *FakePodDisruptionBudgets) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *policy.PodDisruptionBudget, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewPatchSubresourceAction(poddisruptionbudgetsResource, c.ns, name, data, subresources...), &policy.PodDisruptionBudget{})
 

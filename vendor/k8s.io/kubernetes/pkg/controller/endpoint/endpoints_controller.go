@@ -22,26 +22,25 @@ import (
 	"strconv"
 	"time"
 
-	"encoding/json"
-
-	"k8s.io/kubernetes/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/api/v1/endpoints"
 	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	utilpod "k8s.io/kubernetes/pkg/api/v1/pod"
-	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/client/cache"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	"k8s.io/kubernetes/pkg/client/legacylisters"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/controller/informers"
-	"k8s.io/kubernetes/pkg/labels"
-	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/util/metrics"
-	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
-	"k8s.io/kubernetes/pkg/util/sets"
-	"k8s.io/kubernetes/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/util/workqueue"
-	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/golang/glog"
 )
@@ -85,11 +84,11 @@ func NewEndpointController(podInformer cache.SharedIndexInformer, client clients
 
 	e.serviceStore.Indexer, e.serviceController = cache.NewIndexerInformer(
 		&cache.ListWatch{
-			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
-				return e.client.Core().Services(v1.NamespaceAll).List(options)
+			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+				return e.client.Core().Services(metav1.NamespaceAll).List(options)
 			},
-			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
-				return e.client.Core().Services(v1.NamespaceAll).Watch(options)
+			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+				return e.client.Core().Services(metav1.NamespaceAll).Watch(options)
 			},
 		},
 		&v1.Service{},
@@ -130,8 +129,8 @@ func NewEndpointControllerFromClient(client *clientset.Clientset, resyncPeriod c
 type EndpointController struct {
 	client clientset.Interface
 
-	serviceStore cache.StoreToServiceLister
-	podStore     cache.StoreToPodLister
+	serviceStore listers.StoreToServiceLister
+	podStore     listers.StoreToPodLister
 
 	// internalPodInformer is used to hold a personal informer.  If we're using
 	// a normal shared informer, then the informer will be started for us.  If
@@ -149,8 +148,8 @@ type EndpointController struct {
 
 	// Since we join two objects, we'll watch both of them with
 	// controllers.
-	serviceController *cache.Controller
-	podController     cache.ControllerInterface
+	serviceController cache.Controller
+	podController     cache.Controller
 	// podStoreSynced returns true if the pod store has been synced at least once.
 	// Added as a member to the struct to allow injection for testing.
 	podStoreSynced func() bool
@@ -375,7 +374,6 @@ func (e *EndpointController) syncService(key string) error {
 	}
 
 	subsets := []v1.EndpointSubset{}
-	podHostNames := map[string]endpoints.HostRecord{}
 
 	var tolerateUnreadyEndpoints bool
 	if v, ok := service.Annotations[TolerateUnreadyEndpointsAnnotation]; ok {
@@ -428,11 +426,6 @@ func (e *EndpointController) syncService(key string) error {
 			if len(hostname) > 0 &&
 				getSubdomain(pod) == service.Name &&
 				service.Namespace == pod.Namespace {
-				hostRecord := endpoints.HostRecord{
-					HostName: hostname,
-				}
-				// TODO: stop populating podHostNames annotation in 1.4
-				podHostNames[string(pod.Status.PodIP)] = hostRecord
 				epa.Hostname = hostname
 			}
 
@@ -459,7 +452,7 @@ func (e *EndpointController) syncService(key string) error {
 	if err != nil {
 		if errors.IsNotFound(err) {
 			currentEndpoints = &v1.Endpoints{
-				ObjectMeta: v1.ObjectMeta{
+				ObjectMeta: metav1.ObjectMeta{
 					Name:   service.Name,
 					Labels: service.Labels,
 				},
@@ -469,17 +462,6 @@ func (e *EndpointController) syncService(key string) error {
 		}
 	}
 
-	serializedPodHostNames := ""
-	if len(podHostNames) > 0 {
-		b, err := json.Marshal(podHostNames)
-		if err != nil {
-			return err
-		}
-		serializedPodHostNames = string(b)
-	}
-
-	newAnnotations := make(map[string]string)
-	newAnnotations[endpoints.PodHostnamesAnnotation] = serializedPodHostNames
 	if reflect.DeepEqual(currentEndpoints.Subsets, subsets) &&
 		reflect.DeepEqual(currentEndpoints.Labels, service.Labels) {
 		glog.V(5).Infof("endpoints are equal for %s/%s, skipping update", service.Namespace, service.Name)
@@ -490,11 +472,6 @@ func (e *EndpointController) syncService(key string) error {
 	newEndpoints.Labels = service.Labels
 	if newEndpoints.Annotations == nil {
 		newEndpoints.Annotations = make(map[string]string)
-	}
-	if len(serializedPodHostNames) == 0 {
-		delete(newEndpoints.Annotations, endpoints.PodHostnamesAnnotation)
-	} else {
-		newEndpoints.Annotations[endpoints.PodHostnamesAnnotation] = serializedPodHostNames
 	}
 
 	glog.V(4).Infof("Update endpoints for %v/%v, ready: %d not ready: %d", service.Namespace, service.Name, readyEps, notReadyEps)
@@ -526,7 +503,7 @@ func (e *EndpointController) syncService(key string) error {
 // some stragglers could have been left behind if the endpoint controller
 // reboots).
 func (e *EndpointController) checkLeftoverEndpoints() {
-	list, err := e.client.Core().Endpoints(v1.NamespaceAll).List(v1.ListOptions{})
+	list, err := e.client.Core().Endpoints(metav1.NamespaceAll).List(metav1.ListOptions{})
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("Unable to list endpoints (%v); orphaned endpoints will not be cleaned up. (They're pretty harmless, but you can restart this component if you want another attempt made.)", err))
 		return

@@ -17,13 +17,14 @@ limitations under the License.
 package fake
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
 	api "k8s.io/kubernetes/pkg/api"
 	batch "k8s.io/kubernetes/pkg/apis/batch"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
-	labels "k8s.io/kubernetes/pkg/labels"
-	schema "k8s.io/kubernetes/pkg/runtime/schema"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // FakeCronJobs implements CronJobInterface
@@ -71,7 +72,7 @@ func (c *FakeCronJobs) Delete(name string, options *api.DeleteOptions) error {
 	return err
 }
 
-func (c *FakeCronJobs) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *FakeCronJobs) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	action := core.NewDeleteCollectionAction(cronjobsResource, c.ns, listOptions)
 
 	_, err := c.Fake.Invokes(action, &batch.CronJobList{})
@@ -88,7 +89,7 @@ func (c *FakeCronJobs) Get(name string, options v1.GetOptions) (result *batch.Cr
 	return obj.(*batch.CronJob), err
 }
 
-func (c *FakeCronJobs) List(opts api.ListOptions) (result *batch.CronJobList, err error) {
+func (c *FakeCronJobs) List(opts v1.ListOptions) (result *batch.CronJobList, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewListAction(cronjobsResource, c.ns, opts), &batch.CronJobList{})
 
@@ -110,14 +111,14 @@ func (c *FakeCronJobs) List(opts api.ListOptions) (result *batch.CronJobList, er
 }
 
 // Watch returns a watch.Interface that watches the requested cronJobs.
-func (c *FakeCronJobs) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *FakeCronJobs) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
 		InvokesWatch(core.NewWatchAction(cronjobsResource, c.ns, opts))
 
 }
 
 // Patch applies the patch and returns the patched cronJob.
-func (c *FakeCronJobs) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *batch.CronJob, err error) {
+func (c *FakeCronJobs) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *batch.CronJob, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewPatchSubresourceAction(cronjobsResource, c.ns, name, data, subresources...), &batch.CronJob{})
 

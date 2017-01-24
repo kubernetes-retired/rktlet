@@ -17,13 +17,14 @@ limitations under the License.
 package fake
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
 	api "k8s.io/kubernetes/pkg/api"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	storage "k8s.io/kubernetes/pkg/apis/storage"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
-	labels "k8s.io/kubernetes/pkg/labels"
-	schema "k8s.io/kubernetes/pkg/runtime/schema"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // FakeStorageClasses implements StorageClassInterface
@@ -57,7 +58,7 @@ func (c *FakeStorageClasses) Delete(name string, options *api.DeleteOptions) err
 	return err
 }
 
-func (c *FakeStorageClasses) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *FakeStorageClasses) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	action := core.NewRootDeleteCollectionAction(storageclassesResource, listOptions)
 
 	_, err := c.Fake.Invokes(action, &storage.StorageClassList{})
@@ -73,7 +74,7 @@ func (c *FakeStorageClasses) Get(name string, options v1.GetOptions) (result *st
 	return obj.(*storage.StorageClass), err
 }
 
-func (c *FakeStorageClasses) List(opts api.ListOptions) (result *storage.StorageClassList, err error) {
+func (c *FakeStorageClasses) List(opts v1.ListOptions) (result *storage.StorageClassList, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewRootListAction(storageclassesResource, opts), &storage.StorageClassList{})
 	if obj == nil {
@@ -94,13 +95,13 @@ func (c *FakeStorageClasses) List(opts api.ListOptions) (result *storage.Storage
 }
 
 // Watch returns a watch.Interface that watches the requested storageClasses.
-func (c *FakeStorageClasses) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *FakeStorageClasses) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
 		InvokesWatch(core.NewRootWatchAction(storageclassesResource, opts))
 }
 
 // Patch applies the patch and returns the patched storageClass.
-func (c *FakeStorageClasses) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *storage.StorageClass, err error) {
+func (c *FakeStorageClasses) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *storage.StorageClass, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewRootPatchSubresourceAction(storageclassesResource, name, data, subresources...), &storage.StorageClass{})
 	if obj == nil {

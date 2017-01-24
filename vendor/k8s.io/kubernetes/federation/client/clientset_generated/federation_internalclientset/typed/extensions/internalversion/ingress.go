@@ -17,11 +17,12 @@ limitations under the License.
 package internalversion
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
+	rest "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/api"
 	extensions "k8s.io/kubernetes/pkg/apis/extensions"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	restclient "k8s.io/kubernetes/pkg/client/restclient"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // IngressesGetter has a method to return a IngressInterface.
@@ -36,17 +37,17 @@ type IngressInterface interface {
 	Update(*extensions.Ingress) (*extensions.Ingress, error)
 	UpdateStatus(*extensions.Ingress) (*extensions.Ingress, error)
 	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error
+	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*extensions.Ingress, error)
-	List(opts api.ListOptions) (*extensions.IngressList, error)
-	Watch(opts api.ListOptions) (watch.Interface, error)
-	Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *extensions.Ingress, err error)
+	List(opts v1.ListOptions) (*extensions.IngressList, error)
+	Watch(opts v1.ListOptions) (watch.Interface, error)
+	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *extensions.Ingress, err error)
 	IngressExpansion
 }
 
 // ingresses implements IngressInterface
 type ingresses struct {
-	client restclient.Interface
+	client rest.Interface
 	ns     string
 }
 
@@ -111,7 +112,7 @@ func (c *ingresses) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *ingresses) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *ingresses) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("ingresses").
@@ -135,7 +136,7 @@ func (c *ingresses) Get(name string, options v1.GetOptions) (result *extensions.
 }
 
 // List takes label and field selectors, and returns the list of Ingresses that match those selectors.
-func (c *ingresses) List(opts api.ListOptions) (result *extensions.IngressList, err error) {
+func (c *ingresses) List(opts v1.ListOptions) (result *extensions.IngressList, err error) {
 	result = &extensions.IngressList{}
 	err = c.client.Get().
 		Namespace(c.ns).
@@ -147,7 +148,7 @@ func (c *ingresses) List(opts api.ListOptions) (result *extensions.IngressList, 
 }
 
 // Watch returns a watch.Interface that watches the requested ingresses.
-func (c *ingresses) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *ingresses) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.client.Get().
 		Prefix("watch").
 		Namespace(c.ns).
@@ -157,7 +158,7 @@ func (c *ingresses) Watch(opts api.ListOptions) (watch.Interface, error) {
 }
 
 // Patch applies the patch and returns the patched ingress.
-func (c *ingresses) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *extensions.Ingress, err error) {
+func (c *ingresses) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *extensions.Ingress, err error) {
 	result = &extensions.Ingress{}
 	err = c.client.Patch(pt).
 		Namespace(c.ns).

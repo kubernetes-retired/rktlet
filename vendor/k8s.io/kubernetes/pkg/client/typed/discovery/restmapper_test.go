@@ -14,19 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package discovery
+package discovery_test
 
 import (
 	"reflect"
 	"testing"
 
-	"k8s.io/kubernetes/pkg/api/errors"
-	"k8s.io/kubernetes/pkg/apimachinery/registered"
-	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	"k8s.io/kubernetes/pkg/client/restclient"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/version"
+	restclient "k8s.io/client-go/rest"
+	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/client/restclient/fake"
-	"k8s.io/kubernetes/pkg/runtime/schema"
-	"k8s.io/kubernetes/pkg/version"
+	. "k8s.io/kubernetes/pkg/client/typed/discovery"
 
 	"github.com/emicklei/go-restful/swagger"
 	"github.com/stretchr/testify/assert"
@@ -188,7 +189,7 @@ func TestDeferredDiscoveryRESTMapper_CacheMiss(t *testing.T) {
 	assert := assert.New(t)
 
 	cdc := fakeCachedDiscoveryInterface{fresh: false}
-	m := NewDeferredDiscoveryRESTMapper(&cdc, registered.InterfacesFor)
+	m := NewDeferredDiscoveryRESTMapper(&cdc, api.Registry.InterfacesFor)
 	assert.False(cdc.fresh, "should NOT be fresh after instantiation")
 	assert.Zero(cdc.invalidateCalls, "should not have called Invalidate()")
 

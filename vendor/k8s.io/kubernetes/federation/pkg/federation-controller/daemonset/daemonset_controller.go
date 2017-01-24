@@ -21,23 +21,24 @@ import (
 	"reflect"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	pkgruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/pkg/util/flowcontrol"
 	federationapi "k8s.io/kubernetes/federation/apis/federation/v1beta1"
 	federationclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util/deletionhelper"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util/eventsink"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/errors"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 	extensionsv1 "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	"k8s.io/kubernetes/pkg/client/cache"
 	kubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/controller"
-	pkgruntime "k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/types"
-	"k8s.io/kubernetes/pkg/util/flowcontrol"
-	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/golang/glog"
 )
@@ -63,7 +64,7 @@ type DaemonSetController struct {
 	// Definitions of daemonsets that should be federated.
 	daemonsetInformerStore cache.Store
 	// Informer controller for daemonsets that should be federated.
-	daemonsetInformerController cache.ControllerInterface
+	daemonsetInformerController cache.Controller
 
 	// Client to federated api server.
 	federatedApiClient federationclientset.Interface
@@ -105,11 +106,11 @@ func NewDaemonSetController(client federationclientset.Interface) *DaemonSetCont
 	// Start informer in federated API servers on daemonsets that should be federated.
 	daemonsetcontroller.daemonsetInformerStore, daemonsetcontroller.daemonsetInformerController = cache.NewInformer(
 		&cache.ListWatch{
-			ListFunc: func(options apiv1.ListOptions) (pkgruntime.Object, error) {
-				return client.Extensions().DaemonSets(apiv1.NamespaceAll).List(options)
+			ListFunc: func(options metav1.ListOptions) (pkgruntime.Object, error) {
+				return client.Extensions().DaemonSets(metav1.NamespaceAll).List(options)
 			},
-			WatchFunc: func(options apiv1.ListOptions) (watch.Interface, error) {
-				return client.Extensions().DaemonSets(apiv1.NamespaceAll).Watch(options)
+			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+				return client.Extensions().DaemonSets(metav1.NamespaceAll).Watch(options)
 			},
 		},
 		&extensionsv1.DaemonSet{},
@@ -119,20 +120,20 @@ func NewDaemonSetController(client federationclientset.Interface) *DaemonSetCont
 	// Federated informer on daemonsets in members of federation.
 	daemonsetcontroller.daemonsetFederatedInformer = util.NewFederatedInformer(
 		client,
-		func(cluster *federationapi.Cluster, targetClient kubeclientset.Interface) (cache.Store, cache.ControllerInterface) {
+		func(cluster *federationapi.Cluster, targetClient kubeclientset.Interface) (cache.Store, cache.Controller) {
 			return cache.NewInformer(
 				&cache.ListWatch{
-					ListFunc: func(options apiv1.ListOptions) (pkgruntime.Object, error) {
-						return targetClient.Extensions().DaemonSets(apiv1.NamespaceAll).List(options)
+					ListFunc: func(options metav1.ListOptions) (pkgruntime.Object, error) {
+						return targetClient.Extensions().DaemonSets(metav1.NamespaceAll).List(options)
 					},
-					WatchFunc: func(options apiv1.ListOptions) (watch.Interface, error) {
-						return targetClient.Extensions().DaemonSets(apiv1.NamespaceAll).Watch(options)
+					WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+						return targetClient.Extensions().DaemonSets(metav1.NamespaceAll).Watch(options)
 					},
 				},
 				&extensionsv1.DaemonSet{},
 				controller.NoResyncPeriodFunc(),
 				// Trigger reconciliation whenever something in federated cluster is changed. In most cases it
-				// would be just confirmation that some daemonset opration succeeded.
+				// would be just confirmation that some daemonset operation succeeded.
 				util.NewTriggerOnAllChanges(
 					func(obj pkgruntime.Object) {
 						daemonsetcontroller.deliverDaemonSetObj(obj, daemonsetcontroller.daemonsetReviewDelay, false)

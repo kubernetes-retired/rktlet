@@ -1,7 +1,7 @@
 package: github.com/kubernetes-incubator/rktlet
 import:
 - package: k8s.io/kubernetes
-  version: 3951ae4e1d0c23ee7fc91f66c73d56ab1ed983fb
+  version: 68f123dfa036bef57495f014a78144a9a1b517ca
   subpackages:
   - pkg/api
   - pkg/api/resource
@@ -45,3 +45,5 @@ import:
   version: v13
   subpackages:
     - sdjournal
+- package: k8s.io/apimachinery
+  version: 570628de5b56a1bb87aa6a35d8f681415982e57a

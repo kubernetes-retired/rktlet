@@ -20,11 +20,12 @@ import (
 	"fmt"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/watch"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/errors"
-	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	genericapirequest "k8s.io/kubernetes/pkg/genericapiserver/api/request"
-	"k8s.io/kubernetes/pkg/watch"
 )
 
 // Registry is an interface for things that know how to store endpoints.
@@ -36,7 +37,7 @@ type EndpointRegistry struct {
 	lock sync.Mutex
 }
 
-func (e *EndpointRegistry) ListEndpoints(ctx genericapirequest.Context, options *api.ListOptions) (*api.EndpointsList, error) {
+func (e *EndpointRegistry) ListEndpoints(ctx genericapirequest.Context, options *metainternalversion.ListOptions) (*api.EndpointsList, error) {
 	// TODO: support namespaces in this mock
 	e.lock.Lock()
 	defer e.lock.Unlock()
@@ -61,7 +62,7 @@ func (e *EndpointRegistry) GetEndpoints(ctx genericapirequest.Context, name stri
 	return nil, errors.NewNotFound(api.Resource("endpoints"), name)
 }
 
-func (e *EndpointRegistry) WatchEndpoints(ctx genericapirequest.Context, options *api.ListOptions) (watch.Interface, error) {
+func (e *EndpointRegistry) WatchEndpoints(ctx genericapirequest.Context, options *metainternalversion.ListOptions) (watch.Interface, error) {
 	return nil, fmt.Errorf("unimplemented!")
 }
 

@@ -17,10 +17,11 @@ limitations under the License.
 package internalversion
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
+	rest "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/api"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	restclient "k8s.io/kubernetes/pkg/client/restclient"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // NodesGetter has a method to return a NodeInterface.
@@ -35,17 +36,17 @@ type NodeInterface interface {
 	Update(*api.Node) (*api.Node, error)
 	UpdateStatus(*api.Node) (*api.Node, error)
 	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error
+	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*api.Node, error)
-	List(opts api.ListOptions) (*api.NodeList, error)
-	Watch(opts api.ListOptions) (watch.Interface, error)
-	Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *api.Node, err error)
+	List(opts v1.ListOptions) (*api.NodeList, error)
+	Watch(opts v1.ListOptions) (watch.Interface, error)
+	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *api.Node, err error)
 	NodeExpansion
 }
 
 // nodes implements NodeInterface
 type nodes struct {
-	client restclient.Interface
+	client rest.Interface
 }
 
 // newNodes returns a Nodes
@@ -104,7 +105,7 @@ func (c *nodes) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *nodes) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *nodes) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Resource("nodes").
 		VersionedParams(&listOptions, api.ParameterCodec).
@@ -126,7 +127,7 @@ func (c *nodes) Get(name string, options v1.GetOptions) (result *api.Node, err e
 }
 
 // List takes label and field selectors, and returns the list of Nodes that match those selectors.
-func (c *nodes) List(opts api.ListOptions) (result *api.NodeList, err error) {
+func (c *nodes) List(opts v1.ListOptions) (result *api.NodeList, err error) {
 	result = &api.NodeList{}
 	err = c.client.Get().
 		Resource("nodes").
@@ -137,7 +138,7 @@ func (c *nodes) List(opts api.ListOptions) (result *api.NodeList, err error) {
 }
 
 // Watch returns a watch.Interface that watches the requested nodes.
-func (c *nodes) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *nodes) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.client.Get().
 		Prefix("watch").
 		Resource("nodes").
@@ -146,7 +147,7 @@ func (c *nodes) Watch(opts api.ListOptions) (watch.Interface, error) {
 }
 
 // Patch applies the patch and returns the patched node.
-func (c *nodes) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *api.Node, err error) {
+func (c *nodes) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *api.Node, err error) {
 	result = &api.Node{}
 	err = c.client.Patch(pt).
 		Resource("nodes").

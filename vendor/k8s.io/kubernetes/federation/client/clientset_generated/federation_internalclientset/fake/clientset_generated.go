@@ -17,7 +17,11 @@ limitations under the License.
 package fake
 
 import (
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	clientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset"
+	internalversionautoscaling "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset/typed/autoscaling/internalversion"
+	fakeinternalversionautoscaling "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset/typed/autoscaling/internalversion/fake"
 	internalversionbatch "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset/typed/batch/internalversion"
 	fakeinternalversionbatch "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset/typed/batch/internalversion/fake"
 	internalversioncore "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset/typed/core/internalversion"
@@ -27,12 +31,9 @@ import (
 	internalversionfederation "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset/typed/federation/internalversion"
 	fakeinternalversionfederation "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset/typed/federation/internalversion/fake"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	"k8s.io/kubernetes/pkg/client/testing/core"
 	"k8s.io/kubernetes/pkg/client/typed/discovery"
 	fakediscovery "k8s.io/kubernetes/pkg/client/typed/discovery/fake"
-	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/watch"
 )
 
 // NewSimpleClientset returns a clientset that will respond with the provided objects.
@@ -48,7 +49,7 @@ func NewSimpleClientset(objects ...runtime.Object) *Clientset {
 	}
 
 	fakePtr := core.Fake{}
-	fakePtr.AddReactor("*", "*", core.ObjectReaction(o, registered.RESTMapper()))
+	fakePtr.AddReactor("*", "*", core.ObjectReaction(o, api.Registry.RESTMapper()))
 
 	fakePtr.AddWatchReactor("*", core.DefaultWatchReactor(watch.NewFake(), nil))
 
@@ -71,6 +72,11 @@ var _ clientset.Interface = &Clientset{}
 // Core retrieves the CoreClient
 func (c *Clientset) Core() internalversioncore.CoreInterface {
 	return &fakeinternalversioncore.FakeCore{Fake: &c.Fake}
+}
+
+// Autoscaling retrieves the AutoscalingClient
+func (c *Clientset) Autoscaling() internalversionautoscaling.AutoscalingInterface {
+	return &fakeinternalversionautoscaling.FakeAutoscaling{Fake: &c.Fake}
 }
 
 // Batch retrieves the BatchClient

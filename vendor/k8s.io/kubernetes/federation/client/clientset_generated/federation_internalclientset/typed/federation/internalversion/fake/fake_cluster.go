@@ -17,13 +17,14 @@ limitations under the License.
 package fake
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
 	federation "k8s.io/kubernetes/federation/apis/federation"
 	api "k8s.io/kubernetes/pkg/api"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
-	labels "k8s.io/kubernetes/pkg/labels"
-	schema "k8s.io/kubernetes/pkg/runtime/schema"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // FakeClusters implements ClusterInterface
@@ -66,7 +67,7 @@ func (c *FakeClusters) Delete(name string, options *api.DeleteOptions) error {
 	return err
 }
 
-func (c *FakeClusters) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *FakeClusters) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	action := core.NewRootDeleteCollectionAction(clustersResource, listOptions)
 
 	_, err := c.Fake.Invokes(action, &federation.ClusterList{})
@@ -82,7 +83,7 @@ func (c *FakeClusters) Get(name string, options v1.GetOptions) (result *federati
 	return obj.(*federation.Cluster), err
 }
 
-func (c *FakeClusters) List(opts api.ListOptions) (result *federation.ClusterList, err error) {
+func (c *FakeClusters) List(opts v1.ListOptions) (result *federation.ClusterList, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewRootListAction(clustersResource, opts), &federation.ClusterList{})
 	if obj == nil {
@@ -103,13 +104,13 @@ func (c *FakeClusters) List(opts api.ListOptions) (result *federation.ClusterLis
 }
 
 // Watch returns a watch.Interface that watches the requested clusters.
-func (c *FakeClusters) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *FakeClusters) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
 		InvokesWatch(core.NewRootWatchAction(clustersResource, opts))
 }
 
 // Patch applies the patch and returns the patched cluster.
-func (c *FakeClusters) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *federation.Cluster, err error) {
+func (c *FakeClusters) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *federation.Cluster, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewRootPatchSubresourceAction(clustersResource, name, data, subresources...), &federation.Cluster{})
 	if obj == nil {

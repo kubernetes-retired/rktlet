@@ -17,10 +17,11 @@ limitations under the License.
 package internalversion
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
+	rest "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/api"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	restclient "k8s.io/kubernetes/pkg/client/restclient"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // PodTemplatesGetter has a method to return a PodTemplateInterface.
@@ -34,17 +35,17 @@ type PodTemplateInterface interface {
 	Create(*api.PodTemplate) (*api.PodTemplate, error)
 	Update(*api.PodTemplate) (*api.PodTemplate, error)
 	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error
+	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*api.PodTemplate, error)
-	List(opts api.ListOptions) (*api.PodTemplateList, error)
-	Watch(opts api.ListOptions) (watch.Interface, error)
-	Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *api.PodTemplate, err error)
+	List(opts v1.ListOptions) (*api.PodTemplateList, error)
+	Watch(opts v1.ListOptions) (watch.Interface, error)
+	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *api.PodTemplate, err error)
 	PodTemplateExpansion
 }
 
 // podTemplates implements PodTemplateInterface
 type podTemplates struct {
-	client restclient.Interface
+	client rest.Interface
 	ns     string
 }
 
@@ -93,7 +94,7 @@ func (c *podTemplates) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *podTemplates) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *podTemplates) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("podtemplates").
@@ -117,7 +118,7 @@ func (c *podTemplates) Get(name string, options v1.GetOptions) (result *api.PodT
 }
 
 // List takes label and field selectors, and returns the list of PodTemplates that match those selectors.
-func (c *podTemplates) List(opts api.ListOptions) (result *api.PodTemplateList, err error) {
+func (c *podTemplates) List(opts v1.ListOptions) (result *api.PodTemplateList, err error) {
 	result = &api.PodTemplateList{}
 	err = c.client.Get().
 		Namespace(c.ns).
@@ -129,7 +130,7 @@ func (c *podTemplates) List(opts api.ListOptions) (result *api.PodTemplateList, 
 }
 
 // Watch returns a watch.Interface that watches the requested podTemplates.
-func (c *podTemplates) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *podTemplates) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.client.Get().
 		Prefix("watch").
 		Namespace(c.ns).
@@ -139,7 +140,7 @@ func (c *podTemplates) Watch(opts api.ListOptions) (watch.Interface, error) {
 }
 
 // Patch applies the patch and returns the patched podTemplate.
-func (c *podTemplates) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *api.PodTemplate, err error) {
+func (c *podTemplates) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *api.PodTemplate, err error) {
 	result = &api.PodTemplate{}
 	err = c.client.Patch(pt).
 		Namespace(c.ns).

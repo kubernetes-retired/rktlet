@@ -21,12 +21,12 @@ import (
 	"net/http/httptest"
 
 	"github.com/golang/glog"
+	restclient "k8s.io/client-go/rest"
+	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/apimachinery/registered"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	v1core "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/core/v1"
 	"k8s.io/kubernetes/pkg/client/record"
-	"k8s.io/kubernetes/pkg/client/restclient"
 	"k8s.io/kubernetes/plugin/pkg/scheduler"
 	_ "k8s.io/kubernetes/plugin/pkg/scheduler/algorithmprovider"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/factory"
@@ -40,7 +40,7 @@ import (
 // remove resources after finished.
 // Notes on rate limiter:
 //   - client rate limit is set to 5000.
-func mustSetupScheduler() (schedulerConfigFactory *factory.ConfigFactory, destroyFunc func()) {
+func mustSetupScheduler() (schedulerConfigFactory scheduler.Configurator, destroyFunc func()) {
 
 	h := &framework.MasterHolder{Initialized: make(chan struct{})}
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -52,7 +52,7 @@ func mustSetupScheduler() (schedulerConfigFactory *factory.ConfigFactory, destro
 
 	clientSet := clientset.NewForConfigOrDie(&restclient.Config{
 		Host:          s.URL,
-		ContentConfig: restclient.ContentConfig{GroupVersion: &registered.GroupOrDie(v1.GroupName).GroupVersion},
+		ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion},
 		QPS:           5000.0,
 		Burst:         5000,
 	})

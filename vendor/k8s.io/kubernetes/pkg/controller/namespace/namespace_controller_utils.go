@@ -23,15 +23,15 @@ import (
 
 	"github.com/golang/glog"
 
-	"k8s.io/kubernetes/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/pkg/api/v1"
-	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	"k8s.io/kubernetes/pkg/apis/meta/v1/unstructured"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/client/typed/discovery"
 	"k8s.io/kubernetes/pkg/client/typed/dynamic"
-	"k8s.io/kubernetes/pkg/runtime/schema"
-	"k8s.io/kubernetes/pkg/util/sets"
 )
 
 // contentRemainingError is used to inform the caller that content is not fully removed from the namespace
@@ -178,7 +178,7 @@ func deleteCollection(
 	// resource deletions generically.  it will ensure all resources in the namespace are purged prior to releasing
 	// namespace itself.
 	orphanDependents := false
-	err := dynamicClient.Resource(&apiResource, namespace).DeleteCollection(&v1.DeleteOptions{OrphanDependents: &orphanDependents}, &v1.ListOptions{})
+	err := dynamicClient.Resource(&apiResource, namespace).DeleteCollection(&v1.DeleteOptions{OrphanDependents: &orphanDependents}, &metav1.ListOptions{})
 
 	if err == nil {
 		return true, nil
@@ -220,7 +220,7 @@ func listCollection(
 	}
 
 	apiResource := metav1.APIResource{Name: gvr.Resource, Namespaced: true}
-	obj, err := dynamicClient.Resource(&apiResource, namespace).List(&v1.ListOptions{})
+	obj, err := dynamicClient.Resource(&apiResource, namespace).List(&metav1.ListOptions{})
 	if err == nil {
 		unstructuredList, ok := obj.(*unstructured.UnstructuredList)
 		if !ok {
@@ -486,7 +486,7 @@ func estimateGracefulTermination(kubeClient clientset.Interface, groupVersionRes
 func estimateGracefulTerminationForPods(kubeClient clientset.Interface, ns string) (int64, error) {
 	glog.V(5).Infof("namespace controller - estimateGracefulTerminationForPods - namespace %s", ns)
 	estimate := int64(0)
-	items, err := kubeClient.Core().Pods(ns).List(v1.ListOptions{})
+	items, err := kubeClient.Core().Pods(ns).List(metav1.ListOptions{})
 	if err != nil {
 		return estimate, err
 	}

@@ -17,10 +17,11 @@ limitations under the License.
 package internalversion
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
+	rest "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/api"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	restclient "k8s.io/kubernetes/pkg/client/restclient"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // SecretsGetter has a method to return a SecretInterface.
@@ -34,17 +35,17 @@ type SecretInterface interface {
 	Create(*api.Secret) (*api.Secret, error)
 	Update(*api.Secret) (*api.Secret, error)
 	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error
+	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*api.Secret, error)
-	List(opts api.ListOptions) (*api.SecretList, error)
-	Watch(opts api.ListOptions) (watch.Interface, error)
-	Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *api.Secret, err error)
+	List(opts v1.ListOptions) (*api.SecretList, error)
+	Watch(opts v1.ListOptions) (watch.Interface, error)
+	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *api.Secret, err error)
 	SecretExpansion
 }
 
 // secrets implements SecretInterface
 type secrets struct {
-	client restclient.Interface
+	client rest.Interface
 	ns     string
 }
 
@@ -93,7 +94,7 @@ func (c *secrets) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *secrets) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *secrets) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("secrets").
@@ -117,7 +118,7 @@ func (c *secrets) Get(name string, options v1.GetOptions) (result *api.Secret, e
 }
 
 // List takes label and field selectors, and returns the list of Secrets that match those selectors.
-func (c *secrets) List(opts api.ListOptions) (result *api.SecretList, err error) {
+func (c *secrets) List(opts v1.ListOptions) (result *api.SecretList, err error) {
 	result = &api.SecretList{}
 	err = c.client.Get().
 		Namespace(c.ns).
@@ -129,7 +130,7 @@ func (c *secrets) List(opts api.ListOptions) (result *api.SecretList, err error)
 }
 
 // Watch returns a watch.Interface that watches the requested secrets.
-func (c *secrets) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *secrets) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.client.Get().
 		Prefix("watch").
 		Namespace(c.ns).
@@ -139,7 +140,7 @@ func (c *secrets) Watch(opts api.ListOptions) (watch.Interface, error) {
 }
 
 // Patch applies the patch and returns the patched secret.
-func (c *secrets) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *api.Secret, err error) {
+func (c *secrets) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *api.Secret, err error) {
 	result = &api.Secret{}
 	err = c.client.Patch(pt).
 		Namespace(c.ns).

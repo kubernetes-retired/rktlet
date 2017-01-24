@@ -17,14 +17,14 @@ limitations under the License.
 package fake
 
 import (
-	api "k8s.io/kubernetes/pkg/api"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
 	v1beta1 "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
-	meta_v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
-	labels "k8s.io/kubernetes/pkg/labels"
-	schema "k8s.io/kubernetes/pkg/runtime/schema"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // FakePodSecurityPolicies implements PodSecurityPolicyInterface
@@ -58,7 +58,7 @@ func (c *FakePodSecurityPolicies) Delete(name string, options *v1.DeleteOptions)
 	return err
 }
 
-func (c *FakePodSecurityPolicies) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *FakePodSecurityPolicies) DeleteCollection(options *v1.DeleteOptions, listOptions meta_v1.ListOptions) error {
 	action := core.NewRootDeleteCollectionAction(podsecuritypoliciesResource, listOptions)
 
 	_, err := c.Fake.Invokes(action, &v1beta1.PodSecurityPolicyList{})
@@ -74,7 +74,7 @@ func (c *FakePodSecurityPolicies) Get(name string, options meta_v1.GetOptions) (
 	return obj.(*v1beta1.PodSecurityPolicy), err
 }
 
-func (c *FakePodSecurityPolicies) List(opts v1.ListOptions) (result *v1beta1.PodSecurityPolicyList, err error) {
+func (c *FakePodSecurityPolicies) List(opts meta_v1.ListOptions) (result *v1beta1.PodSecurityPolicyList, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewRootListAction(podsecuritypoliciesResource, opts), &v1beta1.PodSecurityPolicyList{})
 	if obj == nil {
@@ -95,13 +95,13 @@ func (c *FakePodSecurityPolicies) List(opts v1.ListOptions) (result *v1beta1.Pod
 }
 
 // Watch returns a watch.Interface that watches the requested podSecurityPolicies.
-func (c *FakePodSecurityPolicies) Watch(opts v1.ListOptions) (watch.Interface, error) {
+func (c *FakePodSecurityPolicies) Watch(opts meta_v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
 		InvokesWatch(core.NewRootWatchAction(podsecuritypoliciesResource, opts))
 }
 
 // Patch applies the patch and returns the patched podSecurityPolicy.
-func (c *FakePodSecurityPolicies) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *v1beta1.PodSecurityPolicy, err error) {
+func (c *FakePodSecurityPolicies) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1beta1.PodSecurityPolicy, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewRootPatchSubresourceAction(podsecuritypoliciesResource, name, data, subresources...), &v1beta1.PodSecurityPolicy{})
 	if obj == nil {

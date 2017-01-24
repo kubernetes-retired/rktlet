@@ -28,19 +28,25 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/federation/apis/federation"
 	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/api/events"
 	"k8s.io/kubernetes/pkg/api/resource"
+	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/apis/apps"
 	"k8s.io/kubernetes/pkg/apis/autoscaling"
 	"k8s.io/kubernetes/pkg/apis/batch"
 	"k8s.io/kubernetes/pkg/apis/certificates"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	versionedextension "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
-	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/apis/policy"
 	"k8s.io/kubernetes/pkg/apis/storage"
 	storageutil "k8s.io/kubernetes/pkg/apis/storage/util"
@@ -50,14 +56,7 @@ import (
 	extensionsclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/extensions/internalversion"
 	deploymentutil "k8s.io/kubernetes/pkg/controller/deployment/util"
 	"k8s.io/kubernetes/pkg/fieldpath"
-	"k8s.io/kubernetes/pkg/fields"
-	"k8s.io/kubernetes/pkg/kubelet/qos"
-	"k8s.io/kubernetes/pkg/labels"
-	"k8s.io/kubernetes/pkg/runtime/schema"
-	"k8s.io/kubernetes/pkg/types"
-	certutil "k8s.io/kubernetes/pkg/util/cert"
 	"k8s.io/kubernetes/pkg/util/intstr"
-	"k8s.io/kubernetes/pkg/util/sets"
 
 	"github.com/golang/glog"
 )
@@ -203,7 +202,7 @@ func (d *NamespaceDescriber) Describe(namespace, name string, describerSettings 
 	if err != nil {
 		return "", err
 	}
-	resourceQuotaList, err := d.Core().ResourceQuotas(name).List(api.ListOptions{})
+	resourceQuotaList, err := d.Core().ResourceQuotas(name).List(metav1.ListOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Server does not support resource quotas.
@@ -213,7 +212,7 @@ func (d *NamespaceDescriber) Describe(namespace, name string, describerSettings 
 			return "", err
 		}
 	}
-	limitRangeList, err := d.Core().LimitRanges(name).List(api.ListOptions{})
+	limitRangeList, err := d.Core().LimitRanges(name).List(metav1.ListOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Server does not support limit ranges.
@@ -411,13 +410,13 @@ func (d *ResourceQuotaDescriber) Describe(namespace, name string, describerSetti
 func helpTextForResourceQuotaScope(scope api.ResourceQuotaScope) string {
 	switch scope {
 	case api.ResourceQuotaScopeTerminating:
-		return "Matches all pods that have an active deadline."
+		return "Matches all pods that have an active deadline. These pods have a limited lifespan on a node before being actively terminated by the system."
 	case api.ResourceQuotaScopeNotTerminating:
-		return "Matches all pods that do not have an active deadline."
+		return "Matches all pods that do not have an active deadline. These pods usually include long running pods whose container command is not expected to terminate."
 	case api.ResourceQuotaScopeBestEffort:
-		return "Matches all pods that have best effort quality of service."
+		return "Matches all pods that do not have resource requirements set. These pods have a best effort quality of service."
 	case api.ResourceQuotaScopeNotBestEffort:
-		return "Matches all pods that do not have best effort quality of service."
+		return "Matches all pods that have at least one resource requirement set. These pods have a burstable or guaranteed quality of service."
 	default:
 		return ""
 	}
@@ -473,7 +472,7 @@ func (d *PodDescriber) Describe(namespace, name string, describerSettings Descri
 		if describerSettings.ShowEvents {
 			eventsInterface := d.Core().Events(namespace)
 			selector := eventsInterface.GetFieldSelector(&name, &namespace, nil, nil)
-			options := api.ListOptions{FieldSelector: selector}
+			options := metav1.ListOptions{FieldSelector: selector.String()}
 			events, err2 := eventsInterface.List(options)
 			if describerSettings.ShowEvents && err2 == nil && len(events.Items) > 0 {
 				return tabbedString(func(out io.Writer) error {
@@ -538,7 +537,7 @@ func describePod(pod *api.Pod, events *api.EventList) (string, error) {
 			}
 		}
 		describeVolumes(pod.Spec.Volumes, w, "")
-		w.Write(LEVEL_0, "QoS Class:\t%s\n", qos.InternalGetPodQOS(pod))
+		w.Write(LEVEL_0, "QoS Class:\t%s\n", pod.Status.QOSClass)
 		printLabelsMultiline(w, "Node-Selectors", pod.Spec.NodeSelector)
 		printTolerationsInAnnotationMultiline(w, "Tolerations", pod.Annotations)
 		if events != nil {
@@ -651,13 +650,19 @@ func printGitRepoVolumeSource(git *api.GitRepoVolumeSource, w *PrefixWriter) {
 }
 
 func printSecretVolumeSource(secret *api.SecretVolumeSource, w *PrefixWriter) {
+	optional := secret.Optional != nil && *secret.Optional
 	w.Write(LEVEL_2, "Type:\tSecret (a volume populated by a Secret)\n"+
-		"    SecretName:\t%v\n", secret.SecretName)
+		"    SecretName:\t%v\n",
+		"    Optional:\t%v\n",
+		secret.SecretName, optional)
 }
 
 func printConfigMapVolumeSource(configMap *api.ConfigMapVolumeSource, w *PrefixWriter) {
+	optional := configMap.Optional != nil && *configMap.Optional
 	w.Write(LEVEL_2, "Type:\tConfigMap (a volume populated by a ConfigMap)\n"+
-		"    Name:\t%v\n", configMap.Name)
+		"    Name:\t%v\n"+
+		"    Optional:\t%v\n",
+		configMap.Name, optional)
 }
 
 func printNFSVolumeSource(nfs *api.NFSVolumeSource, w *PrefixWriter) {
@@ -890,6 +895,7 @@ func describeContainers(label string, containers []api.Container, containerStatu
 		}
 		describeContainerProbe(container, w)
 		describeContainerVolumes(container, w)
+		describeContainerEnvFrom(container, resolverFn, w)
 		describeContainerEnvVars(container, resolverFn, w)
 	}
 }
@@ -1012,6 +1018,7 @@ func describeContainerEnvVars(container api.Container, resolverFn EnvVarResolver
 		none = "\t<none>"
 	}
 	w.Write(LEVEL_2, "Environment Variables:%s\n", none)
+
 	for _, e := range container.Env {
 		if e.ValueFrom == nil {
 			w.Write(LEVEL_3, "%s:\t%s\n", e.Name, e.Value)
@@ -1036,9 +1043,39 @@ func describeContainerEnvVars(container api.Container, resolverFn EnvVarResolver
 			}
 			w.Write(LEVEL_3, "%s:\t%s (%s)\n", e.Name, valueFrom, resource)
 		case e.ValueFrom.SecretKeyRef != nil:
-			w.Write(LEVEL_3, "%s:\t<set to the key '%s' in secret '%s'>\n", e.Name, e.ValueFrom.SecretKeyRef.Key, e.ValueFrom.SecretKeyRef.Name)
+			optional := e.ValueFrom.SecretKeyRef.Optional != nil && *e.ValueFrom.SecretKeyRef.Optional
+			w.Write(LEVEL_3, "%s:\t<set to the key '%s' in secret '%s'>\tOptional: %t\n", e.Name, e.ValueFrom.SecretKeyRef.Key, e.ValueFrom.SecretKeyRef.Name, optional)
 		case e.ValueFrom.ConfigMapKeyRef != nil:
-			w.Write(LEVEL_3, "%s:\t<set to the key '%s' of config map '%s'>\n", e.Name, e.ValueFrom.ConfigMapKeyRef.Key, e.ValueFrom.ConfigMapKeyRef.Name)
+			optional := e.ValueFrom.ConfigMapKeyRef.Optional != nil && *e.ValueFrom.ConfigMapKeyRef.Optional
+			w.Write(LEVEL_3, "%s:\t<set to the key '%s' of config map '%s'>\tOptional: %t\n", e.Name, e.ValueFrom.ConfigMapKeyRef.Key, e.ValueFrom.ConfigMapKeyRef.Name, optional)
+		}
+	}
+}
+
+func describeContainerEnvFrom(container api.Container, resolverFn EnvVarResolverFunc, w *PrefixWriter) {
+	none := ""
+	if len(container.EnvFrom) == 0 {
+		none = "\t<none>"
+	}
+	w.Write(LEVEL_2, "Environment Variables from:%s\n", none)
+
+	for _, e := range container.EnvFrom {
+		from := ""
+		name := ""
+		optional := false
+		if e.ConfigMapRef != nil {
+			from = "ConfigMap"
+			name = e.ConfigMapRef.Name
+			optional = e.ConfigMapRef.Optional != nil && *e.ConfigMapRef.Optional
+		} else if e.SecretRef != nil {
+			from = "Secret"
+			name = e.SecretRef.Name
+			optional = e.SecretRef.Optional != nil && *e.SecretRef.Optional
+		}
+		if len(e.Prefix) == 0 {
+			w.Write(LEVEL_3, "%s\t%s\tOptional: %t\n", name, from, optional)
+		} else {
+			w.Write(LEVEL_3, "%s\t%s with prefix '%s'\tOptional: %t\n", name, from, e.Prefix, optional)
 		}
 	}
 }
@@ -1533,7 +1570,7 @@ func (i *IngressDescriber) describeIngress(ing *extensions.Ingress, describerSet
 				ServiceName: "default-http-backend",
 				ServicePort: intstr.IntOrString{Type: intstr.Int, IntVal: 80},
 			}
-			ns = api.NamespaceSystem
+			ns = metav1.NamespaceSystem
 		}
 		w.Write(LEVEL_0, "Default backend:\t%s (%s)\n", backendStringer(def), i.describeBackend(ns, def))
 		if len(ing.Spec.TLS) != 0 {
@@ -1766,23 +1803,45 @@ func (d *ServiceAccountDescriber) Describe(namespace, name string, describerSett
 
 	tokens := []api.Secret{}
 
-	tokenSelector := fields.SelectorFromSet(map[string]string{api.SecretTypeField: string(api.SecretTypeServiceAccountToken)})
-	options := api.ListOptions{FieldSelector: tokenSelector}
-	secrets, err := d.Core().Secrets(namespace).List(options)
+	// missingSecrets is the set of all secrets present in the
+	// serviceAccount but not present in the set of existing secrets.
+	missingSecrets := sets.NewString()
+	secrets, err := d.Core().Secrets(namespace).List(metav1.ListOptions{})
+
+	// errors are tolerated here in order to describe the serviceAccount with all
+	// of the secrets that it references, even if those secrets cannot be fetched.
 	if err == nil {
+		// existingSecrets is the set of all secrets remaining on a
+		// service account that are not present in the "tokens" slice.
+		existingSecrets := sets.NewString()
+
 		for _, s := range secrets.Items {
-			name, _ := s.Annotations[api.ServiceAccountNameKey]
-			uid, _ := s.Annotations[api.ServiceAccountUIDKey]
-			if name == serviceAccount.Name && uid == string(serviceAccount.UID) {
-				tokens = append(tokens, s)
+			if s.Type == api.SecretTypeServiceAccountToken {
+				name, _ := s.Annotations[api.ServiceAccountNameKey]
+				uid, _ := s.Annotations[api.ServiceAccountUIDKey]
+				if name == serviceAccount.Name && uid == string(serviceAccount.UID) {
+					tokens = append(tokens, s)
+				}
+			}
+			existingSecrets.Insert(s.Name)
+		}
+
+		for _, s := range serviceAccount.Secrets {
+			if !existingSecrets.Has(s.Name) {
+				missingSecrets.Insert(s.Name)
+			}
+		}
+		for _, s := range serviceAccount.ImagePullSecrets {
+			if !existingSecrets.Has(s.Name) {
+				missingSecrets.Insert(s.Name)
 			}
 		}
 	}
 
-	return describeServiceAccount(serviceAccount, tokens)
+	return describeServiceAccount(serviceAccount, tokens, missingSecrets)
 }
 
-func describeServiceAccount(serviceAccount *api.ServiceAccount, tokens []api.Secret) (string, error) {
+func describeServiceAccount(serviceAccount *api.ServiceAccount, tokens []api.Secret, missingSecrets sets.String) (string, error) {
 	return tabbedString(func(out io.Writer) error {
 		w := &PrefixWriter{out}
 		w.Write(LEVEL_0, "Name:\t%s\n", serviceAccount.Name)
@@ -1822,7 +1881,11 @@ func describeServiceAccount(serviceAccount *api.ServiceAccount, tokens []api.Sec
 			} else {
 				prefix := header
 				for _, name := range names {
-					w.Write(LEVEL_0, "%s\t%s\n", prefix, name)
+					if missingSecrets.Has(name) {
+						w.Write(LEVEL_0, "%s\t%s (not found)\n", prefix, name)
+					} else {
+						w.Write(LEVEL_0, "%s\t%s\n", prefix, name)
+					}
 					prefix = emptyHeader
 				}
 			}
@@ -1852,7 +1915,7 @@ func (d *NodeDescriber) Describe(namespace, name string, describerSettings Descr
 	// in a policy aware setting, users may have access to a node, but not all pods
 	// in that case, we note that the user does not have access to the pods
 	canViewPods := true
-	nodeNonTerminatedPodsList, err := d.Core().Pods(namespace).List(api.ListOptions{FieldSelector: fieldSelector})
+	nodeNonTerminatedPodsList, err := d.Core().Pods(namespace).List(metav1.ListOptions{FieldSelector: fieldSelector.String()})
 	if err != nil {
 		if !errors.IsForbidden(err) {
 			return "", err
@@ -2008,7 +2071,7 @@ func (p *CertificateSigningRequestDescriber) Describe(namespace, name string, de
 		return "", err
 	}
 
-	cr, err := certutil.ParseCSR(csr)
+	cr, err := certificates.ParseCSR(csr)
 	if err != nil {
 		return "", fmt.Errorf("Error parsing CSR: %v", err)
 	}
@@ -2249,7 +2312,7 @@ func (dd *DeploymentDescriber) Describe(namespace, name string, describerSetting
 		w.Write(LEVEL_0, "CreationTimestamp:\t%s\n", d.CreationTimestamp.Time.Format(time.RFC1123Z))
 		printLabelsMultiline(w, "Labels", d.Labels)
 		w.Write(LEVEL_0, "Selector:\t%s\n", selector)
-		w.Write(LEVEL_0, "Replicas:\t%d updated | %d total | %d available | %d unavailable\n", d.Status.UpdatedReplicas, d.Spec.Replicas, d.Status.AvailableReplicas, d.Status.UnavailableReplicas)
+		w.Write(LEVEL_0, "Replicas:\t%d updated | %d total | %d available | %d unavailable\n", d.Status.UpdatedReplicas, *d.Spec.Replicas, d.Status.AvailableReplicas, d.Status.UnavailableReplicas)
 		w.Write(LEVEL_0, "StrategyType:\t%s\n", d.Spec.Strategy.Type)
 		w.Write(LEVEL_0, "MinReadySeconds:\t%d\n", d.Spec.MinReadySeconds)
 		if d.Spec.Strategy.RollingUpdate != nil {
@@ -2294,7 +2357,7 @@ func (dd *DeploymentDescriber) Describe(namespace, name string, describerSetting
 func getDaemonSetsForLabels(c extensionsclient.DaemonSetInterface, labelsToMatch labels.Labels) ([]extensions.DaemonSet, error) {
 	// Get all daemon sets
 	// TODO: this needs a namespace scope as argument
-	dss, err := c.List(api.ListOptions{})
+	dss, err := c.List(metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error getting daemon set: %v", err)
 	}
@@ -2332,7 +2395,7 @@ func printReplicaSetsByLabels(matchingRSs []*versionedextension.ReplicaSet) stri
 	// Format the matching ReplicaSets into strings.
 	rsStrings := make([]string, 0, len(matchingRSs))
 	for _, rs := range matchingRSs {
-		rsStrings = append(rsStrings, fmt.Sprintf("%s (%d/%d replicas created)", rs.Name, rs.Status.Replicas, rs.Spec.Replicas))
+		rsStrings = append(rsStrings, fmt.Sprintf("%s (%d/%d replicas created)", rs.Name, rs.Status.Replicas, *rs.Spec.Replicas))
 	}
 
 	list := strings.Join(rsStrings, ", ")
@@ -2343,7 +2406,7 @@ func printReplicaSetsByLabels(matchingRSs []*versionedextension.ReplicaSet) stri
 }
 
 func getPodStatusForController(c coreclient.PodInterface, selector labels.Selector) (running, waiting, succeeded, failed int, err error) {
-	options := api.ListOptions{LabelSelector: selector}
+	options := metav1.ListOptions{LabelSelector: selector.String()}
 	rcPods, err := c.List(options)
 	if err != nil {
 		return
@@ -2706,9 +2769,15 @@ func printLabelsMultilineWithIndent(w *PrefixWriter, initialIndent, title, inner
 
 // printTaintsMultiline prints multiple taints with a proper alignment.
 func printTaintsInAnnotationMultiline(w *PrefixWriter, title string, annotations map[string]string) {
-	taints, err := api.GetTaintsFromNodeAnnotations(annotations)
+	v1Taints, err := v1.GetTaintsFromNodeAnnotations(annotations)
 	if err != nil {
-		taints = []api.Taint{}
+		v1Taints = []v1.Taint{}
+	}
+	taints := make([]api.Taint, len(v1Taints))
+	for i := range v1Taints {
+		if err := v1.Convert_v1_Taint_To_api_Taint(&v1Taints[i], &taints[i], nil); err != nil {
+			panic(err)
+		}
 	}
 	printTaintsMultilineWithIndent(w, "", title, "\t", taints)
 }
@@ -2745,9 +2814,15 @@ func printTaintsMultilineWithIndent(w *PrefixWriter, initialIndent, title, inner
 
 // printTolerationsMultiline prints multiple tolerations with a proper alignment.
 func printTolerationsInAnnotationMultiline(w *PrefixWriter, title string, annotations map[string]string) {
-	tolerations, err := api.GetTolerationsFromPodAnnotations(annotations)
+	v1Tolerations, err := v1.GetTolerationsFromPodAnnotations(annotations)
 	if err != nil {
-		tolerations = []api.Toleration{}
+		v1Tolerations = []v1.Toleration{}
+	}
+	tolerations := make([]api.Toleration, len(v1Tolerations))
+	for i := range v1Tolerations {
+		if err := v1.Convert_v1_Toleration_To_api_Toleration(&v1Tolerations[i], &tolerations[i], nil); err != nil {
+			panic(err)
+		}
 	}
 	printTolerationsMultilineWithIndent(w, "", title, "\t", tolerations)
 }
