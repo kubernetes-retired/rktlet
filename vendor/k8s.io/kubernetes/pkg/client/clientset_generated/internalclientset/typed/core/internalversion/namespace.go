@@ -17,10 +17,11 @@ limitations under the License.
 package internalversion
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
+	rest "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/api"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	restclient "k8s.io/kubernetes/pkg/client/restclient"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // NamespacesGetter has a method to return a NamespaceInterface.
@@ -35,17 +36,17 @@ type NamespaceInterface interface {
 	Update(*api.Namespace) (*api.Namespace, error)
 	UpdateStatus(*api.Namespace) (*api.Namespace, error)
 	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error
+	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*api.Namespace, error)
-	List(opts api.ListOptions) (*api.NamespaceList, error)
-	Watch(opts api.ListOptions) (watch.Interface, error)
-	Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *api.Namespace, err error)
+	List(opts v1.ListOptions) (*api.NamespaceList, error)
+	Watch(opts v1.ListOptions) (watch.Interface, error)
+	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *api.Namespace, err error)
 	NamespaceExpansion
 }
 
 // namespaces implements NamespaceInterface
 type namespaces struct {
-	client restclient.Interface
+	client rest.Interface
 }
 
 // newNamespaces returns a Namespaces
@@ -104,7 +105,7 @@ func (c *namespaces) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *namespaces) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *namespaces) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Resource("namespaces").
 		VersionedParams(&listOptions, api.ParameterCodec).
@@ -126,7 +127,7 @@ func (c *namespaces) Get(name string, options v1.GetOptions) (result *api.Namesp
 }
 
 // List takes label and field selectors, and returns the list of Namespaces that match those selectors.
-func (c *namespaces) List(opts api.ListOptions) (result *api.NamespaceList, err error) {
+func (c *namespaces) List(opts v1.ListOptions) (result *api.NamespaceList, err error) {
 	result = &api.NamespaceList{}
 	err = c.client.Get().
 		Resource("namespaces").
@@ -137,7 +138,7 @@ func (c *namespaces) List(opts api.ListOptions) (result *api.NamespaceList, err 
 }
 
 // Watch returns a watch.Interface that watches the requested namespaces.
-func (c *namespaces) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *namespaces) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.client.Get().
 		Prefix("watch").
 		Resource("namespaces").
@@ -146,7 +147,7 @@ func (c *namespaces) Watch(opts api.ListOptions) (watch.Interface, error) {
 }
 
 // Patch applies the patch and returns the patched namespace.
-func (c *namespaces) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *api.Namespace, err error) {
+func (c *namespaces) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *api.Namespace, err error) {
 	result = &api.Namespace{}
 	err = c.client.Patch(pt).
 		Resource("namespaces").

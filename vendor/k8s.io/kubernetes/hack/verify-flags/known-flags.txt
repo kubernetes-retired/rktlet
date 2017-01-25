@@ -7,6 +7,7 @@ advertised-address
 algorithm-provider
 all-namespaces
 allocate-node-cidrs
+allow-missing-template-keys
 allow-privileged
 allowed-not-ready-nodes
 anonymous-auth
@@ -96,6 +97,7 @@ concurrent-resource-quota-syncs
 concurrent-serviceaccount-token-syncs
 concurrent-service-syncs
 config-map
+config-map-data
 config-map-namespace
 config-sync-period
 configure-cloud-routes
@@ -307,6 +309,7 @@ junit-file-number
 k8s-bin-dir
 k8s-build-output
 keep-gogoproto
+keep-terminated-pod-volumes
 km-path
 kops-admin-access
 kops-cluster
@@ -541,6 +544,7 @@ seccomp-profile-root
 secondary-node-eviction-rate
 secret-name
 secure-port
+self-hosted
 serialize-image-pulls
 server-start-timeout
 service-account-key-file
@@ -635,3 +639,5 @@ garbage-collector-enabled
 viper-config
 log-lines-total
 run-duration
+attach-detach-reconcile-sync-period
+disable-attach-detach-reconcile-sync

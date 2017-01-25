@@ -30,17 +30,30 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+
+	clientgoclientset "k8s.io/client-go/kubernetes"
+
 	cadvisorapi "github.com/google/cadvisor/info/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/pkg/util/clock"
+	"k8s.io/client-go/pkg/util/flowcontrol"
+	"k8s.io/client-go/pkg/util/integer"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/apis/componentconfig"
 	componentconfigv1alpha1 "k8s.io/kubernetes/pkg/apis/componentconfig/v1alpha1"
 	"k8s.io/kubernetes/pkg/client/cache"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	"k8s.io/kubernetes/pkg/client/legacylisters"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/cloudprovider"
-	"k8s.io/kubernetes/pkg/fields"
 	internalapi "k8s.io/kubernetes/pkg/kubelet/api"
 	"k8s.io/kubernetes/pkg/kubelet/cadvisor"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
@@ -62,6 +75,7 @@ import (
 	proberesults "k8s.io/kubernetes/pkg/kubelet/prober/results"
 	"k8s.io/kubernetes/pkg/kubelet/remote"
 	"k8s.io/kubernetes/pkg/kubelet/rkt"
+	"k8s.io/kubernetes/pkg/kubelet/secret"
 	"k8s.io/kubernetes/pkg/kubelet/server"
 	"k8s.io/kubernetes/pkg/kubelet/server/stats"
 	"k8s.io/kubernetes/pkg/kubelet/server/streaming"
@@ -72,25 +86,17 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/util/queue"
 	"k8s.io/kubernetes/pkg/kubelet/util/sliceutils"
 	"k8s.io/kubernetes/pkg/kubelet/volumemanager"
-	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/security/apparmor"
-	"k8s.io/kubernetes/pkg/types"
 	"k8s.io/kubernetes/pkg/util/bandwidth"
-	"k8s.io/kubernetes/pkg/util/clock"
 	utilconfig "k8s.io/kubernetes/pkg/util/config"
 	utildbus "k8s.io/kubernetes/pkg/util/dbus"
 	utilexec "k8s.io/kubernetes/pkg/util/exec"
-	"k8s.io/kubernetes/pkg/util/flowcontrol"
-	"k8s.io/kubernetes/pkg/util/integer"
 	kubeio "k8s.io/kubernetes/pkg/util/io"
 	utilipt "k8s.io/kubernetes/pkg/util/iptables"
 	"k8s.io/kubernetes/pkg/util/mount"
 	nodeutil "k8s.io/kubernetes/pkg/util/node"
 	"k8s.io/kubernetes/pkg/util/oom"
 	"k8s.io/kubernetes/pkg/util/procfs"
-	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
-	"k8s.io/kubernetes/pkg/util/sets"
-	"k8s.io/kubernetes/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/algorithm/predicates"
 )
@@ -205,22 +211,23 @@ type KubeletDeps struct {
 	Options                 []Option
 
 	// Injected Dependencies
-	Auth              server.AuthInterface
-	CAdvisorInterface cadvisor.Interface
-	Cloud             cloudprovider.Interface
-	ContainerManager  cm.ContainerManager
-	DockerClient      dockertools.DockerInterface
-	EventClient       *clientset.Clientset
-	KubeClient        *clientset.Clientset
-	Mounter           mount.Interface
-	NetworkPlugins    []network.NetworkPlugin
-	OOMAdjuster       *oom.OOMAdjuster
-	OSInterface       kubecontainer.OSInterface
-	PodConfig         *config.PodConfig
-	Recorder          record.EventRecorder
-	Writer            kubeio.Writer
-	VolumePlugins     []volume.VolumePlugin
-	TLSOptions        *server.TLSOptions
+	Auth               server.AuthInterface
+	CAdvisorInterface  cadvisor.Interface
+	Cloud              cloudprovider.Interface
+	ContainerManager   cm.ContainerManager
+	DockerClient       dockertools.DockerInterface
+	EventClient        *clientset.Clientset
+	KubeClient         *clientset.Clientset
+	ExternalKubeClient clientgoclientset.Interface
+	Mounter            mount.Interface
+	NetworkPlugins     []network.NetworkPlugin
+	OOMAdjuster        *oom.OOMAdjuster
+	OSInterface        kubecontainer.OSInterface
+	PodConfig          *config.PodConfig
+	Recorder           record.EventRecorder
+	Writer             kubeio.Writer
+	VolumePlugins      []volume.VolumePlugin
+	TLSOptions         *server.TLSOptions
 }
 
 // makePodSourceConfig creates a config.PodConfig from the given
@@ -375,18 +382,18 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 
 	serviceStore := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 	if kubeClient != nil {
-		serviceLW := cache.NewListWatchFromClient(kubeClient.Core().RESTClient(), "services", v1.NamespaceAll, fields.Everything())
+		serviceLW := cache.NewListWatchFromClient(kubeClient.Core().RESTClient(), "services", metav1.NamespaceAll, fields.Everything())
 		cache.NewReflector(serviceLW, &v1.Service{}, serviceStore, 0).Run()
 	}
-	serviceLister := &cache.StoreToServiceLister{Indexer: serviceStore}
+	serviceLister := &listers.StoreToServiceLister{Indexer: serviceStore}
 
 	nodeStore := cache.NewStore(cache.MetaNamespaceKeyFunc)
 	if kubeClient != nil {
 		fieldSelector := fields.Set{api.ObjectNameField: string(nodeName)}.AsSelector()
-		nodeLW := cache.NewListWatchFromClient(kubeClient.Core().RESTClient(), "nodes", v1.NamespaceAll, fieldSelector)
+		nodeLW := cache.NewListWatchFromClient(kubeClient.Core().RESTClient(), "nodes", metav1.NamespaceAll, fieldSelector)
 		cache.NewReflector(nodeLW, &v1.Node{}, nodeStore, 0).Run()
 	}
-	nodeLister := &cache.StoreToNodeLister{Store: nodeStore}
+	nodeLister := &listers.StoreToNodeLister{Store: nodeStore}
 	nodeInfo := &predicates.CachedNodeInfo{StoreToNodeLister: nodeLister}
 
 	// TODO: get the real node object of ourself,
@@ -404,6 +411,11 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 		return nil, fmt.Errorf("failed to initialize disk manager: %v", err)
 	}
 	containerRefManager := kubecontainer.NewRefManager()
+
+	secretManager, err := secret.NewSimpleSecretManager(kubeClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize secret manager: %v", err)
+	}
 
 	oomWatcher := NewOOMWatcher(kubeDeps.CAdvisorInterface, kubeDeps.Recorder)
 
@@ -430,6 +442,7 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 		recorder:                       kubeDeps.Recorder,
 		cadvisor:                       kubeDeps.CAdvisorInterface,
 		diskSpaceManager:               diskSpaceManager,
+		secretManager:                  secretManager,
 		cloud:                          kubeDeps.Cloud,
 		autoDetectCloudProvider:   (componentconfigv1alpha1.AutoDetectCloudProvider == kubeCfg.CloudProvider),
 		nodeRef:                   nodeRef,
@@ -494,7 +507,8 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 	klet.livenessManager = proberesults.NewManager()
 
 	klet.podCache = kubecontainer.NewCache()
-	klet.podManager = kubepod.NewBasicPodManager(kubepod.NewBasicMirrorClient(klet.kubeClient))
+	// podManager is also responsible for keeping secretManager contents up-to-date.
+	klet.podManager = kubepod.NewBasicPodManager(kubepod.NewBasicMirrorClient(klet.kubeClient), secretManager)
 
 	if kubeCfg.RemoteRuntimeEndpoint != "" {
 		// kubeCfg.RemoteImageEndpoint is same as kubeCfg.RemoteRuntimeEndpoint if not explicitly specified
@@ -539,7 +553,7 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 			streamingConfig := getStreamingConfig(kubeCfg, kubeDeps)
 			// Use the new CRI shim for docker.
 			ds, err := dockershim.NewDockerService(klet.dockerClient, kubeCfg.SeccompProfileRoot, kubeCfg.PodInfraContainerImage,
-				streamingConfig, &pluginSettings, kubeCfg.RuntimeCgroups, kubeCfg.CgroupDriver)
+				streamingConfig, &pluginSettings, kubeCfg.RuntimeCgroups, kubeCfg.CgroupDriver, dockerExecHandler)
 			if err != nil {
 				return nil, err
 			}
@@ -575,9 +589,6 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 					return nil, err
 				}
 			}
-			// Use DockerLegacyService directly to work around unimplemented
-			// functions in CRI.
-			// TODO: Remove this hack after CRI is fully implemented.
 			// TODO: Move the instrumented interface wrapping into kuberuntime.
 			runtimeService = kuberuntime.NewInstrumentedRuntimeService(rs)
 			imageService = is
@@ -717,7 +728,7 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 		kubeDeps.Recorder)
 
 	klet.volumePluginMgr, err =
-		NewInitializedVolumePluginMgr(klet, kubeDeps.VolumePlugins)
+		NewInitializedVolumePluginMgr(klet, secretManager, kubeDeps.VolumePlugins)
 	if err != nil {
 		return nil, err
 	}
@@ -738,7 +749,8 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 		kubeDeps.Mounter,
 		klet.getPodsDir(),
 		kubeDeps.Recorder,
-		kubeCfg.ExperimentalCheckNodeCapabilitiesBeforeMount)
+		kubeCfg.ExperimentalCheckNodeCapabilitiesBeforeMount,
+		kubeCfg.KeepTerminatedPodVolumes)
 
 	runtimeCache, err := kubecontainer.NewRuntimeCache(klet.containerRuntime)
 	if err != nil {
@@ -754,11 +766,8 @@ func NewMainKubelet(kubeCfg *componentconfig.KubeletConfiguration, kubeDeps *Kub
 	klet.setNodeStatusFuncs = klet.defaultNodeStatusFuncs()
 
 	// setup eviction manager
-	evictionManager, evictionAdmitHandler, err := eviction.NewManager(klet.resourceAnalyzer, evictionConfig, killPodNow(klet.podWorkers, kubeDeps.Recorder), klet.imageManager, kubeDeps.Recorder, nodeRef, klet.clock)
+	evictionManager, evictionAdmitHandler := eviction.NewManager(klet.resourceAnalyzer, evictionConfig, killPodNow(klet.podWorkers, kubeDeps.Recorder), klet.imageManager, kubeDeps.Recorder, nodeRef, klet.clock)
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize eviction manager: %v", err)
-	}
 	klet.evictionManager = evictionManager
 	klet.admitHandlers.AddPodAdmitHandler(evictionAdmitHandler)
 
@@ -914,6 +923,9 @@ type Kubelet struct {
 
 	// Diskspace manager.
 	diskSpaceManager diskSpaceManager
+
+	// Secret manager.
+	secretManager secret.Manager
 
 	// Cached MachineInfo returned by cadvisor.
 	machineInfo *cadvisorapi.MachineInfo
@@ -1209,9 +1221,7 @@ func (kl *Kubelet) initializeRuntimeDependentModules() {
 		glog.Fatalf("Failed to start cAdvisor %v", err)
 	}
 	// eviction manager must start after cadvisor because it needs to know if the container runtime has a dedicated imagefs
-	if err := kl.evictionManager.Start(kl, kl.getActivePods, evictionMonitoringPeriod); err != nil {
-		kl.runtimeState.setInternalError(fmt.Errorf("failed to start eviction manager %v", err))
-	}
+	kl.evictionManager.Start(kl, kl.getActivePods, evictionMonitoringPeriod)
 }
 
 // Run starts the kubelet reacting to config updates
@@ -1246,6 +1256,11 @@ func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
 	// Start a goroutine responsible for killing pods (that are not properly
 	// handled by pod workers).
 	go wait.Until(kl.podKiller, 1*time.Second, wait.NeverStop)
+
+	// Start gorouting responsible for checking limits in resolv.conf
+	if kl.resolverConfig != "" {
+		go wait.Until(func() { kl.checkLimitsForResolvConf() }, 30*time.Second, wait.NeverStop)
+	}
 
 	// Start component sync loops.
 	kl.statusManager.Start()
@@ -1303,6 +1318,8 @@ func (kl *Kubelet) GetClusterDNS(pod *v1.Pod) ([]string, []string, error) {
 		if kl.resolverConfig == "" {
 			hostDNS = []string{"127.0.0.1"}
 			hostSearch = []string{"."}
+		} else {
+			hostSearch = kl.formDNSSearchForDNSDefault(hostSearch, pod)
 		}
 		return hostDNS, hostSearch, nil
 	}
@@ -1311,15 +1328,7 @@ func (kl *Kubelet) GetClusterDNS(pod *v1.Pod) ([]string, []string, error) {
 	// the pod. The cluster DNS server itself will forward queries to other nameservers that is configured to use,
 	// in case the cluster DNS server cannot resolve the DNS query itself
 	dns := []string{kl.clusterDNS.String()}
-
-	var dnsSearch []string
-	if kl.clusterDomain != "" {
-		nsSvcDomain := fmt.Sprintf("%s.svc.%s", pod.Namespace, kl.clusterDomain)
-		svcDomain := fmt.Sprintf("svc.%s", kl.clusterDomain)
-		dnsSearch = append([]string{nsSvcDomain, svcDomain, kl.clusterDomain}, hostSearch...)
-	} else {
-		dnsSearch = hostSearch
-	}
+	dnsSearch := kl.formDNSSearch(hostSearch, pod)
 	return dns, dnsSearch, nil
 }
 
@@ -2025,11 +2034,6 @@ func (kl *Kubelet) LatestLoopEntryTime() time.Time {
 		return time.Time{}
 	}
 	return val.(time.Time)
-}
-
-// PLEGHealthCheck returns whether the PLEG is healthy.
-func (kl *Kubelet) PLEGHealthCheck() (bool, error) {
-	return kl.pleg.Healthy()
 }
 
 // updateRuntimeUp calls the container runtime status callback, initializing

@@ -17,13 +17,14 @@ limitations under the License.
 package fake
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
 	api "k8s.io/kubernetes/pkg/api"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	rbac "k8s.io/kubernetes/pkg/apis/rbac"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
-	labels "k8s.io/kubernetes/pkg/labels"
-	schema "k8s.io/kubernetes/pkg/runtime/schema"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // FakeRoles implements RoleInterface
@@ -61,7 +62,7 @@ func (c *FakeRoles) Delete(name string, options *api.DeleteOptions) error {
 	return err
 }
 
-func (c *FakeRoles) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *FakeRoles) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	action := core.NewDeleteCollectionAction(rolesResource, c.ns, listOptions)
 
 	_, err := c.Fake.Invokes(action, &rbac.RoleList{})
@@ -78,7 +79,7 @@ func (c *FakeRoles) Get(name string, options v1.GetOptions) (result *rbac.Role, 
 	return obj.(*rbac.Role), err
 }
 
-func (c *FakeRoles) List(opts api.ListOptions) (result *rbac.RoleList, err error) {
+func (c *FakeRoles) List(opts v1.ListOptions) (result *rbac.RoleList, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewListAction(rolesResource, c.ns, opts), &rbac.RoleList{})
 
@@ -100,14 +101,14 @@ func (c *FakeRoles) List(opts api.ListOptions) (result *rbac.RoleList, err error
 }
 
 // Watch returns a watch.Interface that watches the requested roles.
-func (c *FakeRoles) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *FakeRoles) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
 		InvokesWatch(core.NewWatchAction(rolesResource, c.ns, opts))
 
 }
 
 // Patch applies the patch and returns the patched role.
-func (c *FakeRoles) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *rbac.Role, err error) {
+func (c *FakeRoles) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *rbac.Role, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewPatchSubresourceAction(rolesResource, c.ns, name, data, subresources...), &rbac.Role{})
 

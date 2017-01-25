@@ -19,7 +19,7 @@ go_library(
         "//pkg/api:go_default_library",
         "//pkg/kubelet/server/portforward:go_default_library",
         "//pkg/util/httpstream:go_default_library",
-        "//pkg/util/runtime:go_default_library",
+        "//vendor:k8s.io/apimachinery/pkg/util/runtime",
     ],
 )
 
@@ -29,10 +29,23 @@ go_test(
     library = ":go_default_library",
     tags = ["automanaged"],
     deps = [
-        "//pkg/client/restclient:go_default_library",
         "//pkg/client/unversioned/remotecommand:go_default_library",
         "//pkg/kubelet/server/portforward:go_default_library",
-        "//pkg/types:go_default_library",
         "//pkg/util/httpstream:go_default_library",
+        "//vendor:k8s.io/apimachinery/pkg/types",
+        "//vendor:k8s.io/client-go/rest",
     ],
+)
+
+filegroup(
+    name = "package-srcs",
+    srcs = glob(["**"]),
+    tags = ["automanaged"],
+    visibility = ["//visibility:private"],
+)
+
+filegroup(
+    name = "all-srcs",
+    srcs = [":package-srcs"],
+    tags = ["automanaged"],
 )

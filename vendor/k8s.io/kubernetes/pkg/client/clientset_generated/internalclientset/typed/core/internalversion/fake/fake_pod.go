@@ -17,12 +17,13 @@ limitations under the License.
 package fake
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
 	api "k8s.io/kubernetes/pkg/api"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
-	labels "k8s.io/kubernetes/pkg/labels"
-	schema "k8s.io/kubernetes/pkg/runtime/schema"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // FakePods implements PodInterface
@@ -70,7 +71,7 @@ func (c *FakePods) Delete(name string, options *api.DeleteOptions) error {
 	return err
 }
 
-func (c *FakePods) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *FakePods) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	action := core.NewDeleteCollectionAction(podsResource, c.ns, listOptions)
 
 	_, err := c.Fake.Invokes(action, &api.PodList{})
@@ -87,7 +88,7 @@ func (c *FakePods) Get(name string, options v1.GetOptions) (result *api.Pod, err
 	return obj.(*api.Pod), err
 }
 
-func (c *FakePods) List(opts api.ListOptions) (result *api.PodList, err error) {
+func (c *FakePods) List(opts v1.ListOptions) (result *api.PodList, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewListAction(podsResource, c.ns, opts), &api.PodList{})
 
@@ -109,14 +110,14 @@ func (c *FakePods) List(opts api.ListOptions) (result *api.PodList, err error) {
 }
 
 // Watch returns a watch.Interface that watches the requested pods.
-func (c *FakePods) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *FakePods) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
 		InvokesWatch(core.NewWatchAction(podsResource, c.ns, opts))
 
 }
 
 // Patch applies the patch and returns the patched pod.
-func (c *FakePods) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *api.Pod, err error) {
+func (c *FakePods) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *api.Pod, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewPatchSubresourceAction(podsResource, c.ns, name, data, subresources...), &api.Pod{})
 

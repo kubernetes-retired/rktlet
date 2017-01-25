@@ -17,7 +17,11 @@ limitations under the License.
 package fake
 
 import (
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	clientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset"
+	v1autoscaling "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset/typed/autoscaling/v1"
+	fakev1autoscaling "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset/typed/autoscaling/v1/fake"
 	v1batch "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset/typed/batch/v1"
 	fakev1batch "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset/typed/batch/v1/fake"
 	v1core "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset/typed/core/v1"
@@ -27,12 +31,9 @@ import (
 	v1beta1federation "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset/typed/federation/v1beta1"
 	fakev1beta1federation "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset/typed/federation/v1beta1/fake"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	"k8s.io/kubernetes/pkg/client/testing/core"
 	"k8s.io/kubernetes/pkg/client/typed/discovery"
 	fakediscovery "k8s.io/kubernetes/pkg/client/typed/discovery/fake"
-	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/watch"
 )
 
 // NewSimpleClientset returns a clientset that will respond with the provided objects.
@@ -48,7 +49,7 @@ func NewSimpleClientset(objects ...runtime.Object) *Clientset {
 	}
 
 	fakePtr := core.Fake{}
-	fakePtr.AddReactor("*", "*", core.ObjectReaction(o, registered.RESTMapper()))
+	fakePtr.AddReactor("*", "*", core.ObjectReaction(o, api.Registry.RESTMapper()))
 
 	fakePtr.AddWatchReactor("*", core.DefaultWatchReactor(watch.NewFake(), nil))
 
@@ -76,6 +77,16 @@ func (c *Clientset) CoreV1() v1core.CoreV1Interface {
 // Core retrieves the CoreV1Client
 func (c *Clientset) Core() v1core.CoreV1Interface {
 	return &fakev1core.FakeCoreV1{Fake: &c.Fake}
+}
+
+// AutoscalingV1 retrieves the AutoscalingV1Client
+func (c *Clientset) AutoscalingV1() v1autoscaling.AutoscalingV1Interface {
+	return &fakev1autoscaling.FakeAutoscalingV1{Fake: &c.Fake}
+}
+
+// Autoscaling retrieves the AutoscalingV1Client
+func (c *Clientset) Autoscaling() v1autoscaling.AutoscalingV1Interface {
+	return &fakev1autoscaling.FakeAutoscalingV1{Fake: &c.Fake}
 }
 
 // BatchV1 retrieves the BatchV1Client

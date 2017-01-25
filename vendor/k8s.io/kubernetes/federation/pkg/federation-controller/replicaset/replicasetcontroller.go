@@ -25,6 +25,12 @@ import (
 
 	"github.com/golang/glog"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/pkg/util/flowcontrol"
 	fed "k8s.io/kubernetes/federation/apis/federation"
 	fedv1 "k8s.io/kubernetes/federation/apis/federation/v1beta1"
 	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset"
@@ -34,18 +40,14 @@ import (
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util/planner"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util/podanalyzer"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/errors"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 	extensionsv1 "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	"k8s.io/kubernetes/pkg/client/cache"
 	kubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	"k8s.io/kubernetes/pkg/client/legacylisters"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/controller"
-	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/util/flowcontrol"
-	"k8s.io/kubernetes/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/util/workqueue"
-	"k8s.io/kubernetes/pkg/watch"
 )
 
 const (
@@ -80,8 +82,8 @@ func parseFederationReplicaSetReference(frs *extensionsv1.ReplicaSet) (*fed.Fede
 type ReplicaSetController struct {
 	fedClient fedclientset.Interface
 
-	replicaSetController *cache.Controller
-	replicaSetStore      cache.StoreToReplicaSetLister
+	replicaSetController cache.Controller
+	replicaSetStore      listers.StoreToReplicaSetLister
 
 	fedReplicaSetInformer fedutil.FederatedInformer
 	fedPodInformer        fedutil.FederatedInformer
@@ -121,14 +123,14 @@ func NewReplicaSetController(federationClient fedclientset.Interface) *ReplicaSe
 		eventRecorder: recorder,
 	}
 
-	replicaSetFedInformerFactory := func(cluster *fedv1.Cluster, clientset kubeclientset.Interface) (cache.Store, cache.ControllerInterface) {
+	replicaSetFedInformerFactory := func(cluster *fedv1.Cluster, clientset kubeclientset.Interface) (cache.Store, cache.Controller) {
 		return cache.NewInformer(
 			&cache.ListWatch{
-				ListFunc: func(options apiv1.ListOptions) (runtime.Object, error) {
-					return clientset.Extensions().ReplicaSets(apiv1.NamespaceAll).List(options)
+				ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+					return clientset.Extensions().ReplicaSets(metav1.NamespaceAll).List(options)
 				},
-				WatchFunc: func(options apiv1.ListOptions) (watch.Interface, error) {
-					return clientset.Extensions().ReplicaSets(apiv1.NamespaceAll).Watch(options)
+				WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+					return clientset.Extensions().ReplicaSets(metav1.NamespaceAll).Watch(options)
 				},
 			},
 			&extensionsv1.ReplicaSet{},
@@ -148,14 +150,14 @@ func NewReplicaSetController(federationClient fedclientset.Interface) *ReplicaSe
 	}
 	frsc.fedReplicaSetInformer = fedutil.NewFederatedInformer(federationClient, replicaSetFedInformerFactory, &clusterLifecycle)
 
-	podFedInformerFactory := func(cluster *fedv1.Cluster, clientset kubeclientset.Interface) (cache.Store, cache.ControllerInterface) {
+	podFedInformerFactory := func(cluster *fedv1.Cluster, clientset kubeclientset.Interface) (cache.Store, cache.Controller) {
 		return cache.NewInformer(
 			&cache.ListWatch{
-				ListFunc: func(options apiv1.ListOptions) (runtime.Object, error) {
-					return clientset.Core().Pods(apiv1.NamespaceAll).List(options)
+				ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+					return clientset.Core().Pods(metav1.NamespaceAll).List(options)
 				},
-				WatchFunc: func(options apiv1.ListOptions) (watch.Interface, error) {
-					return clientset.Core().Pods(apiv1.NamespaceAll).Watch(options)
+				WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+					return clientset.Core().Pods(metav1.NamespaceAll).Watch(options)
 				},
 			},
 			&apiv1.Pod{},
@@ -171,11 +173,11 @@ func NewReplicaSetController(federationClient fedclientset.Interface) *ReplicaSe
 
 	frsc.replicaSetStore.Indexer, frsc.replicaSetController = cache.NewIndexerInformer(
 		&cache.ListWatch{
-			ListFunc: func(options apiv1.ListOptions) (runtime.Object, error) {
-				return frsc.fedClient.Extensions().ReplicaSets(apiv1.NamespaceAll).List(options)
+			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+				return frsc.fedClient.Extensions().ReplicaSets(metav1.NamespaceAll).List(options)
 			},
-			WatchFunc: func(options apiv1.ListOptions) (watch.Interface, error) {
-				return frsc.fedClient.Extensions().ReplicaSets(apiv1.NamespaceAll).Watch(options)
+			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+				return frsc.fedClient.Extensions().ReplicaSets(metav1.NamespaceAll).Watch(options)
 			},
 		},
 		&extensionsv1.ReplicaSet{},

@@ -17,13 +17,14 @@ limitations under the License.
 package fake
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
 	api "k8s.io/kubernetes/pkg/api"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	rbac "k8s.io/kubernetes/pkg/apis/rbac"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
-	labels "k8s.io/kubernetes/pkg/labels"
-	schema "k8s.io/kubernetes/pkg/runtime/schema"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // FakeRoleBindings implements RoleBindingInterface
@@ -61,7 +62,7 @@ func (c *FakeRoleBindings) Delete(name string, options *api.DeleteOptions) error
 	return err
 }
 
-func (c *FakeRoleBindings) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *FakeRoleBindings) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	action := core.NewDeleteCollectionAction(rolebindingsResource, c.ns, listOptions)
 
 	_, err := c.Fake.Invokes(action, &rbac.RoleBindingList{})
@@ -78,7 +79,7 @@ func (c *FakeRoleBindings) Get(name string, options v1.GetOptions) (result *rbac
 	return obj.(*rbac.RoleBinding), err
 }
 
-func (c *FakeRoleBindings) List(opts api.ListOptions) (result *rbac.RoleBindingList, err error) {
+func (c *FakeRoleBindings) List(opts v1.ListOptions) (result *rbac.RoleBindingList, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewListAction(rolebindingsResource, c.ns, opts), &rbac.RoleBindingList{})
 
@@ -100,14 +101,14 @@ func (c *FakeRoleBindings) List(opts api.ListOptions) (result *rbac.RoleBindingL
 }
 
 // Watch returns a watch.Interface that watches the requested roleBindings.
-func (c *FakeRoleBindings) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *FakeRoleBindings) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
 		InvokesWatch(core.NewWatchAction(rolebindingsResource, c.ns, opts))
 
 }
 
 // Patch applies the patch and returns the patched roleBinding.
-func (c *FakeRoleBindings) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *rbac.RoleBinding, err error) {
+func (c *FakeRoleBindings) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *rbac.RoleBinding, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewPatchSubresourceAction(rolebindingsResource, c.ns, name, data, subresources...), &rbac.RoleBinding{})
 

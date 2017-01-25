@@ -26,39 +26,31 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"k8s.io/kubernetes/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	extensions "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
-	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/client/cache"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	v1core "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/core/v1"
+	"k8s.io/kubernetes/pkg/client/legacylisters"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/controller/informers"
-	"k8s.io/kubernetes/pkg/labels"
-	"k8s.io/kubernetes/pkg/runtime/schema"
-	utilerrors "k8s.io/kubernetes/pkg/util/errors"
 	"k8s.io/kubernetes/pkg/util/metrics"
-	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
-	"k8s.io/kubernetes/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/util/workqueue"
 )
 
 const (
-	// We'll attempt to recompute the required replicas of all ReplicaSets
-	// that have fulfilled their expectations at least this often. This recomputation
-	// happens based on contents in local pod storage.
-	FullControllerResyncPeriod = 30 * time.Second
-
 	// Realistic value of the burstReplica field for the replica set manager based off
 	// performance requirements for kubernetes 1.0.
 	BurstReplicas = 500
-
-	// We must avoid counting pods until the pod store has synced. If it hasn't synced, to
-	// avoid a hot loop, we'll wait this long between checks.
-	PodStoreSyncedPollPeriod = 100 * time.Millisecond
 
 	// The number of times we retry updating a ReplicaSet's status.
 	statusUpdateRetries = 1
@@ -84,9 +76,9 @@ type ReplicaSetController struct {
 	expectations *controller.UIDTrackingControllerExpectations
 
 	// A store of ReplicaSets, populated by the rsController
-	rsLister *cache.StoreToReplicaSetLister
+	rsLister *listers.StoreToReplicaSetLister
 	// A store of pods, populated by the podController
-	podLister *cache.StoreToPodLister
+	podLister *listers.StoreToPodLister
 	// podListerSynced returns true if the pod store has been synced at least once.
 	// Added as a member to the struct to allow injection for testing.
 	podListerSynced cache.InformerSynced
@@ -568,13 +560,13 @@ func (rsc *ReplicaSetController) syncReplicaSet(key string) error {
 	}()
 
 	obj, exists, err := rsc.rsLister.Indexer.GetByKey(key)
+	if err != nil {
+		return err
+	}
 	if !exists {
 		glog.V(4).Infof("ReplicaSet has been deleted %v", key)
 		rsc.expectations.DeleteExpectations(key)
 		return nil
-	}
-	if err != nil {
-		return err
 	}
 	rs := *obj.(*extensions.ReplicaSet)
 

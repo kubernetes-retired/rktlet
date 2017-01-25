@@ -20,21 +20,22 @@ import (
 	"fmt"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/pkg/util/flowcontrol"
 	federationapi "k8s.io/kubernetes/federation/apis/federation/v1beta1"
 	federationclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util/deletionhelper"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util/eventsink"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/errors"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/client/cache"
 	kubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/controller"
-	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/util/flowcontrol"
-	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/golang/glog"
 )
@@ -60,7 +61,7 @@ type NamespaceController struct {
 	// Definitions of namespaces that should be federated.
 	namespaceInformerStore cache.Store
 	// Informer controller for namespaces that should be federated.
-	namespaceInformerController cache.ControllerInterface
+	namespaceInformerController cache.Controller
 
 	// Client to federated api server.
 	federatedApiClient federationclientset.Interface
@@ -102,10 +103,10 @@ func NewNamespaceController(client federationclientset.Interface) *NamespaceCont
 	// Start informer in federated API servers on namespaces that should be federated.
 	nc.namespaceInformerStore, nc.namespaceInformerController = cache.NewInformer(
 		&cache.ListWatch{
-			ListFunc: func(options apiv1.ListOptions) (runtime.Object, error) {
+			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 				return client.Core().Namespaces().List(options)
 			},
-			WatchFunc: func(options apiv1.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
 				return client.Core().Namespaces().Watch(options)
 			},
 		},
@@ -116,13 +117,13 @@ func NewNamespaceController(client federationclientset.Interface) *NamespaceCont
 	// Federated informer on namespaces in members of federation.
 	nc.namespaceFederatedInformer = util.NewFederatedInformer(
 		client,
-		func(cluster *federationapi.Cluster, targetClient kubeclientset.Interface) (cache.Store, cache.ControllerInterface) {
+		func(cluster *federationapi.Cluster, targetClient kubeclientset.Interface) (cache.Store, cache.Controller) {
 			return cache.NewInformer(
 				&cache.ListWatch{
-					ListFunc: func(options apiv1.ListOptions) (runtime.Object, error) {
+					ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 						return targetClient.Core().Namespaces().List(options)
 					},
-					WatchFunc: func(options apiv1.ListOptions) (watch.Interface, error) {
+					WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
 						return targetClient.Core().Namespaces().Watch(options)
 					},
 				},
@@ -491,31 +492,31 @@ func (nc *NamespaceController) removeKubernetesFinalizer(namespace *apiv1.Namesp
 	// Right now there are just 7 types of objects: Deployments, DaemonSets, ReplicaSet, Secret, Ingress, Events and Service.
 	// Temporarily these items are simply deleted one by one to squeeze this code into 1.4.
 	// TODO: Make it generic (like in the regular namespace controller) and parallel.
-	err := nc.federatedApiClient.Core().Services(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, apiv1.ListOptions{})
+	err := nc.federatedApiClient.Core().Services(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete service list: %v", err)
 	}
-	err = nc.federatedApiClient.Extensions().ReplicaSets(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, apiv1.ListOptions{})
+	err = nc.federatedApiClient.Extensions().ReplicaSets(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete replicaset list from namespace: %v", err)
 	}
-	err = nc.federatedApiClient.Core().Secrets(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, apiv1.ListOptions{})
+	err = nc.federatedApiClient.Core().Secrets(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete secret list from namespace: %v", err)
 	}
-	err = nc.federatedApiClient.Extensions().Ingresses(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, apiv1.ListOptions{})
+	err = nc.federatedApiClient.Extensions().Ingresses(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete ingresses list from namespace: %v", err)
 	}
-	err = nc.federatedApiClient.Extensions().DaemonSets(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, apiv1.ListOptions{})
+	err = nc.federatedApiClient.Extensions().DaemonSets(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete daemonsets list from namespace: %v", err)
 	}
-	err = nc.federatedApiClient.Extensions().Deployments(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, apiv1.ListOptions{})
+	err = nc.federatedApiClient.Extensions().Deployments(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete deployments list from namespace: %v", err)
 	}
-	err = nc.federatedApiClient.Core().Events(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, apiv1.ListOptions{})
+	err = nc.federatedApiClient.Core().Events(namespace.Name).DeleteCollection(&apiv1.DeleteOptions{}, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete events list from namespace: %v", err)
 	}

@@ -90,13 +90,13 @@ func Setup(t *testing.T) *TestContext {
 		image := image
 		imageRef, err := rktRuntime.PullImage(context.TODO(), &runtime.PullImageRequest{
 			Image: &runtime.ImageSpec{
-				Image: &image,
+				Image: image,
 			},
 		})
 		if err != nil {
 			t.Fatalf("error pulling image %q for test: %v", image, err)
 		}
-		imageIDs[image] = imageRef.GetImageRef()
+		imageIDs[image] = imageRef.ImageRef
 	}
 
 	return &TestContext{
@@ -129,12 +129,12 @@ func (t *TestContext) Teardown() {
 
 	for i, _ := range allSandboxes.Items {
 		sandbox := allSandboxes.Items[i]
-		t.Logf("removing pod %q", sandbox.GetId())
+		t.Logf("removing pod %q", sandbox.Id)
 		_, err := t.Rktlet.RemovePodSandbox(context.Background(), &runtime.RemovePodSandboxRequest{
 			PodSandboxId: sandbox.Id,
 		})
 		if err != nil {
-			t.Errorf("error removing pod sandbox %q: %v", sandbox.GetId(), err)
+			t.Errorf("error removing pod sandbox %q: %v", sandbox.Id, err)
 		}
 	}
 
@@ -170,10 +170,10 @@ func (t *TestContext) RunPod(name string, partialConfig *runtime.PodSandboxConfi
 	pod := &Pod{
 		Name: name,
 		Metadata: &runtime.PodSandboxMetadata{
-			Uid:       &uid,
-			Attempt:   &attempt,
-			Name:      &podName,
-			Namespace: &namespace,
+			Uid:       uid,
+			Attempt:   attempt,
+			Name:      podName,
+			Namespace: namespace,
 		},
 		LogDir: logDir,
 		t:      t,
@@ -185,7 +185,7 @@ func (t *TestContext) RunPod(name string, partialConfig *runtime.PodSandboxConfi
 	}
 	// Override things that we need to control
 	config.Metadata = pod.Metadata
-	config.LogDirectory = &pod.LogDir
+	config.LogDirectory = pod.LogDir
 
 	resp, err := t.Rktlet.RunPodSandbox(context.Background(), &runtime.RunPodSandboxRequest{
 		Config: config,
@@ -194,7 +194,7 @@ func (t *TestContext) RunPod(name string, partialConfig *runtime.PodSandboxConfi
 	if err != nil {
 		t.Fatalf("unexpected error running pod %s: %v", name, err)
 	}
-	sboxId := resp.GetPodSandboxId()
+	sboxId := resp.PodSandboxId
 	if sboxId == "" {
 		t.Fatalf("empty sandbox ID returned for %s", name)
 	}
@@ -206,7 +206,7 @@ func (t *TestContext) RunPod(name string, partialConfig *runtime.PodSandboxConfi
 // RunContainerToExit runs a container and returns its exit code
 func (p *Pod) RunContainerToExit(ctx context.Context, cfg *runtime.ContainerConfig) (string, int32) {
 	resp, err := p.t.Rktlet.CreateContainer(ctx, &runtime.CreateContainerRequest{
-		PodSandboxId: &p.SandboxId,
+		PodSandboxId: p.SandboxId,
 		Config:       cfg,
 	})
 	if err != nil {
@@ -228,16 +228,18 @@ func (p *Pod) RunContainerToExit(ctx context.Context, cfg *runtime.ContainerConf
 		if err != nil {
 			p.t.Fatalf("error getting container status in %v: %v", p.Name, err)
 		}
-		if statusResp.GetStatus().GetState() == runtime.ContainerState_CONTAINER_EXITED {
+		if statusResp.GetStatus().State == runtime.ContainerState_CONTAINER_EXITED {
 			break
 		}
-		p.t.Logf("waiting more for status; currently have %v", statusResp.GetStatus().GetState())
+		p.t.Logf("waiting more for status; currently have %v", statusResp.GetStatus().State)
 		time.Sleep(1 * time.Second)
 	}
 
-	if statusResp.GetStatus().ExitCode == nil {
-		p.t.Fatalf("expected status to have exit code set after exiting in %v: %+v", p.Name, statusResp.GetStatus())
-	}
+	// TODO: removed when this was de-pointered
+	/*
+		if statusResp.GetStatus().ExitCode == nil {
+			p.t.Fatalf("expected status to have exit code set after exiting in %v: %+v", p.Name, statusResp.GetStatus())
+		} */
 
 	// This is a hack to dodge a slight race between a container exiting and
 	// readlogs. The time it takes journal2cri to convert the journald output of
@@ -245,7 +247,7 @@ func (p *Pod) RunContainerToExit(ctx context.Context, cfg *runtime.ContainerConf
 	time.Sleep(1 * time.Second)
 
 	var stdout, stderr bytes.Buffer
-	err = kuberuntime.ReadLogs(logPath(p.t.LogDir, *p.Metadata.Uid, *cfg.Metadata.Name, *cfg.Metadata.Attempt), &v1.PodLogOptions{}, &stdout, &stderr)
+	err = kuberuntime.ReadLogs(logPath(p.t.LogDir, p.Metadata.Uid, cfg.Metadata.Name, cfg.Metadata.Attempt), &v1.PodLogOptions{}, &stdout, &stderr)
 	if err != nil {
 		// Hack warning! Work around https://github.com/kubernetes-incubator/rktlet/issues/88
 		// ReadLogs wraps errors so os.IsNotExist doesn't work
@@ -256,7 +258,7 @@ func (p *Pod) RunContainerToExit(ctx context.Context, cfg *runtime.ContainerConf
 
 	// merge stdout/stderr
 	stdout.Write(stderr.Bytes())
-	return stdout.String(), statusResp.GetStatus().GetExitCode()
+	return stdout.String(), statusResp.GetStatus().ExitCode
 }
 
 func logPath(root string, uid string, name string, attempt uint32) string {
@@ -277,19 +279,19 @@ func (p *Pod) WaitStable(ctx context.Context, numContainers int) error {
 		}
 
 		sandboxStatus, err := p.t.Rktlet.PodSandboxStatus(ctx, &runtime.PodSandboxStatusRequest{
-			PodSandboxId: &p.SandboxId,
+			PodSandboxId: p.SandboxId,
 		})
 		if err != nil {
 			return err
 		}
-		if sandboxStatus.GetStatus().GetState() != runtime.PodSandboxState_SANDBOX_READY {
+		if sandboxStatus.GetStatus().State != runtime.PodSandboxState_SANDBOX_READY {
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
 		containers, err := p.t.Rktlet.ListContainers(ctx, &runtime.ListContainersRequest{
 			Filter: &runtime.ContainerFilter{
-				PodSandboxId: &p.SandboxId,
+				PodSandboxId: p.SandboxId,
 			},
 		})
 		if err != nil {
@@ -297,7 +299,7 @@ func (p *Pod) WaitStable(ctx context.Context, numContainers int) error {
 		}
 		numRunning := 0
 		for _, container := range containers.Containers {
-			if container.GetState() == runtime.ContainerState_CONTAINER_RUNNING {
+			if container.State == runtime.ContainerState_CONTAINER_RUNNING {
 				numRunning++
 			}
 		}
@@ -312,15 +314,15 @@ func (p *Pod) WaitStable(ctx context.Context, numContainers int) error {
 func (p *Pod) ContainerID(ctx context.Context, name string) (string, error) {
 	containers, err := p.t.Rktlet.ListContainers(ctx, &runtime.ListContainersRequest{
 		Filter: &runtime.ContainerFilter{
-			PodSandboxId: &p.SandboxId,
+			PodSandboxId: p.SandboxId,
 		},
 	})
 	if err != nil {
 		return "", err
 	}
 	for _, container := range containers.GetContainers() {
-		if container.GetMetadata().GetName() == name {
-			return container.GetId(), nil
+		if container.GetMetadata().Name == name {
+			return container.Id, nil
 		}
 	}
 	return "", fmt.Errorf("could not find container named %v in pod", name)

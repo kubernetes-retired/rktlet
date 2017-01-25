@@ -65,7 +65,7 @@ func (s *ImageStore) RemoveImage(ctx context.Context, req *runtime.RemoveImageRe
 		return nil, err
 	}
 
-	if _, err := s.RunCommand("image", "rm", *img.Image.Id); err != nil {
+	if _, err := s.RunCommand("image", "rm", img.Image.Id); err != nil {
 		return nil, fmt.Errorf("failed to remove the image: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func (s *ImageStore) ImageStatus(ctx context.Context, req *runtime.ImageStatusRe
 		return nil, err
 	}
 
-	reqImg := req.GetImage().GetImage()
+	reqImg := req.Image.Image
 	// TODO this should be done in kubelet (see comment on ApplyDefaultImageTag)
 	reqImg, err = util.ApplyDefaultImageTag(reqImg)
 	if err != nil {
@@ -135,15 +135,15 @@ func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequ
 
 		sz := uint64(img.Size)
 		image := &runtime.Image{
-			Id:          &img.ID,
+			Id:          img.ID,
 			RepoTags:    []string{realName},
 			RepoDigests: []string{img.ID},
-			Size_:       &sz,
+			Size_:       sz,
 		}
 		if uid, err := strconv.ParseInt(user, 10, 64); err != nil {
-			image.Uid = &uid
+			image.Uid = &runtime.Int64Value{uid}
 		} else {
-			image.Username = &user
+			image.Username = user
 		}
 
 		if passFilter(image, req.Filter) {
@@ -194,9 +194,9 @@ func (s *ImageStore) getImageUser(manifest *appcschema.ImageManifest) string {
 // PullImage pulls an image into the store
 func (s *ImageStore) PullImage(ctx context.Context, req *runtime.PullImageRequest) (*runtime.PullImageResponse, error) {
 
-	canonicalImageName, err := util.ApplyDefaultImageTag(req.GetImage().GetImage())
+	canonicalImageName, err := util.ApplyDefaultImageTag(req.Image.Image)
 	if err != nil {
-		return nil, fmt.Errorf("unable to default tag for img %q, %v", req.GetImage().GetImage(), err)
+		return nil, fmt.Errorf("unable to default tag for img %q, %v", req.Image.Image, err)
 	}
 
 	// TODO auth
@@ -210,7 +210,7 @@ func (s *ImageStore) PullImage(ctx context.Context, req *runtime.PullImageReques
 	imageId := output[len(output)-1]
 
 	return &runtime.PullImageResponse{
-		ImageRef: &imageId,
+		ImageRef: imageId,
 	}, nil
 }
 
@@ -224,7 +224,7 @@ func passFilter(image *runtime.Image, filter *runtime.ImageFilter) bool {
 		return true
 	}
 
-	imageName := filter.Image.GetImage()
+	imageName := filter.Image.Image
 	for _, name := range image.RepoTags {
 		if imageName == name {
 			return true

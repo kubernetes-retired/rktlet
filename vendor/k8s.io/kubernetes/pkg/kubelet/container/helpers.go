@@ -25,14 +25,14 @@ import (
 
 	"github.com/golang/glog"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubernetes/pkg/api/v1"
-	metav1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/client/record"
 	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/kubelet/util/format"
 	"k8s.io/kubernetes/pkg/kubelet/util/ioutils"
-	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/types"
 	hashutil "k8s.io/kubernetes/pkg/util/hash"
 	"k8s.io/kubernetes/third_party/forked/golang/expansion"
 )
@@ -197,14 +197,14 @@ func ConvertPodStatusToRunningPod(runtimeName string, podStatus *PodStatus) Pod 
 	// Populate sandboxes in kubecontainer.Pod
 	for _, sandbox := range podStatus.SandboxStatuses {
 		runningPod.Sandboxes = append(runningPod.Sandboxes, &Container{
-			ID:    ContainerID{Type: runtimeName, ID: *sandbox.Id},
-			State: SandboxToContainerState(*sandbox.State),
+			ID:    ContainerID{Type: runtimeName, ID: sandbox.Id},
+			State: SandboxToContainerState(sandbox.State),
 		})
 	}
 	return runningPod
 }
 
-// sandboxToContainerState converts runtimeApi.PodSandboxState to
+// SandboxToContainerState converts runtimeapi.PodSandboxState to
 // kubecontainer.ContainerState.
 // This is only needed because we need to return sandboxes as if they were
 // kubecontainer.Containers to avoid substantial changes to PLEG.

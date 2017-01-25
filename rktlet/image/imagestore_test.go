@@ -60,7 +60,7 @@ func TestPullImage(t *testing.T) {
 
 	_, err := mockImageStore.PullImage(context.Background(), &runtime.PullImageRequest{
 		Image: &runtime.ImageSpec{
-			Image: &testImage,
+			Image: testImage,
 		},
 	})
 	if err != nil {
@@ -96,7 +96,7 @@ func TestPassFilter(t *testing.T) {
 		// Case 2, matched.
 		{
 			&runtime.Image{RepoTags: []string{name1}},
-			&runtime.ImageFilter{Image: &runtime.ImageSpec{Image: &name1}},
+			&runtime.ImageFilter{Image: &runtime.ImageSpec{Image: name1}},
 			true,
 		},
 
@@ -110,7 +110,7 @@ func TestPassFilter(t *testing.T) {
 		// Case 4, not matched.
 		{
 			&runtime.Image{RepoTags: []string{name1}},
-			&runtime.ImageFilter{Image: &runtime.ImageSpec{Image: &name2}},
+			&runtime.ImageFilter{Image: &runtime.ImageSpec{Image: name2}},
 			false,
 		},
 	}

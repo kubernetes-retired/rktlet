@@ -17,13 +17,14 @@ limitations under the License.
 package fake
 
 import (
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
 	api "k8s.io/kubernetes/pkg/api"
 	extensions "k8s.io/kubernetes/pkg/apis/extensions"
-	v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
-	labels "k8s.io/kubernetes/pkg/labels"
-	schema "k8s.io/kubernetes/pkg/runtime/schema"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // FakeReplicaSets implements ReplicaSetInterface
@@ -71,7 +72,7 @@ func (c *FakeReplicaSets) Delete(name string, options *api.DeleteOptions) error 
 	return err
 }
 
-func (c *FakeReplicaSets) DeleteCollection(options *api.DeleteOptions, listOptions api.ListOptions) error {
+func (c *FakeReplicaSets) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
 	action := core.NewDeleteCollectionAction(replicasetsResource, c.ns, listOptions)
 
 	_, err := c.Fake.Invokes(action, &extensions.ReplicaSetList{})
@@ -88,7 +89,7 @@ func (c *FakeReplicaSets) Get(name string, options v1.GetOptions) (result *exten
 	return obj.(*extensions.ReplicaSet), err
 }
 
-func (c *FakeReplicaSets) List(opts api.ListOptions) (result *extensions.ReplicaSetList, err error) {
+func (c *FakeReplicaSets) List(opts v1.ListOptions) (result *extensions.ReplicaSetList, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewListAction(replicasetsResource, c.ns, opts), &extensions.ReplicaSetList{})
 
@@ -110,14 +111,14 @@ func (c *FakeReplicaSets) List(opts api.ListOptions) (result *extensions.Replica
 }
 
 // Watch returns a watch.Interface that watches the requested replicaSets.
-func (c *FakeReplicaSets) Watch(opts api.ListOptions) (watch.Interface, error) {
+func (c *FakeReplicaSets) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
 		InvokesWatch(core.NewWatchAction(replicasetsResource, c.ns, opts))
 
 }
 
 // Patch applies the patch and returns the patched replicaSet.
-func (c *FakeReplicaSets) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *extensions.ReplicaSet, err error) {
+func (c *FakeReplicaSets) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *extensions.ReplicaSet, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewPatchSubresourceAction(replicasetsResource, c.ns, name, data, subresources...), &extensions.ReplicaSet{})
 

@@ -17,14 +17,14 @@ limitations under the License.
 package fake
 
 import (
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
 	v1beta1 "k8s.io/kubernetes/federation/apis/federation/v1beta1"
-	api "k8s.io/kubernetes/pkg/api"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
-	meta_v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
-	labels "k8s.io/kubernetes/pkg/labels"
-	schema "k8s.io/kubernetes/pkg/runtime/schema"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // FakeClusters implements ClusterInterface
@@ -67,7 +67,7 @@ func (c *FakeClusters) Delete(name string, options *v1.DeleteOptions) error {
 	return err
 }
 
-func (c *FakeClusters) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *FakeClusters) DeleteCollection(options *v1.DeleteOptions, listOptions meta_v1.ListOptions) error {
 	action := core.NewRootDeleteCollectionAction(clustersResource, listOptions)
 
 	_, err := c.Fake.Invokes(action, &v1beta1.ClusterList{})
@@ -83,7 +83,7 @@ func (c *FakeClusters) Get(name string, options meta_v1.GetOptions) (result *v1b
 	return obj.(*v1beta1.Cluster), err
 }
 
-func (c *FakeClusters) List(opts v1.ListOptions) (result *v1beta1.ClusterList, err error) {
+func (c *FakeClusters) List(opts meta_v1.ListOptions) (result *v1beta1.ClusterList, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewRootListAction(clustersResource, opts), &v1beta1.ClusterList{})
 	if obj == nil {
@@ -104,13 +104,13 @@ func (c *FakeClusters) List(opts v1.ListOptions) (result *v1beta1.ClusterList, e
 }
 
 // Watch returns a watch.Interface that watches the requested clusters.
-func (c *FakeClusters) Watch(opts v1.ListOptions) (watch.Interface, error) {
+func (c *FakeClusters) Watch(opts meta_v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
 		InvokesWatch(core.NewRootWatchAction(clustersResource, opts))
 }
 
 // Patch applies the patch and returns the patched cluster.
-func (c *FakeClusters) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *v1beta1.Cluster, err error) {
+func (c *FakeClusters) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1beta1.Cluster, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewRootPatchSubresourceAction(clustersResource, name, data, subresources...), &v1beta1.Cluster{})
 	if obj == nil {

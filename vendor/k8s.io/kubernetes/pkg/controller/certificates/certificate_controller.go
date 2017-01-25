@@ -20,22 +20,20 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/kubernetes/pkg/api/v1"
-	certificates "k8s.io/kubernetes/pkg/apis/certificates/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/watch"
+	certificates "k8s.io/kubernetes/pkg/apis/certificates/v1beta1"
 	"k8s.io/kubernetes/pkg/client/cache"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	v1core "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/core/v1"
+	"k8s.io/kubernetes/pkg/client/legacylisters"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/controller"
-	"k8s.io/kubernetes/pkg/runtime"
-	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
-	"k8s.io/kubernetes/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/util/workqueue"
-	"k8s.io/kubernetes/pkg/watch"
 
-	"github.com/cloudflare/cfssl/config"
-	"github.com/cloudflare/cfssl/signer"
-	"github.com/cloudflare/cfssl/signer/local"
 	"github.com/golang/glog"
 )
 
@@ -43,18 +41,21 @@ type AutoApprover interface {
 	AutoApprove(csr *certificates.CertificateSigningRequest) (*certificates.CertificateSigningRequest, error)
 }
 
+type Signer interface {
+	Sign(csr *certificates.CertificateSigningRequest) ([]byte, error)
+}
+
 type CertificateController struct {
 	kubeClient clientset.Interface
 
 	// CSR framework and store
-	csrController *cache.Controller
-	csrStore      cache.StoreToCertificateRequestLister
+	csrController cache.Controller
+	csrStore      listers.StoreToCertificateRequestLister
 
 	syncHandler func(csrKey string) error
 
 	approver AutoApprover
-
-	signer *local.Signer
+	signer   Signer
 
 	queue workqueue.RateLimitingInterface
 }
@@ -65,12 +66,7 @@ func NewCertificateController(kubeClient clientset.Interface, syncPeriod time.Du
 	eventBroadcaster.StartLogging(glog.Infof)
 	eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: kubeClient.Core().Events("")})
 
-	// Configure cfssl signer
-	// TODO: support non-default policy and remote/pkcs11 signing
-	policy := &config.Signing{
-		Default: config.DefaultConfig(),
-	}
-	ca, err := local.NewSignerFromFile(caCertFile, caKeyFile, policy)
+	s, err := NewCFSSLSigner(caCertFile, caKeyFile)
 	if err != nil {
 		return nil, err
 	}
@@ -78,17 +74,17 @@ func NewCertificateController(kubeClient clientset.Interface, syncPeriod time.Du
 	cc := &CertificateController{
 		kubeClient: kubeClient,
 		queue:      workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "certificate"),
-		signer:     ca,
+		signer:     s,
 		approver:   approver,
 	}
 
 	// Manage the addition/update of certificate requests
 	cc.csrStore.Store, cc.csrController = cache.NewInformer(
 		&cache.ListWatch{
-			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
+			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 				return cc.kubeClient.Certificates().CertificateSigningRequests().List(options)
 			},
-			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
 				return cc.kubeClient.Certificates().CertificateSigningRequests().Watch(options)
 			},
 		},
@@ -209,9 +205,7 @@ func (cc *CertificateController) maybeSignCertificate(key string) error {
 	// 3. Update the Status subresource
 
 	if csr.Status.Certificate == nil && IsCertificateRequestApproved(csr) {
-		pemBytes := csr.Spec.Request
-		req := signer.SignRequest{Request: string(pemBytes)}
-		certBytes, err := cc.signer.Sign(req)
+		certBytes, err := cc.signer.Sign(csr)
 		if err != nil {
 			return err
 		}

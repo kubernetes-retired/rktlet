@@ -37,7 +37,7 @@ func formatPod(metaData *runtimeApi.PodSandboxMetadata) string {
 
 func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSandboxRequest) (*runtimeApi.RunPodSandboxResponse, error) {
 	metaData := req.GetConfig().GetMetadata()
-	k8sPodUid := metaData.GetUid()
+	k8sPodUid := metaData.Uid
 	podUUIDFile, err := ioutil.TempFile("", "rktlet_"+k8sPodUid)
 	defer os.Remove(podUUIDFile.Name())
 	if err != nil {
@@ -52,7 +52,7 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 	var cgroupParent string
 	linux := req.GetConfig().GetLinux()
 	if linux != nil {
-		cgroupParent = linux.GetCgroupParent()
+		cgroupParent = linux.CgroupParent
 	}
 
 	id, err := r.Init.StartProcess(cgroupParent, cmd[0], cmd[1:]...)
@@ -85,18 +85,18 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 	// Wait for the status to be running too, up to 10 more seconds
 	var status *runtimeApi.PodSandboxStatusResponse
 	for i := 0; i < 100; i++ {
-		status, err = r.PodSandboxStatus(ctx, &runtimeApi.PodSandboxStatusRequest{PodSandboxId: &rktUUID})
+		status, err = r.PodSandboxStatus(ctx, &runtimeApi.PodSandboxStatusRequest{PodSandboxId: rktUUID})
 		if err == nil {
 			break
 		}
-		if status.GetStatus().GetState() != runtimeApi.PodSandboxState_SANDBOX_READY {
+		if status.GetStatus().State != runtimeApi.PodSandboxState_SANDBOX_READY {
 			continue
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if status.GetStatus().GetState() != runtimeApi.PodSandboxState_SANDBOX_READY {
+	if status.GetStatus().State != runtimeApi.PodSandboxState_SANDBOX_READY {
 		glog.Warningf("sandbox got a UUID but did not have a ready status after 10s: %v, %v", status, err)
-		return &runtimeApi.RunPodSandboxResponse{PodSandboxId: &rktUUID}, fmt.Errorf("unable to get status within 10s: %v", err)
+		return &runtimeApi.RunPodSandboxResponse{PodSandboxId: rktUUID}, fmt.Errorf("unable to get status within 10s: %v", err)
 	}
 
 	// TODO(euank): this is a temporary hack due to https://github.com/coreos/rkt/issues/3423
@@ -106,9 +106,9 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 	// Inject internal logging app
 	// TODO: This can be removed once https://github.com/coreos/rkt/pull/3396
 	// handles logging
-	err = r.addInternalLoggingApp(ctx, rktUUID, req.GetConfig().GetLogDirectory())
+	err = r.addInternalLoggingApp(ctx, rktUUID, req.GetConfig().LogDirectory)
 
-	return &runtimeApi.RunPodSandboxResponse{PodSandboxId: &rktUUID}, err
+	return &runtimeApi.RunPodSandboxResponse{PodSandboxId: rktUUID}, err
 }
 
 func (r *RktRuntime) stopPodSandbox(ctx context.Context, id string, force bool) error {
@@ -129,14 +129,14 @@ func (r *RktRuntime) stopPodSandbox(ctx context.Context, id string, force bool) 
 }
 
 func (r *RktRuntime) StopPodSandbox(ctx context.Context, req *runtimeApi.StopPodSandboxRequest) (*runtimeApi.StopPodSandboxResponse, error) {
-	err := r.stopPodSandbox(ctx, req.GetPodSandboxId(), false)
+	err := r.stopPodSandbox(ctx, req.PodSandboxId, false)
 	return &runtimeApi.StopPodSandboxResponse{}, err
 }
 
 func (r *RktRuntime) RemovePodSandbox(ctx context.Context, req *runtimeApi.RemovePodSandboxRequest) (*runtimeApi.RemovePodSandboxResponse, error) {
 	// Force stop first, per api contract "if there are any running containers in
 	// the sandbox, they must be forcibly terminated
-	r.stopPodSandbox(ctx, req.GetPodSandboxId(), true)
+	r.stopPodSandbox(ctx, req.PodSandboxId, true)
 
 	// Retry rm a few times to work around
 	// https://github.com/kubernetes-incubator/rktlet/issues/21#issuecomment-264842608
@@ -144,7 +144,7 @@ func (r *RktRuntime) RemovePodSandbox(ctx context.Context, req *runtimeApi.Remov
 	var err error
 	maxRetries := 5
 	for i := 0; i < maxRetries; i++ {
-		_, err = r.RunCommand("rm", req.GetPodSandboxId())
+		_, err = r.RunCommand("rm", req.PodSandboxId)
 		if i == maxRetries-1 || err == nil {
 			break
 		}
@@ -154,7 +154,7 @@ func (r *RktRuntime) RemovePodSandbox(ctx context.Context, req *runtimeApi.Remov
 }
 
 func (r *RktRuntime) PodSandboxStatus(ctx context.Context, req *runtimeApi.PodSandboxStatusRequest) (*runtimeApi.PodSandboxStatusResponse, error) {
-	resp, err := r.RunCommand("status", req.GetPodSandboxId(), "--format=json")
+	resp, err := r.RunCommand("status", req.PodSandboxId, "--format=json")
 	if err != nil {
 		return nil, err
 	}

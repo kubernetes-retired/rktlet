@@ -17,13 +17,13 @@ limitations under the License.
 package fake
 
 import (
-	api "k8s.io/kubernetes/pkg/api"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
-	meta_v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
 	core "k8s.io/kubernetes/pkg/client/testing/core"
-	labels "k8s.io/kubernetes/pkg/labels"
-	schema "k8s.io/kubernetes/pkg/runtime/schema"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // FakeEvents implements EventInterface
@@ -61,7 +61,7 @@ func (c *FakeEvents) Delete(name string, options *v1.DeleteOptions) error {
 	return err
 }
 
-func (c *FakeEvents) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *FakeEvents) DeleteCollection(options *v1.DeleteOptions, listOptions meta_v1.ListOptions) error {
 	action := core.NewDeleteCollectionAction(eventsResource, c.ns, listOptions)
 
 	_, err := c.Fake.Invokes(action, &v1.EventList{})
@@ -78,7 +78,7 @@ func (c *FakeEvents) Get(name string, options meta_v1.GetOptions) (result *v1.Ev
 	return obj.(*v1.Event), err
 }
 
-func (c *FakeEvents) List(opts v1.ListOptions) (result *v1.EventList, err error) {
+func (c *FakeEvents) List(opts meta_v1.ListOptions) (result *v1.EventList, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewListAction(eventsResource, c.ns, opts), &v1.EventList{})
 
@@ -100,14 +100,14 @@ func (c *FakeEvents) List(opts v1.ListOptions) (result *v1.EventList, err error)
 }
 
 // Watch returns a watch.Interface that watches the requested events.
-func (c *FakeEvents) Watch(opts v1.ListOptions) (watch.Interface, error) {
+func (c *FakeEvents) Watch(opts meta_v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
 		InvokesWatch(core.NewWatchAction(eventsResource, c.ns, opts))
 
 }
 
 // Patch applies the patch and returns the patched event.
-func (c *FakeEvents) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *v1.Event, err error) {
+func (c *FakeEvents) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1.Event, err error) {
 	obj, err := c.Fake.
 		Invokes(core.NewPatchSubresourceAction(eventsResource, c.ns, name, data, subresources...), &v1.Event{})
 

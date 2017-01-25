@@ -17,12 +17,13 @@ limitations under the License.
 package v1beta1
 
 import (
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
+	watch "k8s.io/apimachinery/pkg/watch"
+	rest "k8s.io/client-go/rest"
 	v1beta1 "k8s.io/kubernetes/federation/apis/federation/v1beta1"
 	api "k8s.io/kubernetes/pkg/api"
 	v1 "k8s.io/kubernetes/pkg/api/v1"
-	meta_v1 "k8s.io/kubernetes/pkg/apis/meta/v1"
-	restclient "k8s.io/kubernetes/pkg/client/restclient"
-	watch "k8s.io/kubernetes/pkg/watch"
 )
 
 // ClustersGetter has a method to return a ClusterInterface.
@@ -37,17 +38,17 @@ type ClusterInterface interface {
 	Update(*v1beta1.Cluster) (*v1beta1.Cluster, error)
 	UpdateStatus(*v1beta1.Cluster) (*v1beta1.Cluster, error)
 	Delete(name string, options *v1.DeleteOptions) error
-	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions meta_v1.ListOptions) error
 	Get(name string, options meta_v1.GetOptions) (*v1beta1.Cluster, error)
-	List(opts v1.ListOptions) (*v1beta1.ClusterList, error)
-	Watch(opts v1.ListOptions) (watch.Interface, error)
-	Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *v1beta1.Cluster, err error)
+	List(opts meta_v1.ListOptions) (*v1beta1.ClusterList, error)
+	Watch(opts meta_v1.ListOptions) (watch.Interface, error)
+	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1beta1.Cluster, err error)
 	ClusterExpansion
 }
 
 // clusters implements ClusterInterface
 type clusters struct {
-	client restclient.Interface
+	client rest.Interface
 }
 
 // newClusters returns a Clusters
@@ -106,7 +107,7 @@ func (c *clusters) Delete(name string, options *v1.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *clusters) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *clusters) DeleteCollection(options *v1.DeleteOptions, listOptions meta_v1.ListOptions) error {
 	return c.client.Delete().
 		Resource("clusters").
 		VersionedParams(&listOptions, api.ParameterCodec).
@@ -128,7 +129,7 @@ func (c *clusters) Get(name string, options meta_v1.GetOptions) (result *v1beta1
 }
 
 // List takes label and field selectors, and returns the list of Clusters that match those selectors.
-func (c *clusters) List(opts v1.ListOptions) (result *v1beta1.ClusterList, err error) {
+func (c *clusters) List(opts meta_v1.ListOptions) (result *v1beta1.ClusterList, err error) {
 	result = &v1beta1.ClusterList{}
 	err = c.client.Get().
 		Resource("clusters").
@@ -139,7 +140,7 @@ func (c *clusters) List(opts v1.ListOptions) (result *v1beta1.ClusterList, err e
 }
 
 // Watch returns a watch.Interface that watches the requested clusters.
-func (c *clusters) Watch(opts v1.ListOptions) (watch.Interface, error) {
+func (c *clusters) Watch(opts meta_v1.ListOptions) (watch.Interface, error) {
 	return c.client.Get().
 		Prefix("watch").
 		Resource("clusters").
@@ -148,7 +149,7 @@ func (c *clusters) Watch(opts v1.ListOptions) (watch.Interface, error) {
 }
 
 // Patch applies the patch and returns the patched cluster.
-func (c *clusters) Patch(name string, pt api.PatchType, data []byte, subresources ...string) (result *v1beta1.Cluster, err error) {
+func (c *clusters) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1beta1.Cluster, err error) {
 	result = &v1beta1.Cluster{}
 	err = c.client.Patch(pt).
 		Resource("clusters").
