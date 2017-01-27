@@ -171,7 +171,11 @@ func (s *ImageStore) getImageManifest(id string) (*appcschema.ImageManifest, err
 func (s *ImageStore) getImageRealName(manifest *appcschema.ImageManifest, default_ string) string {
 	originalName, ok := manifest.GetAnnotation("appc.io/docker/originalname")
 	if !ok {
-		glog.Warningf("image %q does not have originalname annotation", manifest.Name.String())
+		glog.V(3).Infof(
+			"image %q does not have originalname annotation, reverting to default %q",
+			manifest.Name.String(),
+			default_,
+		)
 		return default_
 	}
 	// Normalize in case someone typed `rkt fetch docker://image-without-tag`
