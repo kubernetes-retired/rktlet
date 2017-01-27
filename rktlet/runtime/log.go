@@ -33,7 +33,7 @@ import (
 const loggingHelperImage = "quay.io/coreos/rktlet-journal2cri:0.0.1"
 const loggingAppName = internalAppPrefix + "journal2cri"
 
-func (r *RktRuntime) initializeLoggingAppImage(ctx context.Context) error {
+func (r *RktRuntime) fetchLoggingAppImage(ctx context.Context) error {
 	imageName := loggingHelperImage
 	_, err := r.getImageHash(ctx, loggingHelperImage)
 	if err == nil {

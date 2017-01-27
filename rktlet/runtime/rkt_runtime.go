@@ -37,17 +37,25 @@ type RktRuntime struct {
 	execShim     *execShim
 	streamServer streaming.Server
 	imageStore   runtimeApi.ImageServiceServer
+	stage1Name   string
 }
 
 const internalAppPrefix = "rktletinternal-"
 
 // New creates a new RuntimeServiceServer backed by rkt
-func New(cli cli.CLI, init cli.Init, imageStore runtimeApi.ImageServiceServer, streamServerAddr string) (runtimeApi.RuntimeServiceServer, error) {
+func New(
+	cli cli.CLI,
+	init cli.Init,
+	imageStore runtimeApi.ImageServiceServer,
+	streamServerAddr string,
+	stage1Name string,
+) (runtimeApi.RuntimeServiceServer, error) {
 	runtime := &RktRuntime{
 		CLI:        cli,
 		Init:       init,
 		imageStore: imageStore,
 		execShim:   NewExecShim(cli),
+		stage1Name: stage1Name,
 	}
 
 	var err error
@@ -66,8 +74,16 @@ func New(cli cli.CLI, init cli.Init, imageStore runtimeApi.ImageServiceServer, s
 			glog.Fatalf("error serving execs: %v", err)
 		}
 	}()
-	err = runtime.initializeLoggingAppImage(context.TODO())
-	return runtime, err
+
+	if err = runtime.fetchLoggingAppImage(context.TODO()); err != nil {
+		return nil, err
+	}
+
+	if err = runtime.fetchStage1Image(context.TODO()); err != nil {
+		return nil, err
+	}
+
+	return runtime, nil
 }
 
 func (r *RktRuntime) Version(ctx context.Context, req *runtimeApi.VersionRequest) (*runtimeApi.VersionResponse, error) {

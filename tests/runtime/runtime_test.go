@@ -50,8 +50,9 @@ func TestHostNetwork(t *testing.T) {
 		},
 	}
 	output, exitCode := p.RunContainerToExit(context.TODO(), runConfig)
+	t.Logf("container output:\n%v", output)
 	if exitCode != 0 {
-		t.Fatalf("expected %d, got %d: %v", 0, exitCode, output)
+		t.Fatalf("expected %d, got %d", 0, exitCode)
 	}
 
 	// Due to https://github.com/coreos/rkt/issues/3473 we need to trim spaces for each line
