@@ -185,6 +185,14 @@ func TestExecSync(t *testing.T) {
 	assert.Nil(t, err, "could not get container ID")
 	fmt.Printf("got containerID %s\n", containerID)
 
+	dummyRes, err := tc.Rktlet.ExecSync(context.TODO(), &runtime.ExecSyncRequest{
+		ContainerId: containerID,
+		Cmd:         []string{"sh", "-c", "exit 17"},
+	})
+	assert.Nil(t, err)
+	assert.NotNil(t, dummyRes)
+	assert.Equal(t, int32(17), dummyRes.ExitCode)
+
 	execRes, err := tc.Rktlet.ExecSync(context.TODO(), &runtime.ExecSyncRequest{
 		ContainerId: containerID,
 		Cmd:         []string{"sh", "-c", "echo 42 > /exit; echo success; sleep 0.5"},

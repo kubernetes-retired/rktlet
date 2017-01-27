@@ -50,10 +50,13 @@ func (r *RktRuntime) ExecSync(ctx context.Context, req *runtimeapi.ExecSyncReque
 	// TODO: Respect req.Timeout
 	exitCode := int32(0)
 	err := r.execShim.Exec(req.ContainerId, req.Cmd, nil, ioutils.WriteCloserWrapper(&stdout), ioutils.WriteCloserWrapper(&stderr), false, nil)
-	if exitErr, ok := err.(utilexec.ExitError); ok {
+	exitErr, ok := err.(utilexec.ExitError)
+	if ok {
 		exitCode = int32(exitErr.ExitStatus())
 	}
-	if err != nil {
+
+	// rktlet internal error
+	if !ok && err != nil {
 		return nil, err
 	}
 
