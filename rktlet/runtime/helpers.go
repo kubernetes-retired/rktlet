@@ -394,6 +394,13 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile, s
 	return cmd
 }
 
+// isKubernetesPod determines if the pod is actually owned by Kubernetes.
+// It checks for critical annotations.
+func isKubernetesPod(pod *rkt.Pod) bool {
+	_, ok := pod.UserAnnotations[kubernetesReservedAnnoPodUid]
+	return ok
+}
+
 func getKubernetesMetadata(annotations map[string]string) (*runtimeApi.PodSandboxMetadata, error) {
 	podUid := annotations[kubernetesReservedAnnoPodUid]
 	podName := annotations[kubernetesReservedAnnoPodName]
