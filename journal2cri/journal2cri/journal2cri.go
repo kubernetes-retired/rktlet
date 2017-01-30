@@ -51,9 +51,10 @@ func ProcessEntry(entry *sdjournal.JournalEntry) *CRIEntry {
 
 	appNumber, err := strconv.Atoi(appNumberStr)
 	if err != nil {
-		log.Printf("could not parse apps attempt: %v in %v, %v", appNumberStr, rktAppName, err)
+		// ignoring error, since these are simply foreign journal entries, i.e. "systemd-journald"
 		return nil
 	}
+
 	appName = strings.TrimLeft(appName, "-")
 	if len(appName) == 0 {
 		log.Printf("unexpected 0 length appName in %v", rktAppName)
