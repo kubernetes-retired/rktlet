@@ -189,6 +189,10 @@ func (r *RktRuntime) ListContainers(ctx context.Context, req *runtimeApi.ListCon
 	var containers []*runtimeApi.Container
 	for _, p := range pods {
 		p := p
+		if !isKubernetesPod(&p) {
+			glog.V(6).Infof("Skipping non-kubernetes pod %s", p.UUID)
+			continue
+		}
 		for _, appName := range p.AppNames {
 			if strings.HasPrefix(appName, internalAppPrefix) {
 				continue

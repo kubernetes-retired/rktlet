@@ -193,6 +193,10 @@ func (r *RktRuntime) ListPodSandbox(ctx context.Context, req *runtimeApi.ListPod
 	sandboxes := make([]*runtimeApi.PodSandbox, 0, len(pods))
 	for i, _ := range pods {
 		p := pods[i]
+		if !isKubernetesPod(&p) {
+			glog.V(6).Infof("Skipping non-kubernetes pod %s", p.UUID)
+			continue
+		}
 		sandboxStatus, err := toPodSandboxStatus(&p)
 		if err != nil {
 			return nil, fmt.Errorf("error converting the status of pod sandbox %v: %v", p.UUID, err)
