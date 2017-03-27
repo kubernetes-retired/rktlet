@@ -9,6 +9,10 @@ The work in this repository is meant to eventually supplant the [rkt package](ht
 Currently the project is under design and development of the next iteration of integration between rkt and the Kubelet.
 However, the current functional integration of rkt into Kubernetes lives in the above kubelet package, not here.
 
+Kubernetes tracking:
+
+- [Conformance testing](https://github.com/kubernetes-incubator/rktlet/issues/95): 89/94 passing as of 2017-02-08
+
 ## Community, discussion, contribution, and support
 
 Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).
