@@ -1,13 +1,21 @@
-# rktlet - The rkt implementation of a Kubernetes Container Runtime
+# rktlet - rkt-based implementation of Kubernetes Container Runtime Interface
 
-The rktlet repository contains design and code related to letting the Kubelet run containers with the rkt container runtime.
+rktlet is a Kubernetes [Container Runtime Interface][k8s-cri] implementation using [rkt][rkt] as the main container runtime.
+rkt is an ongoing [CNCF effort][rkt-cncf] to develop a pod-native container runtime.
 
-The work in this repository is meant to eventually supplant the [rkt package](https://github.com/kubernetes/kubernetes/tree/v1.3.0/pkg/kubelet/rkt/) in the main Kubernetes repository.
+The goal of this project is to eventually supplant the [rkt package](https://github.com/kubernetes/kubernetes/tree/v1.3.0/pkg/kubelet/rkt/) in the main Kubernetes repository.
+
+This repository contains all design documents and code for the project.
+
+Please note that the current (non-CRI) integration of rkt into Kubernetes lives in the kubelet package, not here.
+
+[rkt][https://github.com/coreos/rkt]
+[k8s-cri][http://blog.kubernetes.io/2016/12/container-runtime-interface-cri-in-kubernetes.html]
+[rkt-cncf][https://www.cncf.io/announcement/2017/03/29/cloud-native-computing-foundation-becomes-home-pod-native-container-engine-project-rkt/]
 
 ## Current Status
 
-Currently the project is under design and development of the next iteration of integration between rkt and the Kubelet.
-However, the current functional integration of rkt into Kubernetes lives in the above kubelet package, not here.
+Currently the project is under development and being tested against Kubernetes HEAD.
 
 Kubernetes tracking:
 
@@ -20,7 +28,7 @@ Learn how to engage with the Kubernetes community on the [community page](http:/
 You can reach the maintainers of this project at:
 
 - Kubernetes Community: https://github.com/kubernetes/community/tree/master/sig-rktnetes
-- Slack: #sig-rktnetes
+- Slack: #sig-node-rkt
 - Mailing List: https://groups.google.com/forum/#!forum/kubernetes-sig-rktnetes
 
 ## Kubernetes Incubator
