@@ -9,9 +9,9 @@ This repository contains all design documents and code for the project.
 
 Please note that the current (non-CRI) integration of rkt into Kubernetes lives in the kubelet package, not here.
 
-[rkt][https://github.com/coreos/rkt]
-[k8s-cri][http://blog.kubernetes.io/2016/12/container-runtime-interface-cri-in-kubernetes.html]
-[rkt-cncf][https://www.cncf.io/announcement/2017/03/29/cloud-native-computing-foundation-becomes-home-pod-native-container-engine-project-rkt/]
+[rkt]: https://github.com/coreos/rkt
+[k8s-cri]: http://blog.kubernetes.io/2016/12/container-runtime-interface-cri-in-kubernetes.html
+[rkt-cncf]: https://www.cncf.io/announcement/2017/03/29/cloud-native-computing-foundation-becomes-home-pod-native-container-engine-project-rkt/
 
 ## Current Status
 
