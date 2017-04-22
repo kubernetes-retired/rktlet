@@ -18,6 +18,7 @@ package runtime
 
 import (
 	"fmt"
+	"io/ioutil"
 	"strconv"
 	"strings"
 
@@ -31,13 +32,14 @@ import (
 
 const (
 	// Exists per app.
-	kubernetesReservedAnnoImageNameKey = "k8s.io/reserved/image-name"
+	k8sAnnoImageNameKey = "k8s.io/reserved/image-name"
 
 	// Exists per pod.
-	kubernetesReservedAnnoPodUid       = "k8s.io/reserved/pod-uid"
-	kubernetesReservedAnnoPodName      = "k8s.io/reserved/pod-name"
-	kubernetesReservedAnnoPodNamespace = "k8s.io/reserved/pod-namespace"
-	kubernetesReservedAnnoPodAttempt   = "k8s.io/reserved/pod-attempt"
+	k8sAnnoPodUid           = "k8s.io/reserved/pod-uid"
+	k8sAnnoPodName          = "k8s.io/reserved/pod-name"
+	k8sAnnoPodNamespace     = "k8s.io/reserved/pod-namespace"
+	k8sAnnoPodAttempt       = "k8s.io/reserved/pod-attempt"
+	k8sAnnoTermMsgMountName = "k8s.io/reserved/termination-message-mount-name"
 
 	// TODO(euank): This has significant security concerns as a stage1 image is
 	// effectively root.
@@ -48,16 +50,20 @@ const (
 	// See discussion in #23944
 	// Also, do we want more granularity than path-at-the-kubelet-level and
 	// image/name-at-the-pod-level?
-	k8sRktStage1NameAnno = "rkt.alpha.kubernetes.io/stage1-name-override"
+	k8sAnnoRktStage1Name = "rkt.alpha.kubernetes.io/stage1-name-override"
+
+	// from k8s.io/kubernetes/pkg/kubelet/kuberuntime/labels.go
+	k8sLabelTermMsgPath = "io.kubernetes.container.terminationMessagePath"
 )
 
 // List of reserved keys in the annotations.
-var kubernetesReservedAnnoKeys = []string{
-	kubernetesReservedAnnoImageNameKey,
-	kubernetesReservedAnnoPodUid,
-	kubernetesReservedAnnoPodName,
-	kubernetesReservedAnnoPodNamespace,
-	kubernetesReservedAnnoPodAttempt,
+var k8sReservedAnnoKeys = []string{
+	k8sAnnoImageNameKey,
+	k8sAnnoPodUid,
+	k8sAnnoPodName,
+	k8sAnnoPodNamespace,
+	k8sAnnoPodAttempt,
+	k8sAnnoTermMsgMountName,
 }
 
 // parseContainerID parses the container ID string into "uuid" + "appname".
@@ -136,6 +142,9 @@ func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, 
 	status.Labels = getKubernetesLabels(app.UserLabels)
 	status.Annotations = getKubernetesAnnotations(app.UserAnnotations)
 
+	termMsgHostPath := ""
+	termMsgMountName := app.UserAnnotations[k8sAnnoTermMsgMountName]
+
 	for _, mnt := range app.Mounts {
 		status.Mounts = append(status.Mounts, &runtimeApi.Mount{
 			ContainerPath: mnt.ContainerPath,
@@ -143,6 +152,18 @@ func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, 
 			Readonly:      mnt.ReadOnly,
 			// TODO: Selinux relabeling.
 		})
+
+		if termMsgMountName != "" && mnt.Name == termMsgMountName {
+			termMsgHostPath = mnt.HostPath
+		}
+	}
+
+	if termMsgHostPath != "" {
+		if data, err := ioutil.ReadFile(termMsgHostPath); err != nil {
+			status.Message = fmt.Sprintf("Error on reading termination-log %q: %v", termMsgHostPath, err)
+		} else {
+			status.Message = string(data)
+		}
 	}
 
 	return &status, nil
@@ -158,14 +179,14 @@ func getKubernetesAnnotations(annotations map[string]string) map[string]string {
 	}
 
 	ret := annotations
-	for _, key := range kubernetesReservedAnnoKeys {
+	for _, key := range k8sReservedAnnoKeys {
 		delete(ret, key)
 	}
 	return ret
 }
 
 func getImageName(annotations map[string]string) string {
-	name := annotations[kubernetesReservedAnnoImageNameKey]
+	name := annotations[k8sAnnoImageNameKey]
 	return name
 }
 
@@ -180,7 +201,7 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 	for k, v := range config.Annotations {
 		annotations = append(annotations, fmt.Sprintf("%s=%s", k, v))
 	}
-	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoImageNameKey, config.Image.Image))
+	annotations = append(annotations, fmt.Sprintf("%s=%s", k8sAnnoImageNameKey, config.Image.Image))
 
 	// Generate app name.
 	appName := buildAppName(config.Metadata.Attempt, config.Metadata.Name)
@@ -285,13 +306,25 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 		cmd = append(cmd, "--working-dir="+config.WorkingDir)
 	}
 
+	termMsgPath := config.Annotations[k8sLabelTermMsgPath]
+
 	for _, mnt := range config.GetMounts() {
 		if mnt == nil {
 			glog.Warningf("unexpected nil mount: %v, %+v", mnt, config)
 			continue
 		}
 		volumeName := uuid.NewUUID()
-		cmd = append(cmd, fmt.Sprintf("--mnt-volume=name=%s,kind=host,source=%s,target=%s,readOnly=%t", volumeName, mnt.HostPath, mnt.ContainerPath, mnt.Readonly))
+		cmd = append(cmd, fmt.Sprintf(
+			"--mnt-volume=name=%s,kind=host,source=%s,target=%s,readOnly=%t",
+			volumeName, mnt.HostPath, mnt.ContainerPath, mnt.Readonly,
+		))
+
+		if termMsgPath != "" && mnt.ContainerPath == termMsgPath {
+			cmd = append(cmd, fmt.Sprintf(
+				"--user-annotation=%s=%s",
+				k8sAnnoTermMsgMountName, volumeName,
+			))
+		}
 	}
 
 	// Add app commands and args.
@@ -316,7 +349,7 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile, s
 	cmd := []string{"app", "sandbox", "--uuid-file-save=" + uuidfile}
 
 	// annotation takes preference over configuration
-	if val, ok := req.Config.Annotations[k8sRktStage1NameAnno]; ok {
+	if val, ok := req.Config.Annotations[k8sAnnoRktStage1Name]; ok {
 		stage1Name = val
 	}
 
@@ -379,10 +412,10 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile, s
 	}
 
 	// Reserved annotations.
-	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodUid, req.Config.GetMetadata().Uid))
-	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodName, req.Config.Metadata.Name))
-	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoPodNamespace, req.Config.Metadata.Namespace))
-	annotations = append(annotations, fmt.Sprintf("%s=%d", kubernetesReservedAnnoPodAttempt, req.GetConfig().GetMetadata().Attempt))
+	annotations = append(annotations, fmt.Sprintf("%s=%s", k8sAnnoPodUid, req.Config.GetMetadata().Uid))
+	annotations = append(annotations, fmt.Sprintf("%s=%s", k8sAnnoPodName, req.Config.Metadata.Name))
+	annotations = append(annotations, fmt.Sprintf("%s=%s", k8sAnnoPodNamespace, req.Config.Metadata.Namespace))
+	annotations = append(annotations, fmt.Sprintf("%s=%d", k8sAnnoPodAttempt, req.GetConfig().GetMetadata().Attempt))
 
 	for _, anno := range annotations {
 		cmd = append(cmd, "--user-annotation="+anno)
@@ -397,15 +430,15 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile, s
 // isKubernetesPod determines if the pod is actually owned by Kubernetes.
 // It checks for critical annotations.
 func isKubernetesPod(pod *rkt.Pod) bool {
-	_, ok := pod.UserAnnotations[kubernetesReservedAnnoPodUid]
+	_, ok := pod.UserAnnotations[k8sAnnoPodUid]
 	return ok
 }
 
 func getKubernetesMetadata(annotations map[string]string) (*runtimeApi.PodSandboxMetadata, error) {
-	podUid := annotations[kubernetesReservedAnnoPodUid]
-	podName := annotations[kubernetesReservedAnnoPodName]
-	podNamespace := annotations[kubernetesReservedAnnoPodNamespace]
-	podAttemptStr := annotations[kubernetesReservedAnnoPodAttempt]
+	podUid := annotations[k8sAnnoPodUid]
+	podName := annotations[k8sAnnoPodName]
+	podNamespace := annotations[k8sAnnoPodNamespace]
+	podAttemptStr := annotations[k8sAnnoPodAttempt]
 
 	attempt, err := strconv.ParseUint(podAttemptStr, 10, 32)
 	if err != nil {
