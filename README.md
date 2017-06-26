@@ -21,6 +21,11 @@ Kubernetes tracking:
 
 - [Conformance testing](https://github.com/kubernetes-incubator/rktlet/issues/95): 89/94 passing as of 2017-02-08
 
+## Documentation
+
+- [Getting started guide](docs/getting-started-guide.md)
+- [Initial design](docs/initial-design.md)
+
 ## Community, discussion, contribution, and support
 
 Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).

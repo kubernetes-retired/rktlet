@@ -36,7 +36,7 @@ To start using your cluster, open up another terminal/tab and run:
 * Now we are able to launch pods:
 
 ```shell
-$ kubectl create -f example/pod
+$ kubectl create -f examples/pod
 pod "nginx" created
 
 $ kubectl get pods
