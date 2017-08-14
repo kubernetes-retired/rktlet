@@ -1,4 +1,5 @@
 # rktlet - rkt-based implementation of Kubernetes Container Runtime Interface
+[![Build Status](https://travis-ci.org/kubernetes-incubator/rktlet.svg?branch=master)](https://travis-ci.org/kubernetes-incubator/rktlet)
 
 rktlet is a Kubernetes [Container Runtime Interface][k8s-cri] implementation using [rkt][rkt] as the main container runtime.
 rkt is an ongoing [CNCF effort][rkt-cncf] to develop a pod-native container runtime.
