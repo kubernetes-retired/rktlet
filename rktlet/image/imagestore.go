@@ -204,7 +204,7 @@ func (s *ImageStore) PullImage(ctx context.Context, req *runtime.PullImageReques
 	}
 
 	// TODO auth
-	output, err := s.RunCommand("image", "fetch", "--no-store=true", "--full=true", "docker://"+canonicalImageName)
+	output, err := s.RunCommand("image", "fetch", "--pull-policy=update", "--full=true", "docker://"+canonicalImageName)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch image %q: %v", canonicalImageName, err)
 	}
