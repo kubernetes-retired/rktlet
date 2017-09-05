@@ -364,9 +364,7 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile, s
 
 	// Add hostnetwork
 	if hasHostNetwork(req.GetConfig()) {
-		cmd = append(cmd, "--net=host", "--dns=host", "--hosts-entry=host")
-		// TODO, once https://github.com/kubernetes/kubernetes/pull/29378 is
-		// merged, `--dns=host` won't be needed
+		cmd = append(cmd, "--net=host", "--hosts-entry=host")
 	}
 
 	// Generate annotations.
