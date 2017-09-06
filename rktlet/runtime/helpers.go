@@ -169,6 +169,16 @@ func getImageName(annotations map[string]string) string {
 	return name
 }
 
+func generateEnvironmentArgs(envs []*runtimeApi.KeyValue) []string {
+	var args []string
+
+	for _, env := range envs {
+		args = append(args, fmt.Sprintf("--environment=%s='%s'", env.Key, strings.Replace(env.Value, `'`, `\'`, -1)))
+	}
+
+	return args
+}
+
 func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID string) ([]string, error) {
 	config := req.Config
 
@@ -201,9 +211,8 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 	}
 
 	// Add environments
-	for _, env := range config.Envs {
-		cmd = append(cmd, fmt.Sprintf("--environment=%s=%s", env.Key, env.Value))
-	}
+	envArgs := generateEnvironmentArgs(config.Envs)
+	cmd = append(cmd, envArgs...)
 
 	// Add Linux options. (resources, caps, uid, gid).
 	if linux := config.GetLinux(); linux != nil {
