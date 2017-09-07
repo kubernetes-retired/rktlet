@@ -341,6 +341,18 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile, s
 		}
 	}
 
+	// Some docker images are started as an unprivileged user and use file
+	// capabilities to gain privileges like listening on a low port.
+	//
+	// This doesn't work in rkt because, due to a systemd bug (WIP PR[1])
+	// enabling seccomp implies no_new_privs[2].
+	//
+	// As a workaround, let's disable seccomp for now.
+	//
+	// [1]: https://github.com/systemd/systemd/pull/6763
+	// [2]: http://man7.org/linux/man-pages/man2/seccomp.2.html
+	cmd = append(cmd, "--insecure-options=seccomp")
+
 	if req.GetConfig().GetLinux().GetSecurityContext().Privileged {
 		// TODO: the 'paths' setting is applied to all applications even though only
 		// a subset of them may request to be privileged, however there is no way
