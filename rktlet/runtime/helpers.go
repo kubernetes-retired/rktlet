@@ -18,6 +18,7 @@ package runtime
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -365,6 +366,9 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile, s
 	// Add hostnetwork
 	if hasHostNetwork(req.GetConfig()) {
 		cmd = append(cmd, "--net=host", "--hosts-entry=host")
+		if hn, err := os.Hostname(); err == nil {
+			cmd = append(cmd, fmt.Sprintf("--hostname=%s", hn))
+		}
 	}
 
 	// Generate annotations.
