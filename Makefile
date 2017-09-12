@@ -46,7 +46,7 @@ generate: ./hack/bin/mockery path-setup
 
 test: path-setup
 	cd "${PKGPATH}" && \
-	go test ./rktlet/... ./journal2cri/...
+	go test ./rktlet/...
 
 integ: path-setup
 	@export RKTLET_TESTDIR=`mktemp -d` && \

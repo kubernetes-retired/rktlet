@@ -78,10 +78,6 @@ func New(
 		}
 	}()
 
-	if err = runtime.fetchLoggingAppImage(context.TODO()); err != nil {
-		return nil, err
-	}
-
 	if err = runtime.fetchStage1Image(context.TODO()); err != nil {
 		return nil, err
 	}
