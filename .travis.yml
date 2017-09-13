@@ -2,7 +2,7 @@ language: go
 sudo: required
 dist: trusty
 go:
-    - 1.7
+    - 1.8
 env:
   - GOPKG_PARENT=$HOME/gopath/src/github.com/kubernetes-incubator GOPKG_PATH=$GOPKG_PARENT/rktlet
 
