@@ -17,14 +17,13 @@ limitations under the License.
 package fake
 
 import (
-	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labels "k8s.io/apimachinery/pkg/labels"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
-	v1 "k8s.io/kubernetes/pkg/api/v1"
+	testing "k8s.io/client-go/testing"
 	v1alpha1 "k8s.io/kubernetes/pkg/apis/rbac/v1alpha1"
-	core "k8s.io/kubernetes/pkg/client/testing/core"
 )
 
 // FakeRoleBindings implements RoleBindingInterface
@@ -35,9 +34,11 @@ type FakeRoleBindings struct {
 
 var rolebindingsResource = schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1alpha1", Resource: "rolebindings"}
 
+var rolebindingsKind = schema.GroupVersionKind{Group: "rbac.authorization.k8s.io", Version: "v1alpha1", Kind: "RoleBinding"}
+
 func (c *FakeRoleBindings) Create(roleBinding *v1alpha1.RoleBinding) (result *v1alpha1.RoleBinding, err error) {
 	obj, err := c.Fake.
-		Invokes(core.NewCreateAction(rolebindingsResource, c.ns, roleBinding), &v1alpha1.RoleBinding{})
+		Invokes(testing.NewCreateAction(rolebindingsResource, c.ns, roleBinding), &v1alpha1.RoleBinding{})
 
 	if obj == nil {
 		return nil, err
@@ -47,7 +48,7 @@ func (c *FakeRoleBindings) Create(roleBinding *v1alpha1.RoleBinding) (result *v1
 
 func (c *FakeRoleBindings) Update(roleBinding *v1alpha1.RoleBinding) (result *v1alpha1.RoleBinding, err error) {
 	obj, err := c.Fake.
-		Invokes(core.NewUpdateAction(rolebindingsResource, c.ns, roleBinding), &v1alpha1.RoleBinding{})
+		Invokes(testing.NewUpdateAction(rolebindingsResource, c.ns, roleBinding), &v1alpha1.RoleBinding{})
 
 	if obj == nil {
 		return nil, err
@@ -57,21 +58,21 @@ func (c *FakeRoleBindings) Update(roleBinding *v1alpha1.RoleBinding) (result *v1
 
 func (c *FakeRoleBindings) Delete(name string, options *v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(core.NewDeleteAction(rolebindingsResource, c.ns, name), &v1alpha1.RoleBinding{})
+		Invokes(testing.NewDeleteAction(rolebindingsResource, c.ns, name), &v1alpha1.RoleBinding{})
 
 	return err
 }
 
-func (c *FakeRoleBindings) DeleteCollection(options *v1.DeleteOptions, listOptions meta_v1.ListOptions) error {
-	action := core.NewDeleteCollectionAction(rolebindingsResource, c.ns, listOptions)
+func (c *FakeRoleBindings) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
+	action := testing.NewDeleteCollectionAction(rolebindingsResource, c.ns, listOptions)
 
 	_, err := c.Fake.Invokes(action, &v1alpha1.RoleBindingList{})
 	return err
 }
 
-func (c *FakeRoleBindings) Get(name string, options meta_v1.GetOptions) (result *v1alpha1.RoleBinding, err error) {
+func (c *FakeRoleBindings) Get(name string, options v1.GetOptions) (result *v1alpha1.RoleBinding, err error) {
 	obj, err := c.Fake.
-		Invokes(core.NewGetAction(rolebindingsResource, c.ns, name), &v1alpha1.RoleBinding{})
+		Invokes(testing.NewGetAction(rolebindingsResource, c.ns, name), &v1alpha1.RoleBinding{})
 
 	if obj == nil {
 		return nil, err
@@ -79,15 +80,15 @@ func (c *FakeRoleBindings) Get(name string, options meta_v1.GetOptions) (result 
 	return obj.(*v1alpha1.RoleBinding), err
 }
 
-func (c *FakeRoleBindings) List(opts meta_v1.ListOptions) (result *v1alpha1.RoleBindingList, err error) {
+func (c *FakeRoleBindings) List(opts v1.ListOptions) (result *v1alpha1.RoleBindingList, err error) {
 	obj, err := c.Fake.
-		Invokes(core.NewListAction(rolebindingsResource, c.ns, opts), &v1alpha1.RoleBindingList{})
+		Invokes(testing.NewListAction(rolebindingsResource, rolebindingsKind, c.ns, opts), &v1alpha1.RoleBindingList{})
 
 	if obj == nil {
 		return nil, err
 	}
 
-	label, _, _ := core.ExtractFromListOptions(opts)
+	label, _, _ := testing.ExtractFromListOptions(opts)
 	if label == nil {
 		label = labels.Everything()
 	}
@@ -101,16 +102,16 @@ func (c *FakeRoleBindings) List(opts meta_v1.ListOptions) (result *v1alpha1.Role
 }
 
 // Watch returns a watch.Interface that watches the requested roleBindings.
-func (c *FakeRoleBindings) Watch(opts meta_v1.ListOptions) (watch.Interface, error) {
+func (c *FakeRoleBindings) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(core.NewWatchAction(rolebindingsResource, c.ns, opts))
+		InvokesWatch(testing.NewWatchAction(rolebindingsResource, c.ns, opts))
 
 }
 
 // Patch applies the patch and returns the patched roleBinding.
 func (c *FakeRoleBindings) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1alpha1.RoleBinding, err error) {
 	obj, err := c.Fake.
-		Invokes(core.NewPatchSubresourceAction(rolebindingsResource, c.ns, name, data, subresources...), &v1alpha1.RoleBinding{})
+		Invokes(testing.NewPatchSubresourceAction(rolebindingsResource, c.ns, name, data, subresources...), &v1alpha1.RoleBinding{})
 
 	if obj == nil {
 		return nil, err

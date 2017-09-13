@@ -90,6 +90,14 @@ func (plugin *emptyDirPlugin) RequiresRemount() bool {
 	return false
 }
 
+func (plugin *emptyDirPlugin) SupportsMountOption() bool {
+	return false
+}
+
+func (plugin *emptyDirPlugin) SupportsBulkVolumeVerification() bool {
+	return false
+}
+
 func (plugin *emptyDirPlugin) NewMounter(spec *volume.Spec, pod *v1.Pod, opts volume.VolumeOptions) (volume.Mounter, error) {
 	return plugin.newMounterInternal(spec, pod, plugin.host.GetMounter(), &realMountDetector{plugin.host.GetMounter()}, opts)
 }
@@ -321,11 +329,9 @@ func (ed *emptyDir) TearDownAt(dir string) error {
 }
 
 func (ed *emptyDir) teardownDefault(dir string) error {
-	tmpDir, err := volume.RenameDirectory(dir, ed.volName+".deleting~")
-	if err != nil {
-		return err
-	}
-	err = os.RemoveAll(tmpDir)
+	// Renaming the directory is not required anymore because the operation executor
+	// now handles duplicate operations on the same volume
+	err := os.RemoveAll(dir)
 	if err != nil {
 		return err
 	}

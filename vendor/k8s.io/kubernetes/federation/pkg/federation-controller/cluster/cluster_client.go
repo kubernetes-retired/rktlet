@@ -23,20 +23,18 @@ import (
 	"github.com/golang/glog"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/discovery"
 	restclient "k8s.io/client-go/rest"
 	federation_v1beta1 "k8s.io/kubernetes/federation/apis/federation/v1beta1"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/v1"
 	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
-	"k8s.io/kubernetes/pkg/client/typed/discovery"
+	kubeletapis "k8s.io/kubernetes/pkg/kubelet/apis"
 )
 
 const (
-	UserAgentName           = "Cluster-Controller"
-	KubeAPIQPS              = 20.0
-	KubeAPIBurst            = 30
-	KubeconfigSecretDataKey = "kubeconfig"
+	UserAgentName = "Cluster-Controller"
 )
 
 type ClusterClient struct {
@@ -120,23 +118,23 @@ func (self *ClusterClient) GetClusterZones() (zones []string, region string, err
 // Find the name of the zone in which a Node is running
 func getZoneNameForNode(node api.Node) (string, error) {
 	for key, value := range node.Labels {
-		if key == metav1.LabelZoneFailureDomain {
+		if key == kubeletapis.LabelZoneFailureDomain {
 			return value, nil
 		}
 	}
 	return "", fmt.Errorf("Zone name for node %s not found. No label with key %s",
-		node.Name, metav1.LabelZoneFailureDomain)
+		node.Name, kubeletapis.LabelZoneFailureDomain)
 }
 
 // Find the name of the region in which a Node is running
 func getRegionNameForNode(node api.Node) (string, error) {
 	for key, value := range node.Labels {
-		if key == metav1.LabelZoneRegion {
+		if key == kubeletapis.LabelZoneRegion {
 			return value, nil
 		}
 	}
 	return "", fmt.Errorf("Region name for node %s not found. No label with key %s",
-		node.Name, metav1.LabelZoneRegion)
+		node.Name, kubeletapis.LabelZoneRegion)
 }
 
 // Find the names of all zones and the region in which we have nodes in this cluster.

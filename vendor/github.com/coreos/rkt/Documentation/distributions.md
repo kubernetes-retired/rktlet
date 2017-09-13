@@ -61,12 +61,7 @@ rkt's entry in the [Fedora package database][pkg-fedora] tracks packaging work f
 
 #### Caveat: SELinux
 
-rkt can integrate with SELinux on Fedora but in a limited way.
-This has the following caveats:
-- running as systemd service restricted (see [#2322][rkt-2322])
-- access to host volumes restricted (see [#2325][rkt-2325])
-- socket activation restricted (see [#2326][rkt-2326])
-- metadata service restricted (see [#1978][rkt-1978])
+rkt does not work with the SELinux policies currently shipped with Fedora versions 24 and 25.
 
 As a workaround, SELinux can be temporarily disabled:
 ```
@@ -137,19 +132,19 @@ upgrade manually.
 ### rpm-based 
 ```
 gpg --recv-key 18AD5014C99EF7E3BA5F6CE950BDD3E0FC8A365E
-wget https://github.com/coreos/rkt/releases/download/v1.20.0/rkt-1.20.0-1.x86_64.rpm
-wget https://github.com/coreos/rkt/releases/download/v1.20.0/rkt-1.20.0-1.x86_64.rpm.asc
-gpg --verify rkt-1.20.0-1.x86_64.rpm.asc
-sudo rpm -Uvh rkt-1.20.0-1.x86_64.rpm
+wget https://github.com/coreos/rkt/releases/download/v1.25.0/rkt-1.25.0-1.x86_64.rpm
+wget https://github.com/coreos/rkt/releases/download/v1.25.0/rkt-1.25.0-1.x86_64.rpm.asc
+gpg --verify rkt-1.25.0-1.x86_64.rpm.asc
+sudo rpm -Uvh rkt-1.25.0-1.x86_64.rpm
 ```
 
 ### deb-based
 ```
 gpg --recv-key 18AD5014C99EF7E3BA5F6CE950BDD3E0FC8A365E
-wget https://github.com/coreos/rkt/releases/download/v1.20.0/rkt_1.20.0-1_amd64.deb
-wget https://github.com/coreos/rkt/releases/download/v1.20.0/rkt_1.20.0-1_amd64.deb.asc
-gpg --verify rkt_1.20.0-1_amd64.deb.asc
-sudo dpkg -i rkt_1.20.0-1_amd64.deb
+wget https://github.com/coreos/rkt/releases/download/v1.25.0/rkt_1.25.0-1_amd64.deb
+wget https://github.com/coreos/rkt/releases/download/v1.25.0/rkt_1.25.0-1_amd64.deb.asc
+gpg --verify rkt_1.25.0-1_amd64.deb.asc
+sudo dpkg -i rkt_1.25.0-1_amd64.deb
 ```
 
 [coreos-install-rkt]: install-rkt-in-coreos.md

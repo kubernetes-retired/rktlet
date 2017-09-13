@@ -307,20 +307,17 @@ func NewTestNetDefaultRestrictedConnectivity() testutils.Test {
 		defer ctx.Cleanup()
 
 		f := func(argument string) {
-			httpPort, err := testutils.GetNextFreePort4()
-			if err != nil {
-				t.Fatalf("%v", err)
-			}
-			httpServeAddr := fmt.Sprintf("0.0.0.0:%v", httpPort)
+			httpPort := "8080"
 			iface := "eth0"
 
-			testImageArgs := []string{fmt.Sprintf("--exec=/inspect --print-ipv4=%v --serve-http=%v", iface, httpServeAddr)}
+			testImageArgs := []string{fmt.Sprintf("--exec=/inspect --print-ipv4=%v --serve-http=0.0.0.0:%v", iface, httpPort)}
 			testImage := patchTestACI("rkt-inspect-networking.aci", testImageArgs...)
 			defer os.Remove(testImage)
 
-			cmd := fmt.Sprintf("%s --debug --insecure-options=image run %s --mds-register=false %s", ctx.Cmd(), argument, testImage)
+			cmd := fmt.Sprintf("%s --insecure-options=image run %s --mds-register=false %s", ctx.Cmd(), argument, testImage)
 			child := spawnOrFail(t, cmd)
 
+			// Wait for the container to print out the IP address
 			expectedRegex := `IPv4: (\d+\.\d+\.\d+\.\d+)`
 			result, out, err := expectRegexWithOutput(child, expectedRegex)
 			if err != nil {
@@ -328,31 +325,18 @@ func NewTestNetDefaultRestrictedConnectivity() testutils.Test {
 			}
 			httpGetAddr := fmt.Sprintf("http://%v:%v", result[1], httpPort)
 
-			ga := testutils.NewGoroutineAssistant(t)
-			ga.Add(2)
-
-			// Child opens the server
-			go func() {
-				defer ga.Done()
-				ga.WaitOrFail(child)
-			}()
-
-			// Host connects to the child
-			go func() {
-				defer ga.Done()
-				expectedRegex := `serving on`
-				_, out, err := expectRegexWithOutput(child, expectedRegex)
-				if err != nil {
-					ga.Fatalf("Error: %v\nOutput: %v", err, out)
-				}
-				body, err := testutils.HTTPGet(httpGetAddr)
-				if err != nil {
-					ga.Fatalf("%v\n", err)
-				}
-				t.Logf("HTTP-Get received: %s", body)
-			}()
-
-			ga.Wait()
+			// Wait for the container to open the port
+			expectedRegex = `serving on`
+			_, out, err = expectRegexWithOutput(child, expectedRegex)
+			if err != nil {
+				t.Fatalf("Error: %v\nOutput: %v", err, out)
+			}
+			body, err := testutils.HTTPGet(httpGetAddr)
+			if err != nil {
+				t.Fatalf("%v\n", err)
+			}
+			t.Logf("HTTP-Get received: %s", body)
+			waitOrFail(t, child, 0)
 		}
 		f("--net=default-restricted")
 	})
@@ -396,9 +380,11 @@ var (
 	bridgeLoDiffPortFwdCase = PortFwdCase{"127.0.0.1", 1024, "", "--net=" + portFwdBridge.Name, true}
 )
 
-func (ct PortFwdCase) Execute(t *testing.T, ctx *testutils.RktRunCtx) {
-	netdir := prepareTestNet(t, ctx, portFwdBridge)
-	defer os.RemoveAll(netdir)
+func (ct PortFwdCase) Execute(t *testing.T) {
+	ctx := testutils.NewRktRunCtx()
+	defer ctx.Cleanup()
+
+	prepareTestNet(t, ctx, portFwdBridge)
 
 	httpPort, err := testutils.GetNextFreePort4Banned(bannedPorts)
 	if err != nil {
@@ -463,11 +449,8 @@ func (ct PortFwdCase) Execute(t *testing.T, ctx *testutils.RktRunCtx) {
 type portFwdTest []PortFwdCase
 
 func (ct portFwdTest) Execute(t *testing.T) {
-	ctx := testutils.NewRktRunCtx()
-	defer ctx.Cleanup()
-
 	for _, testCase := range ct {
-		testCase.Execute(t, ctx)
+		testCase.Execute(t)
 	}
 }
 
@@ -638,8 +621,7 @@ func testNetCustomDual(t *testing.T, nt networkTemplateT) {
 	ctx := testutils.NewRktRunCtx()
 	defer ctx.Cleanup()
 
-	netdir := prepareTestNet(t, ctx, nt)
-	defer os.RemoveAll(netdir)
+	prepareTestNet(t, ctx, nt)
 
 	container1IPv4, container1Hostname := make(chan string), make(chan string)
 	ga := testutils.NewGoroutineAssistant(t)
@@ -711,8 +693,7 @@ func testNetCustomNatConnectivity(t *testing.T, nt networkTemplateT) {
 	ctx := testutils.NewRktRunCtx()
 	defer ctx.Cleanup()
 
-	netdir := prepareTestNet(t, ctx, nt)
-	defer os.RemoveAll(netdir)
+	prepareTestNet(t, ctx, nt)
 
 	httpPort, err := testutils.GetNextFreePort4()
 	if err != nil {
@@ -808,13 +789,11 @@ func NewNetCNIEnvTest() testutils.Test {
 
 		// bring the networking up, copy the proxy
 		netdir := prepareTestNet(t, ctx, nt)
-		defer os.RemoveAll(netdir)
 
 		appCmd := "--exec=/inspect -- --print-defaultgwv4 "
 		cmd := fmt.Sprintf("%s --debug --insecure-options=image run --net=%v --mds-register=false %s %s",
 			ctx.Cmd(), nt.NetParameter(), getInspectImagePath(), appCmd)
 		child := spawnOrFail(t, cmd)
-		waitOrFail(t, child, 0)
 
 		expectedRegex := "DefaultGWv4: 11.11.3.1"
 
@@ -822,6 +801,7 @@ func NewNetCNIEnvTest() testutils.Test {
 		if err != nil {
 			t.Fatalf("Error: %v\nOutput: %v", err, out)
 		}
+		waitOrFail(t, child, 0)
 
 		// Parse the log file
 		cniLogFilename := filepath.Join(netdir, "output.json")
@@ -917,8 +897,7 @@ func NewNetCNIDNSTest() testutils.Test {
 		}
 
 		// bring the networking up, copy the proxy
-		netdir := prepareTestNet(t, ctx, nt)
-		defer os.RemoveAll(netdir)
+		prepareTestNet(t, ctx, nt)
 
 		ga := testutils.NewGoroutineAssistant(t)
 		ga.Add(1)
@@ -975,8 +954,7 @@ func NewNetCNIDNSArgTest() testutils.Test {
 		}
 
 		// bring the networking up, copy the proxy
-		netdir := prepareTestNet(t, ctx, nt)
-		defer os.RemoveAll(netdir)
+		prepareTestNet(t, ctx, nt)
 
 		appCmd := "--exec=/inspect -- --read-file --file-name=/etc/resolv.conf"
 		cmd := fmt.Sprintf("%s --debug --insecure-options=image run --net=%v --mds-register=false --dns=244.244.244.244 %s %s",
@@ -1025,8 +1003,7 @@ func NewNetCNIDNSArgNoneTest() testutils.Test {
 		}
 
 		// bring the networking up, copy the proxy
-		netdir := prepareTestNet(t, ctx, nt)
-		defer os.RemoveAll(netdir)
+		prepareTestNet(t, ctx, nt)
 
 		appCmd := "--exec=/inspect -- --stat-file --file-name=/etc/resolv.conf"
 		cmd := fmt.Sprintf("%s --debug --insecure-options=image run --net=%v --mds-register=false --dns=none %s %s",
@@ -1140,8 +1117,7 @@ func NewNetOverrideTest() testutils.Test {
 			},
 		}
 
-		netdir := prepareTestNet(t, ctx, nt)
-		defer os.RemoveAll(netdir)
+		prepareTestNet(t, ctx, nt)
 
 		testImageArgs := []string{"--exec=/inspect --print-ipv4=eth0"}
 		testImage := patchTestACI("rkt-inspect-networking1.aci", testImageArgs...)
@@ -1195,7 +1171,7 @@ func NewNetDefaultIPArgTest() testutils.Test {
 	}
 	return testutils.TestFunc(func(t *testing.T) {
 		doTest("default:IP=172.16.28.123", "172.16.28.123", t)
-		doTest("default-restricted:IP=172.16.28.42", "172.16.28.42", t)
+		doTest("default-restricted:IP=172.17.42.42", "172.17.42.42", t)
 	})
 }
 
@@ -1307,12 +1283,11 @@ func NewNetPreserveNetNameTest() testutils.Test {
 		ctx := testutils.NewRktRunCtx()
 		defer ctx.Cleanup()
 
-		netdir, ntFlannel, err := mockFlannelNetwork(t, ctx)
+		_, ntFlannel, err := mockFlannelNetwork(t, ctx)
 		if err != nil {
 			t.Errorf("Can't mock flannel network: %v", err)
 		}
 
-		defer os.RemoveAll(netdir)
 		defer os.Remove(ntFlannel.SubnetFile)
 
 		podUUIDFile := filepath.Join(ctx.DataDir(), "pod_uuid")
@@ -1369,12 +1344,11 @@ func NewNetDefaultGWTest() testutils.Test {
 		ctx := testutils.NewRktRunCtx()
 		defer ctx.Cleanup()
 
-		netdir, ntFlannel, err := mockFlannelNetwork(t, ctx)
+		_, ntFlannel, err := mockFlannelNetwork(t, ctx)
 		if err != nil {
 			t.Errorf("Can't mock flannel network: %v", err)
 		}
 
-		defer os.RemoveAll(netdir)
 		defer os.Remove(ntFlannel.SubnetFile)
 
 		testImageArgs := []string{"--exec=/inspect --print-defaultgwv4"}

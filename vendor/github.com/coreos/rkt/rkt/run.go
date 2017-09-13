@@ -77,6 +77,7 @@ image arguments with a lone "---" to resume argument parsing.`,
 	flagUUIDFileSave string
 	flagHostname     string
 	flagHostsEntries flagStringList
+	flagPullPolicy   string
 )
 
 func addIsolatorFlags(cmd *cobra.Command, compat bool) {
@@ -109,6 +110,14 @@ func addAppFlags(cmd *cobra.Command) {
 	cmd.Flags().Var((*appAnnotation)(&rktApps), "user-annotation", "set the app's annotations (example: '--user-annotation=foo=bar')")
 	cmd.Flags().Var((*appLabel)(&rktApps), "user-label", "set the app's labels (example: '--user-label=foo=bar')")
 	cmd.Flags().Var((*appEnv)(&rktApps), "environment", "set the app's environment variables (example: '--environment=foo=bar')")
+	if common.IsExperimentEnabled("attach") {
+		cmd.Flags().Var((*appStdin)(&rktApps), "stdin", "stdin mode for the preceding application (example: '--stdin=null')")
+		cmd.Flags().MarkHidden("stdin")
+		cmd.Flags().Var((*appStdout)(&rktApps), "stdout", "stdout mode for the preceding application (example: '--stdout=log')")
+		cmd.Flags().MarkHidden("stdout")
+		cmd.Flags().Var((*appStderr)(&rktApps), "stderr", "stderr mode for the preceding application (example: '--stderr=log')")
+		cmd.Flags().MarkHidden("stderr")
+	}
 }
 
 func init() {
@@ -135,7 +144,10 @@ func init() {
 	cmdRun.Flags().StringVar(&flagDNSDomain, "dns-domain", "", "DNS domain to write in /etc/resolv.conf")
 	cmdRun.Flags().Var(&flagHostsEntries, "hosts-entry", "Entries to add to the pod-wide /etc/hosts. Pass 'host' to use the host's /etc/hosts")
 	cmdRun.Flags().BoolVar(&flagStoreOnly, "store-only", false, "use only available images in the store (do not discover or download from remote URLs)")
+	cmdRun.Flags().MarkDeprecated("store-only", "please use --pull-policy=never")
 	cmdRun.Flags().BoolVar(&flagNoStore, "no-store", false, "fetch images ignoring the local store")
+	cmdRun.Flags().MarkDeprecated("no-store", "please use --pull-policy=update")
+	cmdRun.Flags().StringVar(&flagPullPolicy, "pull-policy", image.PullPolicyNew, "when to pull an image")
 	cmdRun.Flags().StringVar(&flagPodManifest, "pod-manifest", "", "the path to the pod manifest. If it's non-empty, then only '--net', '--no-overlay' and '--interactive' will have effect")
 	cmdRun.Flags().BoolVar(&flagMDSRegister, "mds-register", false, "register pod with metadata service. needs network connectivity to the host (--net=(default|default-restricted|host)")
 	cmdRun.Flags().StringVar(&flagUUIDFileSave, "uuid-file-save", "", "write out pod UUID to specified file")
@@ -171,6 +183,12 @@ func runRun(cmd *cobra.Command, args []string) (exit int) {
 		stderr.Print("both --store-only and --no-store specified")
 		return 254
 	}
+	if flagStoreOnly {
+		flagPullPolicy = image.PullPolicyNever
+	}
+	if flagNoStore {
+		flagPullPolicy = image.PullPolicyUpdate
+	}
 
 	if flagPrivateUsers {
 		if !common.SupportsUserNS() {
@@ -196,8 +214,9 @@ func runRun(cmd *cobra.Command, args []string) (exit int) {
 
 	if len(flagPodManifest) > 0 && (rktApps.Count() > 0 ||
 		(*appsVolume)(&rktApps).String() != "" || (*appMount)(&rktApps).String() != "" ||
-		len(flagPorts) > 0 || flagStoreOnly || flagNoStore ||
-		flagInheritEnv || !flagExplicitEnv.IsEmpty() || !flagEnvFromFile.IsEmpty()) {
+		len(flagPorts) > 0 || flagPullPolicy == image.PullPolicyNever ||
+		flagPullPolicy == image.PullPolicyUpdate || flagInheritEnv ||
+		!flagExplicitEnv.IsEmpty() || !flagEnvFromFile.IsEmpty()) {
 		stderr.Print("conflicting flags set with --pod-manifest (see --help)")
 		return 254
 	}
@@ -246,9 +265,8 @@ func runRun(cmd *cobra.Command, args []string) (exit int) {
 		Debug:              globalFlags.Debug,
 		TrustKeysFromHTTPS: globalFlags.TrustKeysFromHTTPS,
 
-		StoreOnly: flagStoreOnly,
-		NoStore:   flagNoStore,
-		WithDeps:  true,
+		PullPolicy: flagPullPolicy,
+		WithDeps:   true,
 	}
 	if err := fn.FindImages(&rktApps); err != nil {
 		stderr.Error(err)
@@ -275,10 +293,10 @@ func runRun(cmd *cobra.Command, args []string) (exit int) {
 		stderr.PrintE("error initialising SELinux", err)
 		return 254
 	}
-
 	p.MountLabel = mountLabel
 
 	cfg := stage0.CommonConfig{
+		DataDir:      getDataDir(),
 		MountLabel:   mountLabel,
 		ProcessLabel: processLabel,
 		Store:        s,

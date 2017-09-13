@@ -17,7 +17,9 @@ limitations under the License.
 package bootstrappolicy
 
 import (
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/authentication/user"
 	rbac "k8s.io/kubernetes/pkg/apis/rbac"
 )
@@ -26,7 +28,8 @@ var (
 	ReadWrite = []string{"get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"}
 	Read      = []string{"get", "list", "watch"}
 
-	Label = map[string]string{"kubernetes.io/bootstrapping": "rbac-defaults"}
+	Label      = map[string]string{"kubernetes.io/bootstrapping": "rbac-defaults"}
+	Annotation = map[string]string{rbac.AutoUpdateAnnotationKey: "true"}
 )
 
 const (
@@ -43,28 +46,91 @@ const (
 	storageGroup        = "storage.k8s.io"
 )
 
+func addDefaultMetadata(obj runtime.Object) {
+	metadata, err := meta.Accessor(obj)
+	if err != nil {
+		// if this happens, then some static code is broken
+		panic(err)
+	}
+
+	labels := metadata.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	for k, v := range Label {
+		labels[k] = v
+	}
+	metadata.SetLabels(labels)
+
+	annotations := metadata.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	for k, v := range Annotation {
+		annotations[k] = v
+	}
+	metadata.SetAnnotations(annotations)
+}
+
 func addClusterRoleLabel(roles []rbac.ClusterRole) {
 	for i := range roles {
-		if roles[i].ObjectMeta.Labels == nil {
-			roles[i].ObjectMeta.Labels = make(map[string]string)
-		}
-		for k, v := range Label {
-			roles[i].ObjectMeta.Labels[k] = v
-		}
+		addDefaultMetadata(&roles[i])
 	}
 	return
 }
 
 func addClusterRoleBindingLabel(rolebindings []rbac.ClusterRoleBinding) {
 	for i := range rolebindings {
-		if rolebindings[i].ObjectMeta.Labels == nil {
-			rolebindings[i].ObjectMeta.Labels = make(map[string]string)
-		}
-		for k, v := range Label {
-			rolebindings[i].ObjectMeta.Labels[k] = v
-		}
+		addDefaultMetadata(&rolebindings[i])
 	}
 	return
+}
+
+func NodeRules() []rbac.PolicyRule {
+	return []rbac.PolicyRule{
+		// Needed to check API access.  These creates are non-mutating
+		rbac.NewRule("create").Groups(authenticationGroup).Resources("tokenreviews").RuleOrDie(),
+		rbac.NewRule("create").Groups(authorizationGroup).Resources("subjectaccessreviews", "localsubjectaccessreviews").RuleOrDie(),
+
+		// Needed to build serviceLister, to populate env vars for services
+		rbac.NewRule(Read...).Groups(legacyGroup).Resources("services").RuleOrDie(),
+
+		// Nodes can register Node API objects and report status.
+		// Use the NodeRestriction admission plugin to limit a node to creating/updating its own API object.
+		rbac.NewRule("create", "get", "list", "watch").Groups(legacyGroup).Resources("nodes").RuleOrDie(),
+		rbac.NewRule("update", "patch").Groups(legacyGroup).Resources("nodes/status").RuleOrDie(),
+		rbac.NewRule("update", "patch", "delete").Groups(legacyGroup).Resources("nodes").RuleOrDie(),
+
+		// TODO: restrict to the bound node as creator in the NodeRestrictions admission plugin
+		rbac.NewRule("create", "update", "patch").Groups(legacyGroup).Resources("events").RuleOrDie(),
+
+		// TODO: restrict to pods scheduled on the bound node once field selectors are supported by list/watch authorization
+		rbac.NewRule(Read...).Groups(legacyGroup).Resources("pods").RuleOrDie(),
+
+		// Needed for the node to create/delete mirror pods.
+		// Use the NodeRestriction admission plugin to limit a node to creating/deleting mirror pods bound to itself.
+		rbac.NewRule("create", "delete").Groups(legacyGroup).Resources("pods").RuleOrDie(),
+		// Needed for the node to report status of pods it is running.
+		// Use the NodeRestriction admission plugin to limit a node to updating status of pods bound to itself.
+		rbac.NewRule("update").Groups(legacyGroup).Resources("pods/status").RuleOrDie(),
+		// Needed for the node to create pod evictions.
+		// Use the NodeRestriction admission plugin to limit a node to creating evictions for pods bound to itself.
+		rbac.NewRule("create").Groups(legacyGroup).Resources("pods/eviction").RuleOrDie(),
+
+		// Needed for imagepullsecrets, rbd/ceph and secret volumes, and secrets in envs
+		// Needed for configmap volume and envs
+		// Use the NodeRestriction admission plugin to limit a node to get secrets/configmaps referenced by pods bound to itself.
+		rbac.NewRule("get").Groups(legacyGroup).Resources("secrets", "configmaps").RuleOrDie(),
+		// Needed for persistent volumes
+		// Use the NodeRestriction admission plugin to limit a node to get pv/pvc objects referenced by pods bound to itself.
+		rbac.NewRule("get").Groups(legacyGroup).Resources("persistentvolumeclaims", "persistentvolumes").RuleOrDie(),
+		// TODO: add to the Node authorizer and restrict to endpoints referenced by pods or PVs bound to the node
+		// Needed for glusterfs volumes
+		rbac.NewRule("get").Groups(legacyGroup).Resources("endpoints").RuleOrDie(),
+		// Used to create a certificatesigningrequest for a node-specific client certificate, and watch
+		// for it to be signed. This allows the kubelet to rotate it's own certificate.
+		rbac.NewRule("create", "get", "list", "watch").Groups(certificatesGroup).Resources("certificatesigningrequests").RuleOrDie(),
+	}
 }
 
 // ClusterRoles returns the cluster roles to bootstrap an API server with
@@ -79,10 +145,10 @@ func ClusterRoles() []rbac.ClusterRole {
 			},
 		},
 		{
-			// a role which provides just enough power to discovery API versions for negotiation
+			// a role which provides just enough power to determine if the server is ready and discover API versions for negotiation
 			ObjectMeta: metav1.ObjectMeta{Name: "system:discovery"},
 			Rules: []rbac.PolicyRule{
-				rbac.NewRule("get").URLs("/version", "/swaggerapi", "/swaggerapi/*", "/api", "/api/*", "/apis", "/apis/*").RuleOrDie(),
+				rbac.NewRule("get").URLs("/healthz", "/version", "/swaggerapi", "/swaggerapi/*", "/api", "/api/*", "/apis", "/apis/*").RuleOrDie(),
 			},
 		},
 		{
@@ -108,14 +174,16 @@ func ClusterRoles() []rbac.ClusterRole {
 				rbac.NewRule(Read...).Groups(legacyGroup).Resources("namespaces").RuleOrDie(),
 				rbac.NewRule("impersonate").Groups(legacyGroup).Resources("serviceaccounts").RuleOrDie(),
 
-				rbac.NewRule(ReadWrite...).Groups(appsGroup).Resources("statefulsets").RuleOrDie(),
+				rbac.NewRule(ReadWrite...).Groups(appsGroup).Resources("statefulsets",
+					"deployments", "deployments/scale", "deployments/rollback").RuleOrDie(),
 
 				rbac.NewRule(ReadWrite...).Groups(autoscalingGroup).Resources("horizontalpodautoscalers").RuleOrDie(),
 
 				rbac.NewRule(ReadWrite...).Groups(batchGroup).Resources("jobs", "cronjobs", "scheduledjobs").RuleOrDie(),
 
-				rbac.NewRule(ReadWrite...).Groups(extensionsGroup).Resources("daemonsets", "deployments", "deployments/scale",
-					"horizontalpodautoscalers", "ingresses", "replicasets", "replicasets/scale", "replicationcontrollers/scale").RuleOrDie(),
+				rbac.NewRule(ReadWrite...).Groups(extensionsGroup).Resources("daemonsets",
+					"deployments", "deployments/scale", "deployments/rollback", "ingresses",
+					"replicasets", "replicasets/scale", "replicationcontrollers/scale").RuleOrDie(),
 
 				// additional admin powers
 				rbac.NewRule("create").Groups(authorizationGroup).Resources("localsubjectaccessreviews").RuleOrDie(),
@@ -138,14 +206,16 @@ func ClusterRoles() []rbac.ClusterRole {
 				rbac.NewRule(Read...).Groups(legacyGroup).Resources("namespaces").RuleOrDie(),
 				rbac.NewRule("impersonate").Groups(legacyGroup).Resources("serviceaccounts").RuleOrDie(),
 
-				rbac.NewRule(ReadWrite...).Groups(appsGroup).Resources("statefulsets").RuleOrDie(),
+				rbac.NewRule(ReadWrite...).Groups(appsGroup).Resources("statefulsets",
+					"deployments", "deployments/scale", "deployments/rollback").RuleOrDie(),
 
 				rbac.NewRule(ReadWrite...).Groups(autoscalingGroup).Resources("horizontalpodautoscalers").RuleOrDie(),
 
 				rbac.NewRule(ReadWrite...).Groups(batchGroup).Resources("jobs", "cronjobs", "scheduledjobs").RuleOrDie(),
 
-				rbac.NewRule(ReadWrite...).Groups(extensionsGroup).Resources("daemonsets", "deployments", "deployments/scale",
-					"horizontalpodautoscalers", "ingresses", "replicasets", "replicasets/scale", "replicationcontrollers/scale").RuleOrDie(),
+				rbac.NewRule(ReadWrite...).Groups(extensionsGroup).Resources("daemonsets",
+					"deployments", "deployments/scale", "deployments/rollback", "ingresses",
+					"replicasets", "replicasets/scale", "replicationcontrollers/scale").RuleOrDie(),
 			},
 		},
 		{
@@ -161,14 +231,14 @@ func ClusterRoles() []rbac.ClusterRole {
 				// indicator of which namespaces you have access to.
 				rbac.NewRule(Read...).Groups(legacyGroup).Resources("namespaces").RuleOrDie(),
 
-				rbac.NewRule(Read...).Groups(appsGroup).Resources("statefulsets").RuleOrDie(),
+				rbac.NewRule(Read...).Groups(appsGroup).Resources("statefulsets", "deployments", "deployments/scale").RuleOrDie(),
 
 				rbac.NewRule(Read...).Groups(autoscalingGroup).Resources("horizontalpodautoscalers").RuleOrDie(),
 
 				rbac.NewRule(Read...).Groups(batchGroup).Resources("jobs", "cronjobs", "scheduledjobs").RuleOrDie(),
 
 				rbac.NewRule(Read...).Groups(extensionsGroup).Resources("daemonsets", "deployments", "deployments/scale",
-					"horizontalpodautoscalers", "ingresses", "replicasets", "replicasets/scale", "replicationcontrollers/scale").RuleOrDie(),
+					"ingresses", "replicasets", "replicasets/scale", "replicationcontrollers/scale").RuleOrDie(),
 			},
 		},
 		{
@@ -181,43 +251,7 @@ func ClusterRoles() []rbac.ClusterRole {
 		{
 			// a role for nodes to use to have the access they need for running pods
 			ObjectMeta: metav1.ObjectMeta{Name: "system:node"},
-			Rules: []rbac.PolicyRule{
-				// Needed to check API access.  These creates are non-mutating
-				rbac.NewRule("create").Groups(authenticationGroup).Resources("tokenreviews").RuleOrDie(),
-				rbac.NewRule("create").Groups(authorizationGroup).Resources("subjectaccessreviews", "localsubjectaccessreviews").RuleOrDie(),
-				// Needed to build serviceLister, to populate env vars for services
-				rbac.NewRule(Read...).Groups(legacyGroup).Resources("services").RuleOrDie(),
-				// Nodes can register themselves
-				// TODO: restrict to creating a node with the same name they announce
-				rbac.NewRule("create", "get", "list", "watch").Groups(legacyGroup).Resources("nodes").RuleOrDie(),
-				// TODO: restrict to the bound node once supported
-				rbac.NewRule("update", "patch").Groups(legacyGroup).Resources("nodes/status").RuleOrDie(),
-
-				// TODO: restrict to the bound node as creator once supported
-				rbac.NewRule("create", "update", "patch").Groups(legacyGroup).Resources("events").RuleOrDie(),
-
-				// TODO: restrict to pods scheduled on the bound node once supported
-				rbac.NewRule(Read...).Groups(legacyGroup).Resources("pods").RuleOrDie(),
-
-				// TODO: remove once mirror pods are removed
-				// TODO: restrict deletion to mirror pods created by the bound node once supported
-				// Needed for the node to create/delete mirror pods
-				rbac.NewRule("get", "create", "delete").Groups(legacyGroup).Resources("pods").RuleOrDie(),
-				// TODO: restrict to pods scheduled on the bound node once supported
-				rbac.NewRule("update").Groups(legacyGroup).Resources("pods/status").RuleOrDie(),
-
-				// TODO: restrict to secrets and configmaps used by pods scheduled on bound node once supported
-				// Needed for imagepullsecrets, rbd/ceph and secret volumes, and secrets in envs
-				// Needed for configmap volume and envs
-				rbac.NewRule("get").Groups(legacyGroup).Resources("secrets", "configmaps").RuleOrDie(),
-				// TODO: restrict to claims/volumes used by pods scheduled on bound node once supported
-				// Needed for persistent volumes
-				rbac.NewRule("get").Groups(legacyGroup).Resources("persistentvolumeclaims", "persistentvolumes").RuleOrDie(),
-				// TODO: restrict to namespaces of pods scheduled on bound node once supported
-				// TODO: change glusterfs to use DNS lookup so this isn't needed?
-				// Needed for glusterfs volumes
-				rbac.NewRule("get").Groups(legacyGroup).Resources("endpoints").RuleOrDie(),
-			},
+			Rules:      NodeRules(),
 		},
 		{
 			// a role to use for node-problem-detector access.  It does not get bound to default location since
@@ -244,8 +278,6 @@ func ClusterRoles() []rbac.ClusterRole {
 			// a role to use for bootstrapping a node's client certificates
 			ObjectMeta: metav1.ObjectMeta{Name: "system:node-bootstrapper"},
 			Rules: []rbac.PolicyRule{
-				// used to check if the node already exists
-				rbac.NewRule("get").Groups(legacyGroup).Resources("nodes").RuleOrDie(),
 				// used to create a certificatesigningrequest for a node-specific client certificate, and watch for it to be signed
 				rbac.NewRule("create", "get", "list", "watch").Groups(certificatesGroup).Resources("certificatesigningrequests").RuleOrDie(),
 			},
@@ -275,13 +307,57 @@ func ClusterRoles() []rbac.ClusterRole {
 				eventsRule(),
 				rbac.NewRule("create").Groups(legacyGroup).Resources("endpoints", "secrets", "serviceaccounts").RuleOrDie(),
 				rbac.NewRule("delete").Groups(legacyGroup).Resources("secrets").RuleOrDie(),
-				rbac.NewRule("get").Groups(legacyGroup).Resources("endpoints", "namespaces", "serviceaccounts").RuleOrDie(),
-				rbac.NewRule("update").Groups(legacyGroup).Resources("endpoints", "serviceaccounts").RuleOrDie(),
+				rbac.NewRule("get").Groups(legacyGroup).Resources("endpoints", "namespaces", "secrets", "serviceaccounts").RuleOrDie(),
+				rbac.NewRule("update").Groups(legacyGroup).Resources("endpoints", "secrets", "serviceaccounts").RuleOrDie(),
+				// Needed to check API access.  These creates are non-mutating
+				rbac.NewRule("create").Groups(authenticationGroup).Resources("tokenreviews").RuleOrDie(),
+				// Needed for all shared informers
+				rbac.NewRule("list", "watch").Groups("*").Resources("*").RuleOrDie(),
+			},
+		},
+		{
+			// a role to use for the kube-scheduler
+			ObjectMeta: metav1.ObjectMeta{Name: "system:kube-scheduler"},
+			Rules: []rbac.PolicyRule{
+				eventsRule(),
 
-				rbac.NewRule("list", "watch").Groups("*").Resources("namespaces", "nodes", "persistentvolumeclaims",
-					"persistentvolumes", "pods", "secrets", "serviceaccounts", "replicationcontrollers").RuleOrDie(),
-				rbac.NewRule("list", "watch").Groups(extensionsGroup).Resources("daemonsets", "deployments", "replicasets").RuleOrDie(),
-				rbac.NewRule("list", "watch").Groups(batchGroup).Resources("jobs", "cronjobs").RuleOrDie(),
+				// this is for leaderlease access
+				// TODO: scope this to the kube-system namespace
+				rbac.NewRule("create").Groups(legacyGroup).Resources("endpoints").RuleOrDie(),
+				rbac.NewRule("get", "update", "patch", "delete").Groups(legacyGroup).Resources("endpoints").Names("kube-scheduler").RuleOrDie(),
+
+				// fundamental resources
+				rbac.NewRule(Read...).Groups(legacyGroup).Resources("nodes", "pods").RuleOrDie(),
+				rbac.NewRule("create").Groups(legacyGroup).Resources("pods/binding", "bindings").RuleOrDie(),
+				rbac.NewRule("update").Groups(legacyGroup).Resources("pods/status").RuleOrDie(),
+				// things that select pods
+				rbac.NewRule(Read...).Groups(legacyGroup).Resources("services", "replicationcontrollers").RuleOrDie(),
+				rbac.NewRule(Read...).Groups(extensionsGroup).Resources("replicasets").RuleOrDie(),
+				rbac.NewRule(Read...).Groups(appsGroup).Resources("statefulsets").RuleOrDie(),
+				// things that pods use
+				rbac.NewRule(Read...).Groups(legacyGroup).Resources("persistentvolumeclaims", "persistentvolumes").RuleOrDie(),
+			},
+		},
+		{
+			// a role to use for the kube-dns pod
+			ObjectMeta: metav1.ObjectMeta{Name: "system:kube-dns"},
+			Rules: []rbac.PolicyRule{
+				rbac.NewRule("list", "watch").Groups(legacyGroup).Resources("endpoints", "services").RuleOrDie(),
+			},
+		},
+		{
+			// a role for an external/out-of-tree persistent volume provisioner
+			ObjectMeta: metav1.ObjectMeta{Name: "system:persistent-volume-provisioner"},
+			Rules: []rbac.PolicyRule{
+				rbac.NewRule("get", "list", "watch", "create", "delete").Groups(legacyGroup).Resources("persistentvolumes").RuleOrDie(),
+				// update is needed in addition to read access for setting lock annotations on PVCs
+				rbac.NewRule("get", "list", "watch", "update").Groups(legacyGroup).Resources("persistentvolumeclaims").RuleOrDie(),
+				rbac.NewRule(Read...).Groups(storageGroup).Resources("storageclasses").RuleOrDie(),
+
+				// Needed for watching provisioning success and failure events
+				rbac.NewRule("watch").Groups(legacyGroup).Resources("events").RuleOrDie(),
+
+				eventsRule(),
 			},
 		},
 	}
@@ -289,16 +365,70 @@ func ClusterRoles() []rbac.ClusterRole {
 	return roles
 }
 
+// ClusterRoleBindingFilter can modify and return or omit (by returning nil) a role binding
+type ClusterRoleBindingFilter func(*rbac.ClusterRoleBinding) *rbac.ClusterRoleBinding
+
+// AddClusterRoleBindingFilter adds the given filter to the list that is invoked when determing bootstrap roles to reconcile.
+func AddClusterRoleBindingFilter(filter ClusterRoleBindingFilter) {
+	clusterRoleBindingFilters = append(clusterRoleBindingFilters, filter)
+}
+
+// ClearClusterRoleBindingFilters removes any filters added using AddClusterRoleBindingFilter
+func ClearClusterRoleBindingFilters() {
+	clusterRoleBindingFilters = nil
+}
+
+const systemNodeRoleName = "system:node"
+
+var clusterRoleBindingFilters []ClusterRoleBindingFilter
+
+// OmitNodesGroupBinding is a filter that omits the deprecated binding for the system:nodes group to the system:node role.
+var OmitNodesGroupBinding = ClusterRoleBindingFilter(func(binding *rbac.ClusterRoleBinding) *rbac.ClusterRoleBinding {
+	if binding.RoleRef.Name == systemNodeRoleName {
+		subjects := []rbac.Subject{}
+		for _, subject := range binding.Subjects {
+			if subject.Kind == rbac.GroupKind && subject.Name == user.NodesGroup {
+				continue
+			}
+			subjects = append(subjects, subject)
+		}
+		binding.Subjects = subjects
+	}
+	return binding
+})
+
 // ClusterRoleBindings return default rolebindings to the default roles
 func ClusterRoleBindings() []rbac.ClusterRoleBinding {
 	rolebindings := []rbac.ClusterRoleBinding{
 		rbac.NewClusterBinding("cluster-admin").Groups(user.SystemPrivilegedGroup).BindingOrDie(),
 		rbac.NewClusterBinding("system:discovery").Groups(user.AllAuthenticated, user.AllUnauthenticated).BindingOrDie(),
 		rbac.NewClusterBinding("system:basic-user").Groups(user.AllAuthenticated, user.AllUnauthenticated).BindingOrDie(),
-		rbac.NewClusterBinding("system:node").Groups(user.NodesGroup).BindingOrDie(),
 		rbac.NewClusterBinding("system:node-proxier").Users(user.KubeProxy).BindingOrDie(),
 		rbac.NewClusterBinding("system:kube-controller-manager").Users(user.KubeControllerManager).BindingOrDie(),
+		rbac.NewClusterBinding("system:kube-dns").SAs("kube-system", "kube-dns").BindingOrDie(),
+		rbac.NewClusterBinding("system:kube-scheduler").Users(user.KubeScheduler).BindingOrDie(),
+
+		// This default system:nodes binding is deprecated in 1.7 with the availability of the Node authorizer.
+		// If an admin wants to grant the system:node role (which cannot partition Node API access), they will need to create their own clusterrolebinding.
+		// TODO: Remove the subjects from this binding in 1.8 (leave the empty binding for tightening reconciliation), and remove AddClusterRoleBindingFilter()
+		rbac.NewClusterBinding(systemNodeRoleName).Groups(user.NodesGroup).BindingOrDie(),
 	}
+
 	addClusterRoleBindingLabel(rolebindings)
-	return rolebindings
+
+	retval := []rbac.ClusterRoleBinding{}
+	for i := range rolebindings {
+		binding := &rolebindings[i]
+		for _, filter := range clusterRoleBindingFilters {
+			binding = filter(binding)
+			if binding == nil {
+				break
+			}
+		}
+		if binding != nil {
+			retval = append(retval, *binding)
+		}
+	}
+
+	return retval
 }

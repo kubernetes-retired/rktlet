@@ -15,22 +15,21 @@
 package common
 
 import (
+	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"syscall"
 
+	"github.com/coreos/rkt/common"
 	"github.com/coreos/rkt/pkg/fileutil"
+	"github.com/coreos/rkt/pkg/fs"
 	"github.com/coreos/rkt/pkg/user"
 
 	"github.com/appc/spec/schema"
 	"github.com/appc/spec/schema/types"
 	"github.com/hashicorp/errwrap"
-
-	stage1commontypes "github.com/coreos/rkt/stage1/common/types"
 )
 
 /*
@@ -39,10 +38,10 @@ import (
  * TODO(cdc) De-duplicate code from stage0/gc.go
  */
 
-// mountWrapper is a wrapper around a schema.Mount with an additional field indicating
-// whether it is an implicit empty volume converted from a Docker image.
-type mountWrapper struct {
-	Mount          schema.Mount
+// Mount extends schema.Mount with additional rkt specific fields.
+type Mount struct {
+	schema.Mount
+
 	Volume         types.Volume
 	DockerImplicit bool
 	ReadOnly       bool
@@ -60,13 +59,25 @@ func ConvertedFromDocker(im *schema.ImageManifest) bool {
 	return ok
 }
 
+// Source computes the real volume source for a volume.
+// Volumes of type 'empty' use a workdir relative to podRoot
+func (m *Mount) Source(podRoot string) string {
+	switch m.Volume.Kind {
+	case "host":
+		return m.Volume.Source
+	case "empty":
+		return filepath.Join(common.SharedVolumesPath(podRoot), m.Volume.Name.String())
+	}
+	return "" // We validate in GenerateMounts that it's valid
+}
+
 // GenerateMounts maps MountPoint paths to volumes, returning a list of mounts,
 // each with a parameter indicating if it's an implicit empty volume from a
 // Docker image.
-func GenerateMounts(ra *schema.RuntimeApp, podVolumes []types.Volume, convertedFromDocker bool) ([]mountWrapper, error) {
+func GenerateMounts(ra *schema.RuntimeApp, podVolumes []types.Volume, convertedFromDocker bool) ([]Mount, error) {
 	app := ra.App
 
-	var genMnts []mountWrapper
+	var genMnts []Mount
 
 	vols := make(map[types.ACName]types.Volume)
 	for _, v := range podVolumes {
@@ -107,8 +118,14 @@ func GenerateMounts(ra *schema.RuntimeApp, podVolumes []types.Volume, convertedF
 			ro = *vol.ReadOnly
 		}
 
+		switch vol.Kind {
+		case "host":
+		case "empty":
+		default:
+			return nil, fmt.Errorf("Volume %s has invalid kind %s", vol.Name, vol.Kind)
+		}
 		genMnts = append(genMnts,
-			mountWrapper{
+			Mount{
 				Mount:          m,
 				DockerImplicit: false,
 				ReadOnly:       ro,
@@ -148,7 +165,7 @@ func GenerateMounts(ra *schema.RuntimeApp, podVolumes []types.Volume, convertedF
 
 			vols[uniqName] = emptyVol
 			genMnts = append(genMnts,
-				mountWrapper{
+				Mount{
 					Mount: schema.Mount{
 						Volume: uniqName,
 						Path:   mp.Path,
@@ -163,7 +180,7 @@ func GenerateMounts(ra *schema.RuntimeApp, podVolumes []types.Volume, convertedF
 				ro = *vol.ReadOnly
 			}
 			genMnts = append(genMnts,
-				mountWrapper{
+				Mount{
 					Mount: schema.Mount{
 						Volume: vol.Name,
 						Path:   mp.Path,
@@ -229,196 +246,52 @@ func PrepareMountpoints(volPath string, targetPath string, vol *types.Volume, do
 // * evaluate all symlinks
 // * ensure the source exists
 // * recursively create the destination
-func BindMount(source, destination string, readOnly bool) error {
+func BindMount(mnt fs.MountUnmounter, source, destination string, readOnly bool) error {
 	absSource, err := filepath.EvalSymlinks(source)
 	if err != nil {
 		return errwrap.Wrap(fmt.Errorf("Could not resolve symlink for source %v", source), err)
 	}
 
-	if err := ensureDestinationExists(absSource, destination); err != nil {
+	if err := EnsureTargetExists(absSource, destination); err != nil {
 		return errwrap.Wrap(fmt.Errorf("Could not create destination mount point: %v", destination), err)
-	} else if err := syscall.Mount(absSource, destination, "bind", syscall.MS_BIND, ""); err != nil {
+	} else if err := mnt.Mount(absSource, destination, "bind", syscall.MS_BIND, ""); err != nil {
 		return errwrap.Wrap(fmt.Errorf("Could not bind mount %v to %v", absSource, destination), err)
 	}
 	if readOnly {
-		err := syscall.Mount(source, destination, "bind", syscall.MS_REMOUNT|syscall.MS_RDONLY|syscall.MS_BIND, "")
+		err := mnt.Mount(source, destination, "bind", syscall.MS_REMOUNT|syscall.MS_RDONLY|syscall.MS_BIND, "")
 
 		// If we failed to remount ro, unmount
 		if err != nil {
-			syscall.Unmount(destination, 0) // if this fails, oh well
+			mnt.Unmount(destination, 0) // if this fails, oh well
 			return errwrap.Wrap(fmt.Errorf("Could not remount %v read-only", destination), err)
 		}
 	}
 	return nil
 }
 
-// ensureDestinationExists will recursively create a given mountpoint. If directories
-// are created, their permissions are initialized to stage1/init/common.SharedVolPerm
-func ensureDestinationExists(source, destination string) error {
+// EnsureTargetExists will recursively create a given mountpoint. If directories
+// are created, their permissions are initialized to common.SharedVolumePerm
+func EnsureTargetExists(source, destination string) error {
 	fileInfo, err := os.Stat(source)
 	if err != nil {
 		return errwrap.Wrap(fmt.Errorf("could not stat source location: %v", source), err)
 	}
 
 	targetPathParent, _ := filepath.Split(destination)
-	if err := os.MkdirAll(targetPathParent, SharedVolPerm); err != nil {
+	if err := os.MkdirAll(targetPathParent, common.SharedVolumePerm); err != nil {
 		return errwrap.Wrap(fmt.Errorf("could not create parent directory: %v", targetPathParent), err)
 	}
 
 	if fileInfo.IsDir() {
-		if err := os.Mkdir(destination, SharedVolPerm); !os.IsExist(err) {
-			return err
+		if err := os.Mkdir(destination, common.SharedVolumePerm); err != nil && !os.IsExist(err) {
+			return errwrap.Wrap(errors.New("could not create destination directory "+destination), err)
 		}
 	} else {
-		if file, err := os.OpenFile(destination, os.O_CREATE, SharedVolPerm); err != nil {
-			return err
+		if file, err := os.OpenFile(destination, os.O_CREATE, common.SharedVolumePerm); err != nil {
+			return errwrap.Wrap(errors.New("could not create destination file"), err)
 		} else {
 			file.Close()
 		}
 	}
 	return nil
-}
-
-func AppAddMounts(p *stage1commontypes.Pod, ra *schema.RuntimeApp, enterCmd []string) {
-	vols := make(map[types.ACName]types.Volume)
-	for _, v := range p.Manifest.Volumes {
-		vols[v.Name] = v
-	}
-
-	imageManifest := p.Images[ra.Name.String()]
-
-	mounts, err := GenerateMounts(ra, p.Manifest.Volumes, ConvertedFromDocker(imageManifest))
-	if err != nil {
-		log.FatalE("Could not generate mounts", err)
-		os.Exit(254)
-	}
-
-	for _, m := range mounts {
-		AppAddOneMount(p, ra, m.Volume.Source, m.Mount.Path, m.ReadOnly, enterCmd)
-	}
-}
-
-/* AppAddOneMount bind-mounts "sourcePath" from the host into "dstPath" in
- * the container.
- *
- * We use the propagation mechanism of systemd-nspawn. In all systemd-nspawn
- * containers, the directory "/run/systemd/nspawn/propagate/$MACHINE_ID" on
- * the host is propagating mounts to the directory
- * "/run/systemd/nspawn/incoming/" in the container mount namespace. Once a
- * bind mount is propagated, we simply move to its correct location.
- *
- * The algorithm is the same as in "machinectl bind":
- * https://github.com/systemd/systemd/blob/v231/src/machine/machine-dbus.c#L865
- * except that we don't use setns() to enter the mount namespace of the pod
- * because Linux does not allow multithreaded applications (such as Go
- * programs) to change mount namespaces with setns. Instead, we fork another
- * process written in C (single-threaded) to enter the mount namespace. The
- * command used is specified by the "enterCmd" parameter.
- *
- * Users might request a bind mount to be set up read-only. This complicates
- * things a bit because on Linux, setting up a read-only bind mount involves
- * two mount() calls, so it is not atomic. We don't want the container to see
- * the mount in read-write mode, even for a short time, so we don't create the
- * bind mount directly in "/run/systemd/nspawn/propagate/$MACHINE_ID" to avoid
- * an immediate propagation to the container. Instead, we create a temporary
- * playground in "/tmp/rkt.propagate.XXXX" and create the bind mount in
- * "/tmp/rkt.propagate.XXXX/mount" with the correct read-only attribute before
- * moving it.
- *
- * Another complication is that the playground cannot be on a shared mount
- * because Linux does not allow MS_MOVE to be applied to mounts with MS_SHARED
- * parent mounts. But by default, systemd mounts everything as shared, see:
- * https://github.com/systemd/systemd/blob/v231/src/core/mount-setup.c#L392
- * We set up the temporary playground as a slave bind mount to avoid this
- * limitation.
- */
-func AppAddOneMount(p *stage1commontypes.Pod, ra *schema.RuntimeApp, sourcePath string, dstPath string, readOnly bool, enterCmd []string) {
-	/* The general plan:
-	 * - bind-mount sourcePath to mountTmp
-	 * - MS_MOVE mountTmp to mountOutside, the systemd propagate dir
-	 * - systemd moves mountOutside to mountInside
-	 * - in the stage1 namespace, bind mountInside to the app's rootfs
-	 */
-
-	/* Prepare a temporary playground that is not a shared mount */
-	playgroundMount, err := ioutil.TempDir("", "rkt.propagate.")
-	if err != nil {
-		log.FatalE("error creating temporary propagation directory", err)
-		os.Exit(254)
-	}
-	defer os.Remove(playgroundMount)
-
-	err = syscall.Mount(playgroundMount, playgroundMount, "bind", syscall.MS_BIND, "")
-	if err != nil {
-		log.FatalE("error mounting temporary directory", err)
-		os.Exit(254)
-	}
-	defer syscall.Unmount(playgroundMount, 0)
-
-	err = syscall.Mount("", playgroundMount, "none", syscall.MS_SLAVE, "")
-	if err != nil {
-		log.FatalE("error mounting temporary directory", err)
-		os.Exit(254)
-	}
-
-	/* Bind mount the source into the playground, possibly read-only */
-	mountTmp := filepath.Join(playgroundMount, "mount")
-	if err := ensureDestinationExists(sourcePath, mountTmp); err != nil {
-		log.FatalE("error creating temporary mountpoint", err)
-		os.Exit(254)
-	}
-	defer os.Remove(mountTmp)
-
-	err = syscall.Mount(sourcePath, mountTmp, "bind", syscall.MS_BIND, "")
-	if err != nil {
-		log.FatalE("error mounting temporary mountpoint", err)
-		os.Exit(254)
-	}
-	defer syscall.Unmount(mountTmp, 0)
-
-	if readOnly {
-		err = syscall.Mount("", mountTmp, "bind", syscall.MS_REMOUNT|syscall.MS_RDONLY|syscall.MS_BIND, "")
-		if err != nil {
-			log.FatalE("error remounting temporary mountpoint read-only", err)
-			os.Exit(254)
-		}
-	}
-
-	/* Now that the bind mount has the correct attributes (RO or RW), move
-	 * it to the propagation directory prepared by systemd-nspawn */
-	mountOutside := filepath.Join("/run/systemd/nspawn/propagate/", "rkt-"+p.UUID.String(), "rkt.mount")
-	mountInside := filepath.Join("/run/systemd/nspawn/incoming/", filepath.Base(mountOutside))
-	if err := ensureDestinationExists(sourcePath, mountOutside); err != nil {
-		log.FatalE("error creating propagate mountpoint", err)
-		os.Exit(254)
-	}
-	defer os.Remove(mountOutside)
-
-	err = syscall.Mount(mountTmp, mountOutside, "", syscall.MS_MOVE, "")
-	if err != nil {
-		log.FatalE("error moving temporary mountpoint to propagate directory", err)
-		os.Exit(254)
-	}
-	defer syscall.Unmount(mountOutside, 0)
-
-	/* Finally move the bind mount at the correct place inside the container. */
-	mountDst := filepath.Join("/opt/stage2", ra.Name.String(), "rootfs", dstPath)
-	mountDstOutside := filepath.Join(p.Root, "stage1/rootfs", mountDst)
-	if err := ensureDestinationExists(sourcePath, mountDstOutside); err != nil {
-		log.FatalE("error creating destination directory", err)
-		os.Exit(254)
-	}
-
-	args := enterCmd
-	args = append(args, "/bin/mount", "--move", mountInside, mountDst)
-
-	cmd := exec.Cmd{
-		Path: args[0],
-		Args: args,
-	}
-
-	if err := cmd.Run(); err != nil {
-		log.PrintE("error executing mount move", err)
-		os.Exit(254)
-	}
 }

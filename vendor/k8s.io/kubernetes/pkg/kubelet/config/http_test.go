@@ -23,10 +23,11 @@ import (
 	"testing"
 	"time"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	utiltesting "k8s.io/client-go/pkg/util/testing"
+	utiltesting "k8s.io/client-go/util/testing"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/testapi"
 	"k8s.io/kubernetes/pkg/api/v1"
@@ -309,7 +310,7 @@ func TestExtractPodsFromHTTP(t *testing.T) {
 		}
 		update := (<-ch).(kubetypes.PodUpdate)
 
-		if !api.Semantic.DeepEqual(testCase.expected, update) {
+		if !apiequality.Semantic.DeepEqual(testCase.expected, update) {
 			t.Errorf("%s: Expected: %#v, Got: %#v", testCase.desc, testCase.expected, update)
 		}
 		for _, pod := range update.Pods {

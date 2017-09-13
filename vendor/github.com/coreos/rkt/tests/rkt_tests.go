@@ -42,13 +42,12 @@ import (
 	"github.com/coreos/rkt/common"
 	"github.com/coreos/rkt/tests/testutils"
 	taas "github.com/coreos/rkt/tests/testutils/aci-server"
+	shellquote "github.com/kballard/go-shellquote"
 	"google.golang.org/grpc"
 )
 
 const (
 	defaultTimeLayout = "2006-01-02 15:04:05.999 -0700 MST"
-	nobodyUid         = 65534
-	nobodyGid         = 65534
 
 	baseAppName = "rkt-inspect"
 )
@@ -115,7 +114,7 @@ func patchTestACI(newFileName string, args ...string) string {
 }
 
 func spawnOrFail(t *testing.T, cmd string) *gexpect.ExpectSubprocess {
-	t.Logf("Running command: %v", cmd)
+	t.Logf("Spawning command: %v\n", cmd)
 	child, err := gexpect.Spawn(cmd)
 	if err != nil {
 		t.Fatalf("Cannot exec rkt: %v", err)
@@ -123,12 +122,85 @@ func spawnOrFail(t *testing.T, cmd string) *gexpect.ExpectSubprocess {
 	return child
 }
 
+// waitOrFail waits for the child to exit, draining all its output.
+// If a non-negative return value is provided, child exit status must match.
 func waitOrFail(t *testing.T, child *gexpect.ExpectSubprocess, expectedStatus int) {
+	bufOut := []string{}
+	// TODO(lucab): gexpect should accept those channels from the caller
+	ttyIn, ttyOut := child.AsyncInteractChannels()
+	close(ttyIn)
+	// drain output till gexpect closes the channel (on EOF or error)
+	for line := range ttyOut {
+		bufOut = append(bufOut, line)
+	}
 	err := child.Wait()
 	status, _ := common.GetExitStatus(err)
-	if status != expectedStatus {
-		t.Fatalf("rkt terminated with unexpected status %d, expected %d\nOutput:\n%s", status, expectedStatus, child.Collect())
+	if expectedStatus >= 0 && status != expectedStatus {
+		t.Fatalf("rkt terminated with unexpected status %d, expected %d\nOutput:\n%s", status, expectedStatus, bufOut)
 	}
+}
+
+// waitPodReady waits for the pod supervisor to get ready, busy-looping until `timeout`
+// while waiting for it. It returns the pod UUID or an error on failure.
+func waitPodReady(ctx *testutils.RktRunCtx, t *testing.T, uuidFile string, timeout time.Duration) (string, error) {
+	var podUUID []byte
+	var err error
+	interval := 500 * time.Millisecond
+	elapsed := time.Duration(0)
+
+	for elapsed < timeout {
+		time.Sleep(interval)
+		elapsed += interval
+		podUUID, err = ioutil.ReadFile(uuidFile)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return "", fmt.Errorf("Can't read pod UUID: %v", err)
+	}
+
+	// wait up to one minute for the pod supervisor to be ready
+	cmd := strings.Fields(fmt.Sprintf("%s status --wait-ready=%s %s", ctx.Cmd(), timeout, podUUID))
+	statusCmd := exec.Command(cmd[0], cmd[1:]...)
+	t.Logf("Running command: %v\n", cmd)
+	output, err := statusCmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("Failed to wait for pod readiness, error %v output %v", err, string(output))
+	}
+
+	return string(podUUID), nil
+}
+
+// waitAppAttachable waits for an attachable application to get ready, busy-looping until `timeout`
+// while waiting for it. It returns an error on failure.
+func waitAppAttachable(ctx *testutils.RktRunCtx, t *testing.T, podUUID, appName string, timeout time.Duration) error {
+	var (
+		err         error
+		output      []byte
+		appNameFlag string
+	)
+
+	if appName != "" {
+		appNameFlag = "--app=" + appName
+	}
+	cmd := strings.Fields(fmt.Sprintf("%s attach --mode=list %s %s", ctx.Cmd(), appNameFlag, podUUID))
+
+	interval := 500 * time.Millisecond
+	elapsed := time.Duration(0)
+	for elapsed < timeout {
+		time.Sleep(interval)
+		elapsed += interval
+		statusCmd := exec.Command(cmd[0], cmd[1:]...)
+		output, err = statusCmd.CombinedOutput()
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("%s", output)
+	}
+	return nil
 }
 
 func spawnAndWaitOrFail(t *testing.T, cmd string, expectedStatus int) {
@@ -168,7 +240,7 @@ func getHash(filePath string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func createTempDirOrPanic(dirName string) string {
+func mustTempDir(dirName string) string {
 	tmpDir, err := ioutil.TempDir("", dirName)
 	if err != nil {
 		panic(fmt.Sprintf("Cannot create temp dir: %v", err))
@@ -176,15 +248,28 @@ func createTempDirOrPanic(dirName string) string {
 	return tmpDir
 }
 
-func importImageAndFetchHashAsGid(t *testing.T, ctx *testutils.RktRunCtx, img string, fetchArgs string, gid int) (string, error) {
+// createFileOrPanic creates an empty file within the given directory
+// with a specified name. Panics if file creation fails for any reason.
+func createFileOrPanic(dirName, fileName string) string {
+	name := filepath.Join(dirName, fileName)
+	file, err := os.Create(name)
+	if err != nil {
+		panic(err)
+	}
+
+	defer file.Close()
+	return name
+}
+
+func importImageAndFetchHashAsUidGid(t *testing.T, ctx *testutils.RktRunCtx, img string, fetchArgs string, uid int, gid int) (string, error) {
 	// Import the test image into store manually.
-	cmd := fmt.Sprintf("%s --insecure-options=image,tls fetch %s %s", ctx.Cmd(), fetchArgs, img)
+	cmd := fmt.Sprintf("%s --insecure-options=image,tls fetch --pull-policy=new %s %s", ctx.Cmd(), fetchArgs, img)
 
 	// TODO(jonboulle): non-root user breaks trying to read root-written
 	// config directories. Should be a better way to approach this. Should
 	// config directories be readable by the rkt group too?
 	if gid != 0 {
-		cmd = fmt.Sprintf("%s --insecure-options=image,tls fetch %s %s", ctx.CmdNoConfig(), fetchArgs, img)
+		cmd = fmt.Sprintf("%s --insecure-options=image,tls fetch --pull-policy=new %s %s", ctx.CmdNoConfig(), fetchArgs, img)
 	}
 	child, err := gexpect.Command(cmd)
 	if err != nil {
@@ -192,7 +277,7 @@ func importImageAndFetchHashAsGid(t *testing.T, ctx *testutils.RktRunCtx, img st
 	}
 	if gid != 0 {
 		child.Cmd.SysProcAttr = &syscall.SysProcAttr{}
-		child.Cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(nobodyUid), Gid: uint32(gid)}
+		child.Cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
 	}
 
 	err = child.Start()
@@ -214,7 +299,7 @@ func importImageAndFetchHashAsGid(t *testing.T, ctx *testutils.RktRunCtx, img st
 }
 
 func importImageAndFetchHash(t *testing.T, ctx *testutils.RktRunCtx, fetchArgs string, img string) (string, error) {
-	return importImageAndFetchHashAsGid(t, ctx, fetchArgs, img, 0)
+	return importImageAndFetchHashAsUidGid(t, ctx, fetchArgs, img, 0, 0)
 }
 
 func importImageAndRun(imagePath string, t *testing.T, ctx *testutils.RktRunCtx) {
@@ -284,10 +369,16 @@ func runRktAndGetUUID(t *testing.T, rktCmd string) string {
 }
 
 func runRktAsGidAndCheckOutput(t *testing.T, rktCmd, expectedLine string, expectError bool, gid int) {
-	runRktAsUidGidAndCheckOutput(t, rktCmd, expectedLine, expectError, nobodyUid, gid)
+	nobodyUid, _ := testutils.GetUnprivilegedUidGid()
+	runRktAsUidGidAndCheckOutput(t, rktCmd, expectedLine, false, expectError, nobodyUid, gid)
 }
 
-func runRktAsUidGidAndCheckOutput(t *testing.T, rktCmd, expectedLine string, expectError bool, uid, gid int) {
+func runRktAsGidAndCheckREOutput(t *testing.T, rktCmd, expectedLine string, expectError bool, gid int) {
+	nobodyUid, _ := testutils.GetUnprivilegedUidGid()
+	runRktAsUidGidAndCheckOutput(t, rktCmd, expectedLine, true, expectError, nobodyUid, gid)
+}
+
+func runRktAsUidGidAndCheckOutput(t *testing.T, rktCmd, expectedLine string, lineIsRegex, expectError bool, uid, gid int) {
 	child, err := gexpect.Command(rktCmd)
 	if err != nil {
 		t.Fatalf("cannot exec rkt: %v", err)
@@ -308,9 +399,18 @@ func runRktAsUidGidAndCheckOutput(t *testing.T, rktCmd, expectedLine string, exp
 	defer waitOrFail(t, child, expectedStatus)
 
 	if expectedLine != "" {
-		if err := expectWithOutput(child, expectedLine); err != nil {
-			t.Fatalf("didn't receive expected output %q: %v", expectedLine, err)
+		if lineIsRegex == true {
+			_, _, err := expectRegexWithOutput(child, expectedLine)
+			if err != nil {
+				t.Fatalf("didn't receive expected regex %q in output: %v", expectedLine, err)
+			}
+		} else {
+			err = expectWithOutput(child, expectedLine)
+			if err != nil {
+				t.Fatalf("didn't receive expected output %q: %v", expectedLine, err)
+			}
 		}
+
 	}
 }
 
@@ -347,6 +447,7 @@ func startRktAsGidAndCheckOutput(t *testing.T, rktCmd, expectedLine string, gid 
 	}
 	if gid != 0 {
 		child.Cmd.SysProcAttr = &syscall.SysProcAttr{}
+		nobodyUid, _ := testutils.GetUnprivilegedUidGid()
 		child.Cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(nobodyUid), Gid: uint32(gid)}
 	}
 
@@ -385,18 +486,36 @@ func startRktAsUidGidAndCheckOutput(t *testing.T, rktCmd, expectedLine string, e
 	return child
 }
 
-func runRktAndCheckRegexOutput(t *testing.T, rktCmd, match string) {
-	child := spawnOrFail(t, rktCmd)
-	defer child.Wait()
-
-	result, out, err := expectRegexWithOutput(child, match)
-	if err != nil || len(result) != 1 {
-		t.Fatalf("%q regex must be found one time, Error: %v\nOutput: %v", match, err, out)
+func runRktAndCheckRegexOutput(t *testing.T, rktCmd, match string) error {
+	re, err := regexp.Compile(match)
+	if err != nil {
+		t.Fatalf("error compiling regex %q: %v", match, err)
 	}
+
+	args, err := shellquote.Split(rktCmd)
+	if err != nil {
+		t.Fatalf("error splitting cmd %q: %v", rktCmd, err)
+	}
+
+	path, err := exec.LookPath(args[0])
+	cmd := exec.Command(path, args[1:]...)
+
+	out, err := cmd.CombinedOutput()
+
+	result := re.MatchString(string(out))
+	if !result {
+		t.Fatalf("%q regex must be found\nOutput: %q", match, string(out))
+	}
+
+	return err
 }
 
 func runRktAndCheckOutput(t *testing.T, rktCmd, expectedLine string, expectError bool) {
 	runRktAsGidAndCheckOutput(t, rktCmd, expectedLine, expectError, 0)
+}
+
+func runRktAndCheckREOutput(t *testing.T, rktCmd, expectedLine string, expectError bool) {
+	runRktAsGidAndCheckREOutput(t, rktCmd, expectedLine, expectError, 0)
 }
 
 func startRktAndCheckOutput(t *testing.T, rktCmd, expectedLine string) *gexpect.ExpectSubprocess {
@@ -841,12 +960,17 @@ func unmountPod(t *testing.T, ctx *testutils.RktRunCtx, uuid string, rmNetns boo
 	podDir := filepath.Join(ctx.DataDir(), "pods", "run", uuid)
 	stage1MntPath := filepath.Join(podDir, "stage1", "rootfs")
 	stage2MntPath := filepath.Join(stage1MntPath, "opt", "stage2", "rkt-inspect", "rootfs")
+
 	netnsPath := filepath.Join(podDir, "netns")
 	podNetNSPathBytes, err := ioutil.ReadFile(netnsPath)
+	// There may be no netns, e.g. kvm or --net=host
 	if err != nil {
-		t.Fatalf(`cannot read "netns" stage1: %v`, err)
+		if !os.IsNotExist(err) {
+			t.Fatalf(`cannot read "netns" stage1: %v`, err)
+		} else {
+			rmNetns = false
+		}
 	}
-	podNetNSPath := string(podNetNSPathBytes)
 
 	if err := syscall.Unmount(stage2MntPath, 0); err != nil {
 		t.Fatalf("cannot umount stage2: %v", err)
@@ -856,11 +980,13 @@ func unmountPod(t *testing.T, ctx *testutils.RktRunCtx, uuid string, rmNetns boo
 		t.Fatalf("cannot umount stage1: %v", err)
 	}
 
-	if err := syscall.Unmount(podNetNSPath, 0); err != nil {
-		t.Fatalf("cannot umount pod netns: %v", err)
-	}
-
 	if rmNetns {
+		podNetNSPath := string(podNetNSPathBytes)
+
+		if err := syscall.Unmount(podNetNSPath, 0); err != nil {
+			t.Fatalf("cannot umount pod netns: %v", err)
+		}
+
 		_ = os.RemoveAll(podNetNSPath)
 	}
 }
@@ -873,4 +999,41 @@ func checkExitStatus(child *gexpect.ExpectSubprocess) error {
 	}
 
 	return nil
+}
+
+// combinedOutput executes the given command c for the given test context t
+// and fails test t if command execution failed.
+// It returns the command output.
+func combinedOutput(t *testing.T, c *exec.Cmd) string {
+	t.Log("Running", c.Args)
+	out, err := c.CombinedOutput()
+
+	if err != nil {
+		t.Fatal(err, "output", string(out))
+	}
+
+	return string(out)
+}
+
+// retry is the struct that represents retrying function calls.
+type retry struct {
+	n int
+	t time.Duration
+}
+
+// Retry retries the given function f n times with a delay t between invocations
+// until no error is returned from f or n is exceeded.
+// The last occured error is returned.
+func (r retry) Retry(f func() error) error {
+	var err error
+
+	for i := 0; i < r.n; i++ {
+		err = f()
+		if err == nil {
+			return nil
+		}
+		time.Sleep(r.t)
+	}
+
+	return err
 }

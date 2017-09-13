@@ -1,7 +1,6 @@
 {
 	"ImportPath": "github.com/containernetworking/cni",
 	"GoVersion": "go1.6",
-	"GodepVersion": "v74",
 	"Packages": [
 		"./..."
 	],
@@ -31,51 +30,6 @@
 		},
 		{
 			"ImportPath": "github.com/onsi/ginkgo/config",
-			"Comment": "v1.2.0-29-g7f8ab55",
-			"Rev": "7f8ab55aaf3b86885aa55b762e803744d1674700"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/extensions/table",
-			"Comment": "v1.2.0-29-g7f8ab55",
-			"Rev": "7f8ab55aaf3b86885aa55b762e803744d1674700"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo",
-			"Comment": "v1.2.0-29-g7f8ab55",
-			"Rev": "7f8ab55aaf3b86885aa55b762e803744d1674700"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/convert",
-			"Comment": "v1.2.0-29-g7f8ab55",
-			"Rev": "7f8ab55aaf3b86885aa55b762e803744d1674700"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/interrupthandler",
-			"Comment": "v1.2.0-29-g7f8ab55",
-			"Rev": "7f8ab55aaf3b86885aa55b762e803744d1674700"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/nodot",
-			"Comment": "v1.2.0-29-g7f8ab55",
-			"Rev": "7f8ab55aaf3b86885aa55b762e803744d1674700"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/testrunner",
-			"Comment": "v1.2.0-29-g7f8ab55",
-			"Rev": "7f8ab55aaf3b86885aa55b762e803744d1674700"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/testsuite",
-			"Comment": "v1.2.0-29-g7f8ab55",
-			"Rev": "7f8ab55aaf3b86885aa55b762e803744d1674700"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/watch",
-			"Comment": "v1.2.0-29-g7f8ab55",
-			"Rev": "7f8ab55aaf3b86885aa55b762e803744d1674700"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/integration",
 			"Comment": "v1.2.0-29-g7f8ab55",
 			"Rev": "7f8ab55aaf3b86885aa55b762e803744d1674700"
 		},
@@ -216,19 +170,15 @@
 		},
 		{
 			"ImportPath": "github.com/vishvananda/netlink",
-			"Rev": "9dee363ad4abbc3c9a4a24a9f1e33363e224b111"
+			"Rev": "ecf47fd5739b3d2c3daf7c89c4b9715a2605c21b"
 		},
 		{
 			"ImportPath": "github.com/vishvananda/netlink/nl",
-			"Rev": "9dee363ad4abbc3c9a4a24a9f1e33363e224b111"
+			"Rev": "ecf47fd5739b3d2c3daf7c89c4b9715a2605c21b"
 		},
 		{
 			"ImportPath": "golang.org/x/sys/unix",
-			"Rev": "076b546753157f758b316e59bcb51e6807c04057"
-		},
-		{
-			"ImportPath": "github.com/vishvananda/netns",
-			"Rev": "8ba1072b58e0c2a240eb5f6120165c7776c3e7b8"
+			"Rev": "e11762ca30adc5b39fdbfd8c4250dabeb8e456d3"
 		}
 	]
 }

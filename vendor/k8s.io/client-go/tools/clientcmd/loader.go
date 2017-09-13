@@ -33,10 +33,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/client-go/pkg/util/homedir"
 	restclient "k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clientcmdlatest "k8s.io/client-go/tools/clientcmd/api/latest"
+	"k8s.io/client-go/util/homedir"
 )
 
 const (
@@ -47,8 +47,11 @@ const (
 	RecommendedSchemaName       = "schema"
 )
 
-var RecommendedHomeFile = path.Join(homedir.HomeDir(), RecommendedHomeDir, RecommendedFileName)
-var RecommendedSchemaFile = path.Join(homedir.HomeDir(), RecommendedHomeDir, RecommendedSchemaName)
+var (
+	RecommendedConfigDir  = path.Join(homedir.HomeDir(), RecommendedHomeDir)
+	RecommendedHomeFile   = path.Join(RecommendedConfigDir, RecommendedFileName)
+	RecommendedSchemaFile = path.Join(RecommendedConfigDir, RecommendedSchemaName)
+)
 
 // currentMigrationRules returns a map that holds the history of recommended home directories used in previous versions.
 // Any future changes to RecommendedHomeFile and related are expected to add a migration rule here, in order to make

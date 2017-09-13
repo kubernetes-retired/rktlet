@@ -1,3 +1,148 @@
+## 1.25.0
+
+This minor release contains bugfixes and other improvements related to the KVM flavour, which is now using qemu-kvm by default.
+
+## New Features:
+- Switch default kvm flavour from lkvm to qemu ([#3562](https://github.com/coreos/rkt/pull/3562)).
+
+### Bug fixes
+- stage1/kvm: Change RAM calculation, and increase minimum ([#3572](https://github.com/coreos/rkt/pull/3572)).
+- stage1: Ensure ptmx device usable by non-root for all flavours ([#3484](https://github.com/coreos/rkt/pull/3484)).
+
+## Other changes:
+- tests: fix TestNonRootReadInfo when $HOME is only accessible by current user ([#3580](https://github.com/coreos/rkt/pull/3580)).
+- glide: bump grpc to 1.0.4 ([#3584](https://github.com/coreos/rkt/pull/3584)).
+- vendor: bump docker2aci to 0.16.0 ([#3591](https://github.com/coreos/rkt/pull/3591)).
+
+## 1.24.0
+
+This release includes experimental support for attaching to a running application's input and output. It also introduces
+a more finely grained pull-policy flag.
+
+## New Features:
+- rkt: add experimental support for attachable applications ([#3396](https://github.com/coreos/rkt/pull/3396)).
+    It consists of:
+    * a new `attach` subcommand
+    * a set of per-app flags to control stdin/stdout/stderr modes
+    * a stage1 `iottymux` binary for multiplexing and attaching
+    * two new templated stage1 services, `iomux` and `ttymux`
+- run/prepare/fetch: replace --no-store and --store-only with --pull-policy ([#3554](https://github.com/coreos/rkt/pull/3554)).
+    * Replaces the `--no-store` and `--store-only` flags with a singular
+    flag `--pull-policy`.
+    * can accept one of three things, `never`, `new`, and `update`.
+    * `--no-store` has been aliased to `--pull-policy=update`
+    * `--store-only` has been aliased to `--pull-policy=never`
+
+### Bug fixes
+- image gc: don't remove images that currently running pods were made from ([#3549](https://github.com/coreos/rkt/pull/3549)).
+- stage1/fly: evaluate symlinks in mount targets ([#3570](https://github.com/coreos/rkt/pull/3570)).
+- lib/app: use runtime app mounts and appVolumes rather than mountpoints ([#3571](https://github.com/coreos/rkt/pull/3571)).
+
+## Other changes:
+- kvm/qemu: Update QEMU to v2.8.0 ([#3568](https://github.com/coreos/rkt/pull/3568)).
+- stage0/app-add: CLI args should override image ones ([#3566](https://github.com/coreos/rkt/pull/3566)).
+- lib/app: use runtime app mounts and appVolumes rather than mountpoints ([#3571](https://github.com/coreos/rkt/pull/3571)).
+- kvm/lkvm: update lkvm version to HEAD ([#3569](https://github.com/coreos/rkt/pull/3569)).
+- vendor: bump appc to v0.8.10 ([#3574](https://github.com/coreos/rkt/pull/3574)).
+- docs: ([#3552](https://github.com/coreos/rkt/pull/3552))
+
+### Build & Test:
+- tests: remove gexpect from TestAppUserGroup ([#3561](https://github.com/coreos/rkt/pull/3561)).
+- travis: remove "gimme.local" script ([#3556](https://github.com/coreos/rkt/pull/3556)).
+- tests: fix when $HOME is only accessible by current user ([#3559](https://github.com/coreos/rkt/pull/3559)).
+- makelib: introduce --enable-incremental-build, enabling "go install" ([#3553](https://github.com/coreos/rkt/pull/3553)).
+
+## 1.23.0
+
+This release adds a lot of bugfixes around the rkt fly flavor, garbage collection, kvm, and the sandbox. The new experimental `app` subcommand now follows the semantic of CRI of not quitting prematurely if apps fail or exit. Finally docker2aci received an important update fixing issues with os/arch labels which caused issues on arm architectures, a big thanks here goes to @ybubnov for this contribution.
+
+### New features
+- sandbox: don't exit if an app fails ([#3478](https://github.com/coreos/rkt/pull/3478)). In contrast to regular `rkt run` behavior, the sandbox now does not quit if all or single apps fail or exit.
+
+### Bug fixes
+- stage1: fix incorrect splitting function ([#3541](https://github.com/coreos/rkt/pull/3541)).
+- sandbox/app-add: fix mount targets with absolute symlink targets ([#3490](https://github.com/coreos/rkt/pull/3490)).
+- namefetcher: fix nil pointer dereference ([#3536](https://github.com/coreos/rkt/pull/3536)).
+- Bump appc/docker2aci library version to 0.15.0 ([#3534](https://github.com/coreos/rkt/pull/3534)). This supports the conversion of images with various os/arch labels.
+- stage1: uid shift systemd files ([#3529](https://github.com/coreos/rkt/pull/3529)).
+- stage1/kvm/lkvm: chown files and dirs on creation ([#3485](https://github.com/coreos/rkt/pull/3485)).
+- stage1/fly: record pgid and let stop fallback to it ([#3523](https://github.com/coreos/rkt/pull/3523)).
+- common/overlay: allow data directory name with colon character ([#3505](https://github.com/coreos/rkt/pull/3505)).
+- api-service: stop erroring when a pod is running ([#3525](https://github.com/coreos/rkt/pull/3525)).
+- stage1/fly: clear FD_CLOEXEC only once ([#3521](https://github.com/coreos/rkt/pull/3521)).
+- stage1: Add hostname to /etc/hosts ([#3522](https://github.com/coreos/rkt/pull/3522)).
+- gc: avoid erroring in race to deletion ([#3515](https://github.com/coreos/rkt/pull/3515)).
+- tests/rkt_stop: Wait for 'stop' command to complete ([#3518](https://github.com/coreos/rkt/pull/3518)).
+- pkg/pod: avoid nil panic for missing pods ([#3514](https://github.com/coreos/rkt/pull/3514)).
+
+### Other changes
+- stage1: move more logic out of AppUnit ([#3496](https://github.com/coreos/rkt/pull/3496)).
+- tests: use appc schema instead of string templates ([#3520](https://github.com/coreos/rkt/pull/3520)).
+- stage1: kvm: Update kernel to 4.9.2 ([#3530](https://github.com/coreos/rkt/pull/3530)).
+- stage1: remount entire subcgroup r/w, instead of each knob ([#3494](https://github.com/coreos/rkt/pull/3494)).
+- tests: update AWS CI setup ([#3509](https://github.com/coreos/rkt/pull/3509)).
+- pkg/fileutil: helper function to get major, minor numbers of a device file ([#3500](https://github.com/coreos/rkt/pull/3500)). 
+- pkg/log: correctly handle var-arg printf params ([#3516](https://github.com/coreos/rkt/pull/3516)).
+- Documentation/stop: describe --uuid-file option ([#3511](https://github.com/coreos/rkt/pull/3511)).
+
+## 1.22.0
+
+This is a stabilization release which includes better support for environments without systemd, improvements to GC behavior in complex scenarios, and several additional fixes.
+
+### New features and UX changes
+
+- rkt/cat-manifest: add support for --uuid-file ([#3498](https://github.com/coreos/rkt/pull/3498)).
+- stage1: fallback if systemd cgroup doesn't exist ([#3507](https://github.com/coreos/rkt/pull/3507)).
+- vendor: bump gocapability ([#3493](https://github.com/coreos/rkt/pull/3493)). This change renames `sys_psacct` to `sys_pacct`.
+- stage0/app: pass debug flag to entrypoints ([#3469](https://github.com/coreos/rkt/pull/3469)).
+
+### Bug fixes
+- gc: fix cleaning mounts and files ([#3486](https://github.com/coreos/rkt/pull/3486)). This improves GC behavior in case of busy mounts and other complex scenarios.
+- mount: ensure empty volume paths exist for copy-up ([#3468](https://github.com/coreos/rkt/pull/3468)).
+- rkt stop/rm: a pod must be closed after PodFromUUIDString() ([#3492](https://github.com/coreos/rkt/pull/3492)).
+
+### Other changes
+- stage1/kvm: add a dash in kernel LOCALVERSION ([#3489](https://github.com/coreos/rkt/pull/3489)).
+- stage1/kvm: Improve QEMU Makefile rules ([#3474](https://github.com/coreos/rkt/pull/3474)).
+- pkg/pod: use IncludeMostDirs bitmask instead of constructing it ([#3506](https://github.com/coreos/rkt/pull/3506)).
+- pkg/pod: add WaitReady, dry Sandbox methods ([#3462](https://github.com/coreos/rkt/pull/3462)).
+- vendor: bump gexpect to 0.1.1 ([#3467](https://github.com/coreos/rkt/pull/3467)).
+- common: fix 'the the' duplication in comment ([#3497](https://github.com/coreos/rkt/pull/3497)).
+- docs: multiple updates ([#3479](https://github.com/coreos/rkt/pull/3479), [#3501](https://github.com/coreos/rkt/pull/3501), [#3464](https://github.com/coreos/rkt/pull/3464), [#3495](https://github.com/coreos/rkt/pull/3495)).
+
+## 1.21.0
+
+This release includes bugfixes for the experimental CRI support, more stable integration tests, and some other interesting changes:
+
+- The `default-restricted` network changed from 172.16.28.0/24 to 172.17.0.0/26.
+- The detailed roadmap for OCI support has been finalized.
+
+
+### New features
+- Change the subnet for the default-restricted network ([#3440](https://github.com/coreos/rkt/pull/3440)), ([#3459](https://github.com/coreos/rkt/pull/3459)).
+- Prepare for writable /proc/sys, and /sys ([#3389](https://github.com/coreos/rkt/pull/3389)).
+- Documentation/proposals: add OCI Image Format roadmap ([#3425](https://github.com/coreos/rkt/pull/3425)).
+
+### Bug fixes
+- stage1: app add, status didn't work with empty vols ([#3451](https://github.com/coreos/rkt/pull/3451)).
+- stage1: properly run defer'd umounts in app add ([#3455](https://github.com/coreos/rkt/pull/3455)).
+- cri: correct 'created' timestamp ([#3399](https://github.com/coreos/rkt/pull/3399)).
+- fly: ensure the target bin directory exists before building ([#3436](https://github.com/coreos/rkt/pull/3436)).
+- rkt: misc systemd-related fixes ([#3418](https://github.com/coreos/rkt/pull/3418)).
+
+### Other changes
+- pkg/mountinfo: move mountinfo parser to its own package ([#3415](https://github.com/coreos/rkt/pull/3415)).
+- stage1: persist runtime parameters ([#3432](https://github.com/coreos/rkt/pull/3432)), ([#3450](https://github.com/coreos/rkt/pull/3450)).
+- stage1: signal supervisor readiness ([#3424](https://github.com/coreos/rkt/pull/3424)), ([#3439](https://github.com/coreos/rkt/pull/3439)).
+- sandbox: add missing flagDNSDomain and flagHostsEntries parameters ([#3430](https://github.com/coreos/rkt/pull/3430)).
+- pkg/tar: fix variable name in error ([#3433](https://github.com/coreos/rkt/pull/3433)).
+- tests: fix TestExport for the KVM+overlay case ([#3435](https://github.com/coreos/rkt/pull/3435)).
+- tests: fix some potential gexpect hangs ([#3443](https://github.com/coreos/rkt/pull/3443)).
+- tests: add smoke test for app sandbox ([#3371](https://github.com/coreos/rkt/pull/3371)).
+- tests: tentative fixes for sporadic host and kvm failures ([#3434](https://github.com/coreos/rkt/pull/3434)).
+- rkt: remove empty TODO ([#3417](https://github.com/coreos/rkt/pull/3417)).
+- Documentation updates: [#3446](https://github.com/coreos/rkt/pull/3446), ([#3421](https://github.com/coreos/rkt/pull/3421)), ([#3412](https://github.com/coreos/rkt/pull/3412)).
+
 ## 1.20.0
 
 This release contains additional bug fixes for the new experimental `app` subcommand, following the path towards the Container Runtime Interface (CRI).

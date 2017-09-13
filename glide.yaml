@@ -1,26 +1,29 @@
 package: github.com/kubernetes-incubator/rktlet
 import:
 - package: k8s.io/kubernetes
-  version: 68f123dfa036bef57495f014a78144a9a1b517ca
+  version: v1.7.5
   subpackages:
   - pkg/api
   - pkg/api/resource
-  - pkg/kubelet/api/v1alpha1/runtime
+  - pkg/kubelet/apis/cri/v1alpha1/runtime
   - pkg/kubelet/container
   - pkg/kubelet/kuberuntime
   - pkg/kubelet/server/streaming
   - pkg/kubelet/util/ioutils
   - pkg/util/exec
-  - pkg/util/flag
   - pkg/util/logs
+- package: k8s.io/client-go
+  version: v4.0.0
+  subpackages:
+  - pkg/api
 - package: golang.org/x/net
-  version: e90d6d0afc4c315a0d87a568ae68577cc15149a0
+  version: f2499483f923065a842d38eb4c7f1927e6fc6e6d
   subpackages:
   - context
 - package: golang.org/x/tools
-  version: 86ad1193da6aba71355e71191641b9cfb26daa67
+  version: 2382e3994d48b1d22acc2c86bcad0a2aff028e32
 - package: google.golang.org/grpc
-  version: 231b4cfea0e79843053a33f5fe90bd4d84b23cd3
+  version: 777daa17ff9b5daef1cfdf915088a2ada3332bf0
 - package: github.com/golang/glog
   version: 44145f04b68cf362d9c4df2182967c2275eaefed
 - package: github.com/vektra/mockery
@@ -33,17 +36,21 @@ import:
   - assert
   - mock
 - package: github.com/coreos/rkt
-  version: v1.20.0
+  version: v1.25.0
   subpackages:
   - lib
+- package: github.com/containernetworking/cni
+  version: v0.3.0
+  subpackages:
+  - pkg/types
 - package: github.com/appc/spec
-  version: cri
-- package: github.com/docker/docker/daemon/caps
+  version: fc380db5fc13c6dd71a5b0bf2af0d182865d1b1d
+- package: github.com/moby/moby/daemon/caps
 - package: github.com/spf13/pflag
   version: 5ccb023bc27df288a957c5e994cd44fd19619465
 - package: github.com/coreos/go-systemd
-  version: v13
+  version: v15
   subpackages:
     - sdjournal
 - package: k8s.io/apimachinery
-  version: 570628de5b56a1bb87aa6a35d8f681415982e57a
+  version: 1fd2e63a9a370677308a42f24fd40c86438afddf

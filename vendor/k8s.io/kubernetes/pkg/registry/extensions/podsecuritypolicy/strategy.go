@@ -24,13 +24,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/generic"
+	"k8s.io/apiserver/pkg/registry/rest"
+	"k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/apis/extensions/validation"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/generic"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/rest"
-	"k8s.io/kubernetes/pkg/storage"
 )
 
 // strategy implements behavior for PodSecurityPolicy objects
@@ -77,12 +77,12 @@ func (strategy) ValidateUpdate(ctx genericapirequest.Context, obj, old runtime.O
 }
 
 // GetAttrs returns labels and fields of a given object for filtering purposes.
-func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, error) {
+func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, bool, error) {
 	psp, ok := obj.(*extensions.PodSecurityPolicy)
 	if !ok {
-		return nil, nil, fmt.Errorf("given object is not a pod security policy.")
+		return nil, nil, false, fmt.Errorf("given object is not a pod security policy.")
 	}
-	return labels.Set(psp.ObjectMeta.Labels), PodSecurityPolicyToSelectableFields(psp), nil
+	return labels.Set(psp.ObjectMeta.Labels), PodSecurityPolicyToSelectableFields(psp), psp.Initializers != nil, nil
 }
 
 // Matcher returns a generic matcher for a given label and field selector.

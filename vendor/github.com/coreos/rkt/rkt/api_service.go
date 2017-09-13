@@ -593,7 +593,7 @@ func fillPodDetails(store *imagestore.Store, p *pkgPod.Pod, v1pod *v1alpha.Pod) 
 		if p.State() == pkgPod.Running {
 			readStatus = true
 			app.State = v1alpha.AppState_APP_STATE_RUNNING
-		} else if p.AfterRun() {
+		} else if p.IsAfterRun() {
 			readStatus = true
 			app.State = v1alpha.AppState_APP_STATE_EXITED
 		} else {
@@ -602,7 +602,7 @@ func fillPodDetails(store *imagestore.Store, p *pkgPod.Pod, v1pod *v1alpha.Pod) 
 
 		if readStatus {
 			exitCode, err := p.AppExitCode(app.Name)
-			if err != nil {
+			if err != nil && !os.IsNotExist(err) {
 				stderr.PrintE(fmt.Sprintf("failed to read status for app %q", app.Name), err)
 			}
 			app.ExitCode = int32(exitCode)

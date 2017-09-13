@@ -15,7 +15,6 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,12 +32,14 @@ import (
 	"github.com/coreos/rkt/common"
 	"github.com/coreos/rkt/pkg/fileutil"
 	pkgflag "github.com/coreos/rkt/pkg/flag"
+	"github.com/coreos/rkt/pkg/fs"
 	rktlog "github.com/coreos/rkt/pkg/log"
+	"github.com/coreos/rkt/pkg/mountinfo"
 	"github.com/coreos/rkt/pkg/sys"
 	"github.com/coreos/rkt/pkg/user"
-	"github.com/coreos/rkt/stage0"
 	stage1common "github.com/coreos/rkt/stage1/common"
 	stage1commontypes "github.com/coreos/rkt/stage1/common/types"
+	stage1initcommon "github.com/coreos/rkt/stage1/init/common"
 )
 
 const (
@@ -65,44 +66,13 @@ var (
 	discardBool    bool
 	discardString  string
 
-	log         *rktlog.Logger
-	diag        *rktlog.Logger
-	dnsConfMode *pkgflag.PairList
+	log  *rktlog.Logger
+	diag *rktlog.Logger
 )
 
-func getHostMounts() (map[string]struct{}, error) {
-	hostMounts := map[string]struct{}{}
+func parseFlags() *stage1commontypes.RuntimePod {
+	rp := stage1commontypes.RuntimePod{}
 
-	mi, err := os.Open("/proc/self/mountinfo")
-	if err != nil {
-		return nil, err
-	}
-	defer mi.Close()
-
-	sc := bufio.NewScanner(mi)
-	for sc.Scan() {
-		var (
-			discard    string
-			mountPoint string
-		)
-
-		_, err := fmt.Sscanf(sc.Text(),
-			"%s %s %s %s %s",
-			&discard, &discard, &discard, &discard, &mountPoint,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		hostMounts[mountPoint] = struct{}{}
-	}
-	if sc.Err() != nil {
-		return nil, errwrap.Wrap(errors.New("problem parsing mountinfo"), sc.Err())
-	}
-	return hostMounts, nil
-}
-
-func init() {
 	flag.BoolVar(&debug, "debug", false, "Run in debug mode")
 
 	// The following flags need to be supported by stage1 according to
@@ -122,7 +92,7 @@ func init() {
 	flag.Bool("disable-paths", true, "ignored")
 	flag.Bool("disable-seccomp", true, "ignored")
 
-	dnsConfMode = pkgflag.MustNewPairList(map[string][]string{
+	dnsConfMode := pkgflag.MustNewPairList(map[string][]string{
 		"resolv": {"host", "stage0", "none", "default"},
 		"hosts":  {"host", "stage0", "default"},
 	}, map[string]string{
@@ -131,6 +101,13 @@ func init() {
 	})
 	flag.Var(dnsConfMode, "dns-conf-mode", "DNS config file modes")
 
+	flag.Parse()
+
+	rp.Debug = debug
+	rp.ResolvConfMode = dnsConfMode.Pairs["resolv"]
+	rp.EtcHostsMode = dnsConfMode.Pairs["hosts"]
+
+	return &rp
 }
 
 func addMountPoints(namedVolumeMounts map[types.ACName]volumeMountTuple, mountpoints []types.MountPoint) error {
@@ -207,9 +184,13 @@ func evaluateMounts(rfs string, app string, p *stage1commontypes.Pod) ([]flyMoun
 	}
 
 	// Gather host mounts which we make MS_SHARED if passed as a volume source
-	hostMounts, err := getHostMounts()
+	hostMounts := map[string]struct{}{}
+	mnts, err := mountinfo.ParseMounts(0)
 	if err != nil {
 		return nil, errwrap.Wrap(errors.New("can't gather host mounts"), err)
+	}
+	for _, m := range mnts {
+		hostMounts[m.MountPoint] = struct{}{}
 	}
 
 	argFlyMounts := []flyMount{}
@@ -243,10 +224,11 @@ func evaluateMounts(rfs string, app string, p *stage1commontypes.Pod) ([]flyMoun
 
 			if recursive {
 				// Every sub-mount needs to be remounted read-only separately
-				mnts, err := stage0.GetMountsForPrefix(tuple.V.Source + "/")
+				mnts, err := mountinfo.ParseMounts(0)
 				if err != nil {
 					return nil, errwrap.Wrap(fmt.Errorf("error getting mounts under %q from mountinfo", tuple.V.Source), err)
 				}
+				mnts = mnts.Filter(mountinfo.HasPrefix(tuple.V.Source + "/"))
 
 				for _, mnt := range mnts {
 					innerRelPath := tuple.M.Path + strings.Replace(mnt.MountPoint, tuple.V.Source, "", -1)
@@ -260,7 +242,7 @@ func evaluateMounts(rfs string, app string, p *stage1commontypes.Pod) ([]flyMoun
 	return argFlyMounts, nil
 }
 
-func stage1() int {
+func stage1(rp *stage1commontypes.RuntimePod) int {
 	uuid, err := types.NewUUID(flag.Arg(0))
 	if err != nil {
 		log.Print("UUID is missing or malformed\n")
@@ -268,10 +250,14 @@ func stage1() int {
 	}
 
 	root := "."
-	p, err := stage1commontypes.LoadPod(root, uuid)
+	p, err := stage1commontypes.LoadPod(root, uuid, rp)
 	if err != nil {
 		log.PrintE("can't load pod", err)
 		return 254
+	}
+
+	if err := p.SaveRuntime(); err != nil {
+		log.FatalE("failed to save runtime parameters", err)
 	}
 
 	// Sanity checks
@@ -292,12 +278,6 @@ func stage1() int {
 	lfd, err := common.GetRktLockFD()
 	if err != nil {
 		log.PrintE("can't get rkt lock fd", err)
-		return 254
-	}
-
-	// set close-on-exec flag on RKT_LOCK_FD so it gets correctly closed after execution is finished
-	if err := sys.CloseOnExec(lfd, true); err != nil {
-		log.PrintE("can't set FD_CLOEXEC on rkt lock", err)
 		return 254
 	}
 
@@ -343,7 +323,7 @@ func stage1() int {
 	 * 'default' - do nothing (we would respect CNI if fly had networking)
 	 * 'none' - do nothing
 	 */
-	switch dnsConfMode.Pairs["resolv"] {
+	switch p.ResolvConfMode {
 	case "host":
 		effectiveMounts = append(effectiveMounts,
 			flyMount{"/etc/resolv.conf", rfs, "/etc/resolv.conf", "none", syscall.MS_BIND | syscall.MS_RDONLY})
@@ -361,7 +341,7 @@ func stage1() int {
 	 * 'default' - create a stub /etc/hosts if needed
 	 */
 
-	switch dnsConfMode.Pairs["hosts"] {
+	switch p.EtcHostsMode {
 	case "host":
 		effectiveMounts = append(effectiveMounts,
 			flyMount{"/etc/hosts", rfs, "/etc/hosts", "none", syscall.MS_BIND | syscall.MS_RDONLY})
@@ -380,9 +360,12 @@ func stage1() int {
 		}
 	}
 
+	mounter := fs.NewLoggingMounter(
+		fs.MounterFunc(syscall.Mount),
+		fs.UnmounterFunc(syscall.Unmount),
+		diag.Printf,
+	)
 	for _, mount := range effectiveMounts {
-		diag.Printf("Processing %+v", mount)
-
 		var (
 			err            error
 			hostPathInfo   os.FileInfo
@@ -398,7 +381,16 @@ func stage1() int {
 			hostPathInfo = nil
 		}
 
-		absTargetPath := filepath.Join(mount.TargetPrefixPath, mount.RelTargetPath)
+		absTargetPath := mount.RelTargetPath
+		if mount.TargetPrefixPath != "" {
+			absStage2RootFS := common.AppRootfsPath(p.Root, ra.Name)
+			targetPath, err := stage1initcommon.EvaluateSymlinksInsideApp(absStage2RootFS, mount.RelTargetPath)
+			if err != nil {
+				log.PrintE(fmt.Sprintf("evaluate target path %q in %q", mount.RelTargetPath, absStage2RootFS), err)
+				return 254
+			}
+			absTargetPath = filepath.Join(absStage2RootFS, targetPath)
+		}
 		if targetPathInfo, err = os.Stat(absTargetPath); err != nil && !os.IsNotExist(err) {
 			log.PrintE(fmt.Sprintf("stat of target path %s", absTargetPath), err)
 			return 254
@@ -440,13 +432,21 @@ func stage1() int {
 			}
 		}
 
-		if err := syscall.Mount(mount.HostPath, absTargetPath, mount.Fs, mount.Flags, ""); err != nil {
+		if err := mounter.Mount(mount.HostPath, absTargetPath, mount.Fs, mount.Flags, ""); err != nil {
 			log.PrintE(fmt.Sprintf("can't mount %q on %q with flags %v", mount.HostPath, absTargetPath, mount.Flags), err)
 			return 254
 		}
 	}
 
+	// stage1 interface: pod-leader pid
 	if err = stage1common.WritePid(os.Getpid(), "pid"); err != nil {
+		log.Error(err)
+		return 254
+	}
+
+	// stage1-fly internal: pod pgid
+	// (used by stop, as fly has weak pod-grouping of processes)
+	if err = stage1common.WritePid(syscall.Getpgrp(), "pgid"); err != nil {
 		log.Error(err)
 		return 254
 	}
@@ -500,27 +500,30 @@ func stage1() int {
 	// see https://github.com/golang/go/issues/1435#issuecomment-66054163.
 	runtime.LockOSThread()
 
-	diag.Printf("setting uid %d gid %d", uid, gid)
-
+	// set process credentials
+	diag.Printf("setting credentials: uid=%d, gid=%d", uid, gid)
 	if err := syscall.Setresgid(gid, gid, gid); err != nil {
 		log.PrintE(fmt.Sprintf("can't set gid %d", gid), err)
 		return 254
 	}
-
 	if err := syscall.Setresuid(uid, uid, uid); err != nil {
 		log.PrintE(fmt.Sprintf("can't set uid %d", uid), err)
 		return 254
 	}
 
+	// clear close-on-exec flag on RKT_LOCK_FD, to keep pod status as running after exec().
+	if err := sys.CloseOnExec(lfd, false); err != nil {
+		log.PrintE("unable to clear FD_CLOEXEC on pod lock", err)
+		return 254
+	}
+
 	diag.Printf("execing %q in %q", args, rfs)
-	err = stage1common.WithClearedCloExec(lfd, func() error {
-		return syscall.Exec(args[0], args, env)
-	})
-	if err != nil {
+	if err = syscall.Exec(args[0], args, env); err != nil {
 		log.PrintE(fmt.Sprintf("can't execute %q", args[0]), err)
 		return 254
 	}
 
+	// unreachable, as successful exec() never returns.
 	return 0
 }
 
@@ -551,7 +554,7 @@ func copyResolv(p *stage1commontypes.Pod) error {
 }
 
 func main() {
-	flag.Parse()
+	rp := parseFlags()
 
 	log, diag, _ = rktlog.NewLogSet("run", debug)
 	if !debug {
@@ -559,5 +562,5 @@ func main() {
 	}
 
 	// move code into stage1() helper so defered fns get run
-	os.Exit(stage1())
+	os.Exit(stage1(rp))
 }

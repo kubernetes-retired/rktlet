@@ -24,11 +24,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/generic"
+	apistorage "k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/validation"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/generic"
-	apistorage "k8s.io/kubernetes/pkg/storage"
 )
 
 // strategy implements behavior for ServiceAccount objects
@@ -80,12 +80,12 @@ func (strategy) AllowUnconditionalUpdate() bool {
 }
 
 // GetAttrs returns labels and fields of a given object for filtering purposes.
-func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, error) {
+func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, bool, error) {
 	sa, ok := obj.(*api.ServiceAccount)
 	if !ok {
-		return nil, nil, fmt.Errorf("not a serviceaccount")
+		return nil, nil, false, fmt.Errorf("not a serviceaccount")
 	}
-	return labels.Set(sa.Labels), SelectableFields(sa), nil
+	return labels.Set(sa.Labels), SelectableFields(sa), sa.Initializers != nil, nil
 }
 
 // Matcher returns a generic matcher for a given label and field selector.

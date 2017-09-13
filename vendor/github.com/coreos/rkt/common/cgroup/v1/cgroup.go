@@ -23,31 +23,23 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
+	"github.com/coreos/rkt/pkg/fs"
 	"github.com/hashicorp/errwrap"
 )
 
-var (
-	cgroupControllerRWFiles = map[string][]string{
-		"memory":  {"memory.limit_in_bytes"},
-		"cpu":     {"cpu.cfs_quota_us", "cpu.shares"},
-		"devices": {"devices.allow", "devices.deny"},
-	}
-)
-
 // mountFsRO remounts the given mountPoint using the given flags read-only.
-func mountFsRO(mountPoint string, flags uintptr) error {
+func mountFsRO(m fs.Mounter, mountPoint string, flags uintptr) error {
 	flags = flags |
 		syscall.MS_BIND |
 		syscall.MS_REMOUNT |
 		syscall.MS_RDONLY
 
-	if err := syscall.Mount(mountPoint, mountPoint, "", flags, ""); err != nil {
+	if err := m.Mount(mountPoint, mountPoint, "", flags, ""); err != nil {
 		return errwrap.Wrap(fmt.Errorf("error remounting read-only %q", mountPoint), err)
 	}
 
@@ -128,25 +120,6 @@ func getControllerSymlinks(cgroups map[int][]string) map[string]string {
 	return symlinks
 }
 
-func CgroupControllerRWFiles(isolator string) []string {
-	files, _ := cgroupControllerRWFiles[isolator]
-	return files
-}
-
-func getControllerRWFiles(controller string) []string {
-	parts := strings.Split(controller, ",")
-	for _, p := range parts {
-		if files, ok := cgroupControllerRWFiles[p]; ok {
-			// cgroup.procs always needs to be RW for allowing systemd to add
-			// processes to the controller
-			files = append(files, "cgroup.procs")
-			return files
-		}
-	}
-
-	return nil
-}
-
 func parseCgroupController(cgroupPath, controller string) ([]string, error) {
 	cg, err := os.Open(cgroupPath)
 	if err != nil {
@@ -206,50 +179,77 @@ func JoinSubcgroup(controller string, subcgroup string) error {
 	return nil
 }
 
-// If /system.slice does not exist in the cpuset controller, create it and
-// configure it.
-// Since this is a workaround, we ignore errors
-func fixCpusetKnobs(cpusetPath string) {
-	cgroupPathFix := filepath.Join(cpusetPath, "system.slice")
-	_ = os.MkdirAll(cgroupPathFix, 0755)
-	knobs := []string{"cpuset.mems", "cpuset.cpus"}
-	for _, knob := range knobs {
-		parentFile := filepath.Join(filepath.Dir(cgroupPathFix), knob)
-		childFile := filepath.Join(cgroupPathFix, knob)
+// Ensure that the hierarchy has consistent cpu restrictions.
+// This may fail; since this is "fixup" code, we should ignore
+// the error and proceed.
+//
+// This was originally a workaround for https://github.com/coreos/rkt/issues/1210
+// but is actually useful to have around
+//
+// cpuSetPath should be <stage1rootfs>/sys/fs/cgroup/cpuset
+func fixCpusetKnobs(cpusetPath, subcgroup, knob string) error {
+	if err := os.MkdirAll(filepath.Join(cpusetPath, subcgroup), 0755); err != nil {
+		return err
+	}
 
-		data, err := ioutil.ReadFile(childFile)
+	dirs := strings.Split(subcgroup, "/")
+
+	// Loop over every entry in the hierarchy, putting in the parent's value
+	// unless there is one already there.
+	// Read from the root knob
+	parentFile := filepath.Join(cpusetPath, knob)
+	parentData, err := ioutil.ReadFile(parentFile)
+	if err != nil {
+		return errwrap.Wrapf("error reading cgroup "+parentFile, err)
+	}
+
+	// Loop over every directory in the subcgroup path
+	currDir := cpusetPath
+	for _, dir := range dirs {
+		currDir = filepath.Join(currDir, dir)
+
+		childFile := filepath.Join(currDir, knob)
+		childData, err := ioutil.ReadFile(childFile)
 		if err != nil {
-			continue
+			return errwrap.Wrapf("error reading cgroup "+childFile, err)
 		}
-		// If the file is already configured, don't change it
-		if strings.TrimSpace(string(data)) != "" {
+
+		// If there is already a value, don't write - and propagate
+		// this value to subsequent children
+		if strings.TrimSpace(string(childData)) != "" {
+			parentData = childData
 			continue
 		}
 
-		data, err = ioutil.ReadFile(parentFile)
-		if err == nil {
-			// Workaround: just write twice to workaround the kernel bug fixed by this commit:
-			// https://github.com/torvalds/linux/commit/24ee3cf89bef04e8bc23788aca4e029a3f0f06d9
-			ioutil.WriteFile(childFile, data, 0644)
-			ioutil.WriteFile(childFile, data, 0644)
+		// Workaround: just write twice to workaround the kernel bug fixed by this commit:
+		// https://github.com/torvalds/linux/commit/24ee3cf89bef04e8bc23788aca4e029a3f0f06d9
+		if err := ioutil.WriteFile(childFile, parentData, 0644); err != nil {
+			return errwrap.Wrapf("error writing cgroup "+childFile, err)
+		}
+		if err := ioutil.WriteFile(childFile, parentData, 0644); err != nil {
+			return errwrap.Wrapf("error writing cgroup "+childFile, err)
 		}
 	}
+	return nil
 }
 
 // IsControllerMounted returns whether a controller is mounted by checking that
 // cgroup.procs is accessible
-func IsControllerMounted(c string) bool {
+func IsControllerMounted(c string) (bool, error) {
 	cgroupProcsPath := filepath.Join("/sys/fs/cgroup", c, "cgroup.procs")
 	if _, err := os.Stat(cgroupProcsPath); err != nil {
-		return false
+		if !os.IsNotExist(err) {
+			return false, err
+		}
+		return false, nil
 	}
 
-	return true
+	return true, nil
 }
 
 // CreateCgroups mounts the v1 cgroup controllers hierarchy in /sys/fs/cgroup
 // under root
-func CreateCgroups(root string, enabledCgroups map[int][]string, mountContext string) error {
+func CreateCgroups(m fs.Mounter, root string, enabledCgroups map[int][]string, mountContext string) error {
 	controllers := GetControllerDirs(enabledCgroups)
 
 	sys := filepath.Join(root, "/sys")
@@ -263,7 +263,7 @@ func CreateCgroups(root string, enabledCgroups map[int][]string, mountContext st
 
 	// If we're mounting the host cgroups, /sys is probably mounted so we
 	// ignore EBUSY
-	if err := syscall.Mount("sysfs", sys, "sysfs", sysfsFlags, ""); err != nil && err != syscall.EBUSY {
+	if err := m.Mount("sysfs", sys, "sysfs", sysfsFlags, ""); err != nil && err != syscall.EBUSY {
 		return errwrap.Wrap(fmt.Errorf("error mounting %q", sys), err)
 	}
 
@@ -282,7 +282,7 @@ func CreateCgroups(root string, enabledCgroups map[int][]string, mountContext st
 		options = fmt.Sprintf("mode=755,context=\"%s\"", mountContext)
 	}
 
-	if err := syscall.Mount("tmpfs", cgroupTmpfs, "tmpfs", cgroupTmpfsFlags, options); err != nil {
+	if err := m.Mount("tmpfs", cgroupTmpfs, "tmpfs", cgroupTmpfsFlags, options); err != nil {
 		return errwrap.Wrap(fmt.Errorf("error mounting %q", cgroupTmpfs), err)
 	}
 
@@ -297,7 +297,7 @@ func CreateCgroups(root string, enabledCgroups map[int][]string, mountContext st
 			syscall.MS_NOEXEC |
 			syscall.MS_NODEV
 
-		if err := syscall.Mount("cgroup", cPath, "cgroup", flags, c); err != nil {
+		if err := m.Mount("cgroup", cPath, "cgroup", flags, c); err != nil {
 			return errwrap.Wrap(fmt.Errorf("error mounting %q", cPath), err)
 		}
 	}
@@ -317,13 +317,17 @@ func CreateCgroups(root string, enabledCgroups map[int][]string, mountContext st
 	}
 
 	// Bind-mount cgroup tmpfs filesystem read-only
-	return mountFsRO(cgroupTmpfs, cgroupTmpfsFlags)
+	return mountFsRO(m, cgroupTmpfs, cgroupTmpfsFlags)
 }
 
-// RemountCgroupsRO remounts the v1 cgroup hierarchy under root read-only,
-// leaving the needed knobs in the subcgroup for each app read-write so the
-// systemd inside stage1 can apply isolators to them
-func RemountCgroupsRO(root string, enabledCgroups map[int][]string, subcgroup string, serviceNames []string) error {
+// RemountCgroups remounts the v1 cgroup hierarchy under root.
+// It mounts /sys/fs/cgroup/[controller] read-only,
+// but leaves needed knobs in the pod's subcgroup read-write,
+// such that systemd inside stage1 can apply isolators to them.
+// It leaves /sys read-write if the given readWrite parameter is true.
+// When this is done, <stage1>/sys/fs/cgroup/<controller> should be RO, and
+// <stage1>/sys/fs/cgroup/<cotroller>/.../machine-rkt/.../system.slice should be RW
+func RemountCgroups(m fs.Mounter, root string, enabledCgroups map[int][]string, subcgroup string, readWrite bool) error {
 	controllers := GetControllerDirs(enabledCgroups)
 	cgroupTmpfs := filepath.Join(root, "/sys/fs/cgroup")
 	sysPath := filepath.Join(root, "/sys")
@@ -332,95 +336,35 @@ func RemountCgroupsRO(root string, enabledCgroups map[int][]string, subcgroup st
 		syscall.MS_NOEXEC |
 		syscall.MS_NODEV
 
-	// Mount RW knobs we need to make the enabled isolators work
+	// Mount RW the controllers for this pod
 	for _, c := range controllers {
 		cPath := filepath.Join(cgroupTmpfs, c)
 		subcgroupPath := filepath.Join(cPath, subcgroup, "system.slice")
 
-		// Workaround for https://github.com/coreos/rkt/issues/1210
-		if c == "cpuset" {
-			fixCpusetKnobs(cPath)
+		if err := os.MkdirAll(subcgroupPath, 0755); err != nil {
+			return err
+		}
+		if err := m.Mount(subcgroupPath, subcgroupPath, "", syscall.MS_BIND, ""); err != nil {
+			return errwrap.Wrap(fmt.Errorf("error bind mounting %q", subcgroupPath), err)
 		}
 
-		// Create cgroup directories and mount the files we need over
-		// themselves so they stay read-write
-		for _, serviceName := range serviceNames {
-			appCgroup := filepath.Join(subcgroupPath, serviceName)
-			if err := os.MkdirAll(appCgroup, 0755); err != nil {
-				return err
-			}
-			for _, f := range getControllerRWFiles(c) {
-				cgroupFilePath := filepath.Join(appCgroup, f)
-				// the file may not be there if kernel doesn't support the
-				// feature, skip it in that case
-				if _, err := os.Stat(cgroupFilePath); os.IsNotExist(err) {
-					continue
-				}
-				if err := syscall.Mount(cgroupFilePath, cgroupFilePath, "", syscall.MS_BIND, ""); err != nil {
-					return errwrap.Wrap(fmt.Errorf("error bind mounting %q", cgroupFilePath), err)
-				}
-			}
+		// Workaround for https://github.com/coreos/rkt/issues/1210
+		// It is OK to ignore errors here.
+		if c == "cpuset" {
+			_ = fixCpusetKnobs(cPath, subcgroup, "cpuset.mems")
+			_ = fixCpusetKnobs(cPath, subcgroup, "cpuset.cpus")
 		}
 
 		// Re-mount controller read-only to prevent the container modifying host controllers
-		if err := mountFsRO(cPath, flags); err != nil {
+		if err := mountFsRO(m, cPath, flags); err != nil {
 			return err
 		}
+	}
+
+	if readWrite { // leave sys r/w?
+		return nil
 	}
 
 	// Bind-mount sys filesystem read-only
-	return mountFsRO(sysPath, flags)
-}
-
-// RemountCgroupKnobsRW remounts the needed knobs in the subcgroup for one
-// specified app read-write so the systemd inside stage1 can apply isolators
-// to them.
-func RemountCgroupKnobsRW(enabledCgroups map[int][]string, subcgroup string, serviceName string, enterCmd []string) error {
-	controllers := GetControllerDirs(enabledCgroups)
-
-	// Mount RW knobs we need to make the enabled isolators work
-	for _, c := range controllers {
-		cPath := filepath.Join("/sys/fs/cgroup", c)
-		subcgroupPath := filepath.Join(cPath, subcgroup, "system.slice")
-
-		// Create cgroup directories and mount the files we need over
-		// themselves so they stay read-write
-		appCgroup := filepath.Join(subcgroupPath, serviceName)
-		if err := os.MkdirAll(appCgroup, 0755); err != nil {
-			return err
-		}
-		for _, f := range getControllerRWFiles(c) {
-			cgroupFilePath := filepath.Join(appCgroup, f)
-			// the file may not be there if kernel doesn't support the
-			// feature, skip it in that case
-			if _, err := os.Stat(cgroupFilePath); os.IsNotExist(err) {
-				continue
-			}
-
-			// Go applications cannot be  reassociated  with a new mount
-			// namespace because they are multithreaded. Instead of
-			// syscall.Mount, uses the enter entrypoint.
-			argsMountBind := append(enterCmd, "/bin/mount", "--bind", cgroupFilePath, cgroupFilePath)
-			cmdMountBind := exec.Cmd{
-				Path: argsMountBind[0],
-				Args: argsMountBind,
-			}
-
-			if err := cmdMountBind.Run(); err != nil {
-				return err
-			}
-
-			argsRemountRW := append(enterCmd, "/bin/mount", "-o", "remount,bind,rw", cgroupFilePath)
-			cmdRemountRW := exec.Cmd{
-				Path: argsRemountRW[0],
-				Args: argsRemountRW,
-			}
-
-			if err := cmdRemountRW.Run(); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return mountFsRO(m, sysPath, flags)
 }

@@ -27,6 +27,10 @@ const GroupName = "meta.k8s.io"
 // SchemeGroupVersion is group version used to register these objects
 var SchemeGroupVersion = schema.GroupVersion{Group: GroupName, Version: "v1"}
 
+// Unversioned is group version for unversioned API objects
+// TODO: this should be v1 probably
+var Unversioned = schema.GroupVersion{Group: "", Version: "v1"}
+
 // WatchEventKind is name reserved for serializing watch events.
 const WatchEventKind = "WatchEvent"
 
@@ -42,13 +46,33 @@ func AddToGroupVersion(scheme *runtime.Scheme, groupVersion schema.GroupVersion)
 		schema.GroupVersion{Group: groupVersion.Group, Version: runtime.APIVersionInternal}.WithKind(WatchEventKind),
 		&InternalEvent{},
 	)
-	scheme.AddKnownTypes(groupVersion, &ListOptions{})
+	// Supports legacy code paths, most callers should use metav1.ParameterCodec for now
+	scheme.AddKnownTypes(groupVersion,
+		&ListOptions{},
+		&ExportOptions{},
+		&GetOptions{},
+		&DeleteOptions{},
+	)
 	scheme.AddConversionFuncs(
 		Convert_versioned_Event_to_watch_Event,
 		Convert_versioned_InternalEvent_to_versioned_Event,
 		Convert_watch_Event_to_versioned_Event,
 		Convert_versioned_Event_to_versioned_InternalEvent,
 	)
+
+	// Register Unversioned types under their own special group
+	scheme.AddUnversionedTypes(Unversioned,
+		&Status{},
+		&APIVersions{},
+		&APIGroupList{},
+		&APIGroup{},
+		&APIResourceList{},
+	)
+
+	// register manually. This usually goes through the SchemeBuilder, which we cannot use here.
+	scheme.AddGeneratedDeepCopyFuncs(GetGeneratedDeepCopyFuncs()...)
+	AddConversionFuncs(scheme)
+	RegisterDefaults(scheme)
 }
 
 // scheme is the registry for the common types that adhere to the meta v1 API spec.
@@ -60,5 +84,12 @@ var ParameterCodec = runtime.NewParameterCodec(scheme)
 func init() {
 	scheme.AddUnversionedTypes(SchemeGroupVersion,
 		&ListOptions{},
+		&ExportOptions{},
+		&GetOptions{},
+		&DeleteOptions{},
 	)
+
+	// register manually. This usually goes through the SchemeBuilder, which we cannot use here.
+	scheme.AddGeneratedDeepCopyFuncs(GetGeneratedDeepCopyFuncs()...)
+	RegisterDefaults(scheme)
 }

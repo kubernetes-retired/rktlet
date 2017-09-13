@@ -23,14 +23,15 @@ import (
 	"strconv"
 
 	"github.com/golang/glog"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/kubernetes/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/util/mount"
 	"k8s.io/kubernetes/pkg/util/strings"
 	"k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util"
+	"k8s.io/kubernetes/pkg/volume/util/volumehelper"
 )
 
 // This is the primary entrypoint for volume plugins.
@@ -79,6 +80,14 @@ func (plugin *gcePersistentDiskPlugin) CanSupport(spec *volume.Spec) bool {
 }
 
 func (plugin *gcePersistentDiskPlugin) RequiresRemount() bool {
+	return false
+}
+
+func (plugin *gcePersistentDiskPlugin) SupportsMountOption() bool {
+	return true
+}
+
+func (plugin *gcePersistentDiskPlugin) SupportsBulkVolumeVerification() bool {
 	return false
 }
 
@@ -366,6 +375,10 @@ type gcePersistentDiskProvisioner struct {
 var _ volume.Provisioner = &gcePersistentDiskProvisioner{}
 
 func (c *gcePersistentDiskProvisioner) Provision() (*v1.PersistentVolume, error) {
+	if !volume.AccessModesContainedInAll(c.plugin.GetAccessModes(), c.options.PVC.Spec.AccessModes) {
+		return nil, fmt.Errorf("invalid AccessModes %v: only AccessModes %v are supported", c.options.PVC.Spec.AccessModes, c.plugin.GetAccessModes())
+	}
+
 	volumeID, sizeGB, labels, err := c.manager.CreateVolume(c)
 	if err != nil {
 		return nil, err
@@ -376,7 +389,7 @@ func (c *gcePersistentDiskProvisioner) Provision() (*v1.PersistentVolume, error)
 			Name:   c.options.PVName,
 			Labels: map[string]string{},
 			Annotations: map[string]string{
-				"kubernetes.io/createdby": "gce-pd-dynamic-provisioner",
+				volumehelper.VolumeDynamicallyCreatedByKey: "gce-pd-dynamic-provisioner",
 			},
 		},
 		Spec: v1.PersistentVolumeSpec{

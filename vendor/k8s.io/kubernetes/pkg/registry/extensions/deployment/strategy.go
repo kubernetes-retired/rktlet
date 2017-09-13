@@ -18,23 +18,20 @@ package deployment
 
 import (
 	"fmt"
-	"reflect"
-	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/generic"
+	"k8s.io/apiserver/pkg/registry/rest"
+	apistorage "k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/apis/extensions/validation"
-	"k8s.io/kubernetes/pkg/controller/deployment/util"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/generic"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/rest"
-	apistorage "k8s.io/kubernetes/pkg/storage"
 )
 
 // deploymentStrategy implements behavior for Deployments.
@@ -89,18 +86,9 @@ func (deploymentStrategy) PrepareForUpdate(ctx genericapirequest.Context, obj, o
 	// Spec updates bump the generation so that we can distinguish between
 	// scaling events and template changes, annotation updates bump the generation
 	// because annotations are copied from deployments to their replica sets.
-	if !reflect.DeepEqual(newDeployment.Spec, oldDeployment.Spec) ||
-		!reflect.DeepEqual(newDeployment.Annotations, oldDeployment.Annotations) {
+	if !apiequality.Semantic.DeepEqual(newDeployment.Spec, oldDeployment.Spec) ||
+		!apiequality.Semantic.DeepEqual(newDeployment.Annotations, oldDeployment.Annotations) {
 		newDeployment.Generation = oldDeployment.Generation + 1
-	}
-
-	// Records timestamp on selector updates in annotation
-	if !reflect.DeepEqual(newDeployment.Spec.Selector, oldDeployment.Spec.Selector) {
-		if newDeployment.Annotations == nil {
-			newDeployment.Annotations = make(map[string]string)
-		}
-		now := metav1.Now()
-		newDeployment.Annotations[util.SelectorUpdateAnnotation] = now.Format(time.RFC3339)
 	}
 }
 
@@ -138,12 +126,12 @@ func DeploymentToSelectableFields(deployment *extensions.Deployment) fields.Set 
 }
 
 // GetAttrs returns labels and fields of a given object for filtering purposes.
-func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, error) {
+func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, bool, error) {
 	deployment, ok := obj.(*extensions.Deployment)
 	if !ok {
-		return nil, nil, fmt.Errorf("given object is not a deployment.")
+		return nil, nil, false, fmt.Errorf("given object is not a deployment.")
 	}
-	return labels.Set(deployment.ObjectMeta.Labels), DeploymentToSelectableFields(deployment), nil
+	return labels.Set(deployment.ObjectMeta.Labels), DeploymentToSelectableFields(deployment), deployment.Initializers != nil, nil
 }
 
 // MatchDeployment is the filter used by the generic etcd backend to route

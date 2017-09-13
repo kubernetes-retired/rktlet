@@ -24,12 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/generic"
+	apistorage "k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/storage"
 	"k8s.io/kubernetes/pkg/apis/storage/validation"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/generic"
-	apistorage "k8s.io/kubernetes/pkg/storage"
 )
 
 // storageClassStrategy implements behavior for StorageClass objects
@@ -80,12 +80,12 @@ func (storageClassStrategy) AllowUnconditionalUpdate() bool {
 }
 
 // GetAttrs returns labels and fields of a given object for filtering purposes.
-func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, error) {
+func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, bool, error) {
 	cls, ok := obj.(*storage.StorageClass)
 	if !ok {
-		return nil, nil, fmt.Errorf("given object is not of type StorageClass")
+		return nil, nil, false, fmt.Errorf("given object is not of type StorageClass")
 	}
-	return labels.Set(cls.ObjectMeta.Labels), StorageClassToSelectableFields(cls), nil
+	return labels.Set(cls.ObjectMeta.Labels), StorageClassToSelectableFields(cls), cls.Initializers != nil, nil
 }
 
 // MatchStorageClass returns a generic matcher for a given label and field selector.

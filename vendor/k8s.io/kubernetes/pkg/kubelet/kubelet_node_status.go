@@ -17,7 +17,6 @@ limitations under the License.
 package kubelet
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"net"
@@ -28,19 +27,25 @@ import (
 
 	"github.com/golang/glog"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/types"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
-	"k8s.io/kubernetes/pkg/api/resource"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/kubernetes/pkg/api/v1"
+	v1helper "k8s.io/kubernetes/pkg/api/v1/helper"
 	"k8s.io/kubernetes/pkg/cloudprovider"
+	"k8s.io/kubernetes/pkg/features"
+	kubeletapis "k8s.io/kubernetes/pkg/kubelet/apis"
 	"k8s.io/kubernetes/pkg/kubelet/cadvisor"
 	"k8s.io/kubernetes/pkg/kubelet/events"
+	"k8s.io/kubernetes/pkg/kubelet/util"
 	"k8s.io/kubernetes/pkg/kubelet/util/sliceutils"
 	nodeutil "k8s.io/kubernetes/pkg/util/node"
 	"k8s.io/kubernetes/pkg/version"
 	"k8s.io/kubernetes/pkg/volume/util/volumehelper"
+	"k8s.io/kubernetes/plugin/pkg/scheduler/algorithm"
 )
 
 const (
@@ -192,31 +197,36 @@ func (kl *Kubelet) initialNode() (*v1.Node, error) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: string(kl.nodeName),
 			Labels: map[string]string{
-				metav1.LabelHostname:       kl.hostname,
-				metav1.LabelOS:             goruntime.GOOS,
-				metav1.LabelArch:           goruntime.GOARCH,
-				metav1.LabelFluentdDsReady: "true",
+				kubeletapis.LabelHostname: kl.hostname,
+				kubeletapis.LabelOS:       goruntime.GOOS,
+				kubeletapis.LabelArch:     goruntime.GOARCH,
 			},
 		},
 		Spec: v1.NodeSpec{
 			Unschedulable: !kl.registerSchedulable,
 		},
 	}
+	nodeTaints := make([]v1.Taint, 0)
 	if len(kl.kubeletConfiguration.RegisterWithTaints) > 0 {
-		annotations := make(map[string]string)
 		taints := make([]v1.Taint, len(kl.kubeletConfiguration.RegisterWithTaints))
 		for i := range kl.kubeletConfiguration.RegisterWithTaints {
 			if err := v1.Convert_api_Taint_To_v1_Taint(&kl.kubeletConfiguration.RegisterWithTaints[i], &taints[i], nil); err != nil {
 				return nil, err
 			}
 		}
-		b, err := json.Marshal(taints)
-		if err != nil {
-			return nil, err
+		nodeTaints = append(nodeTaints, taints...)
+	}
+	if kl.externalCloudProvider {
+		taint := v1.Taint{
+			Key:    algorithm.TaintExternalCloudProvider,
+			Value:  "true",
+			Effect: v1.TaintEffectNoSchedule,
 		}
-		annotations[v1.TaintsAnnotationKey] = string(b)
-		node.ObjectMeta.Annotations = annotations
 
+		nodeTaints = append(nodeTaints, taint)
+	}
+	if len(nodeTaints) > 0 {
+		node.Spec.Taints = nodeTaints
 	}
 	// Initially, set NodeNetworkUnavailable to true.
 	if kl.providerRequiresNetworkingConfiguration() {
@@ -240,12 +250,24 @@ func (kl *Kubelet) initialNode() (*v1.Node, error) {
 		glog.Infof("Controller attach/detach is disabled for this node; Kubelet will attach and detach volumes")
 	}
 
+	if kl.kubeletConfiguration.KeepTerminatedPodVolumes {
+		if node.Annotations == nil {
+			node.Annotations = make(map[string]string)
+		}
+		glog.Infof("Setting node annotation to keep pod volumes of terminated pods attached to the node")
+		node.Annotations[volumehelper.KeepTerminatedPodVolumesAnnotation] = "true"
+	}
+
 	// @question: should this be place after the call to the cloud provider? which also applies labels
 	for k, v := range kl.nodeLabels {
 		if cv, found := node.ObjectMeta.Labels[k]; found {
 			glog.Warningf("the node label %s=%s will overwrite default setting %s", k, v, cv)
 		}
 		node.ObjectMeta.Labels[k] = v
+	}
+
+	if kl.providerID != "" {
+		node.Spec.ProviderID = kl.providerID
 	}
 
 	if kl.cloud != nil {
@@ -266,9 +288,11 @@ func (kl *Kubelet) initialNode() (*v1.Node, error) {
 		// TODO: We can't assume that the node has credentials to talk to the
 		// cloudprovider from arbitrary nodes. At most, we should talk to a
 		// local metadata server here.
-		node.Spec.ProviderID, err = cloudprovider.GetInstanceProviderID(kl.cloud, kl.nodeName)
-		if err != nil {
-			return nil, err
+		if node.Spec.ProviderID == "" {
+			node.Spec.ProviderID, err = cloudprovider.GetInstanceProviderID(kl.cloud, kl.nodeName)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		instanceType, err := instances.InstanceType(kl.nodeName)
@@ -276,8 +300,8 @@ func (kl *Kubelet) initialNode() (*v1.Node, error) {
 			return nil, err
 		}
 		if instanceType != "" {
-			glog.Infof("Adding node label from cloud provider: %s=%s", metav1.LabelInstanceType, instanceType)
-			node.ObjectMeta.Labels[metav1.LabelInstanceType] = instanceType
+			glog.Infof("Adding node label from cloud provider: %s=%s", kubeletapis.LabelInstanceType, instanceType)
+			node.ObjectMeta.Labels[kubeletapis.LabelInstanceType] = instanceType
 		}
 		// If the cloud has zone information, label the node with the zone information
 		zones, ok := kl.cloud.Zones()
@@ -287,12 +311,12 @@ func (kl *Kubelet) initialNode() (*v1.Node, error) {
 				return nil, fmt.Errorf("failed to get zone from cloud provider: %v", err)
 			}
 			if zone.FailureDomain != "" {
-				glog.Infof("Adding node label from cloud provider: %s=%s", metav1.LabelZoneFailureDomain, zone.FailureDomain)
-				node.ObjectMeta.Labels[metav1.LabelZoneFailureDomain] = zone.FailureDomain
+				glog.Infof("Adding node label from cloud provider: %s=%s", kubeletapis.LabelZoneFailureDomain, zone.FailureDomain)
+				node.ObjectMeta.Labels[kubeletapis.LabelZoneFailureDomain] = zone.FailureDomain
 			}
 			if zone.Region != "" {
-				glog.Infof("Adding node label from cloud provider: %s=%s", metav1.LabelZoneRegion, zone.Region)
-				node.ObjectMeta.Labels[metav1.LabelZoneRegion] = zone.Region
+				glog.Infof("Adding node label from cloud provider: %s=%s", kubeletapis.LabelZoneRegion, zone.Region)
+				node.ObjectMeta.Labels[kubeletapis.LabelZoneRegion] = zone.Region
 			}
 		}
 	} else {
@@ -349,7 +373,7 @@ func (kl *Kubelet) tryUpdateNodeStatus(tryNumber int) error {
 	// If it result in a conflict, all retries are served directly from etcd.
 	opts := metav1.GetOptions{}
 	if tryNumber == 0 {
-		opts.ResourceVersion = "0"
+		util.FromApiserverCache(&opts)
 	}
 	node, err := kl.kubeClient.Core().Nodes().Get(string(kl.nodeName), opts)
 	if err != nil {
@@ -398,7 +422,10 @@ func (kl *Kubelet) setNodeAddress(node *v1.Node) error {
 		glog.V(2).Infof("Using node IP: %q", kl.nodeIP.String())
 	}
 
-	if kl.cloud != nil {
+	if kl.externalCloudProvider {
+		// We rely on the external cloud provider to supply the addresses.
+		return nil
+	} else if kl.cloud != nil {
 		instances, ok := kl.cloud.Instances()
 		if !ok {
 			return fmt.Errorf("failed to get instances from cloud provider")
@@ -450,6 +477,7 @@ func (kl *Kubelet) setNodeAddress(node *v1.Node) error {
 		// 4) Try to get the IP from the network interface used as default gateway
 		if kl.nodeIP != nil {
 			ipAddr = kl.nodeIP
+			node.ObjectMeta.Annotations[kubeletapis.AnnotationProvidedIPAddr] = kl.nodeIP.String()
 		} else if addr := net.ParseIP(kl.hostname); addr != nil {
 			ipAddr = addr
 		} else {
@@ -472,7 +500,6 @@ func (kl *Kubelet) setNodeAddress(node *v1.Node) error {
 			return fmt.Errorf("can't get ip address of node %s. error: %v", node.Name, err)
 		} else {
 			node.Status.Addresses = []v1.NodeAddress{
-				{Type: v1.NodeLegacyHostIP, Address: ipAddr.String()},
 				{Type: v1.NodeInternalIP, Address: ipAddr.String()},
 				{Type: v1.NodeHostName, Address: kl.GetHostname()},
 			}
@@ -488,6 +515,14 @@ func (kl *Kubelet) setNodeStatusMachineInfo(node *v1.Node) {
 		node.Status.Capacity = v1.ResourceList{}
 	}
 
+	// populate GPU capacity.
+	gpuCapacity := kl.gpuManager.Capacity()
+	if gpuCapacity != nil {
+		for k, v := range gpuCapacity {
+			node.Status.Capacity[k] = v
+		}
+	}
+
 	// TODO: Post NotReady if we cannot get MachineInfo from cAdvisor. This needs to start
 	// cAdvisor locally, e.g. for test-cmd.sh, and in integration test.
 	info, err := kl.GetCachedMachineInfo()
@@ -497,8 +532,6 @@ func (kl *Kubelet) setNodeStatusMachineInfo(node *v1.Node) {
 		node.Status.Capacity[v1.ResourceCPU] = *resource.NewMilliQuantity(0, resource.DecimalSI)
 		node.Status.Capacity[v1.ResourceMemory] = resource.MustParse("0Gi")
 		node.Status.Capacity[v1.ResourcePods] = *resource.NewQuantity(int64(kl.maxPods), resource.DecimalSI)
-		node.Status.Capacity[v1.ResourceNvidiaGPU] = *resource.NewQuantity(int64(kl.nvidiaGPUs), resource.DecimalSI)
-
 		glog.Errorf("Error getting machine info: %v", err)
 	} else {
 		node.Status.NodeInfo.MachineID = info.MachineID
@@ -515,8 +548,7 @@ func (kl *Kubelet) setNodeStatusMachineInfo(node *v1.Node) {
 			node.Status.Capacity[v1.ResourcePods] = *resource.NewQuantity(
 				int64(kl.maxPods), resource.DecimalSI)
 		}
-		node.Status.Capacity[v1.ResourceNvidiaGPU] = *resource.NewQuantity(
-			int64(kl.nvidiaGPUs), resource.DecimalSI)
+
 		if node.Status.NodeInfo.BootID != "" &&
 			node.Status.NodeInfo.BootID != info.BootID {
 			// TODO: This requires a transaction, either both node status is updated
@@ -525,17 +557,38 @@ func (kl *Kubelet) setNodeStatusMachineInfo(node *v1.Node) {
 				"Node %s has been rebooted, boot id: %s", kl.nodeName, info.BootID)
 		}
 		node.Status.NodeInfo.BootID = info.BootID
+
+		if utilfeature.DefaultFeatureGate.Enabled(features.LocalStorageCapacityIsolation) {
+			// TODO: all the node resources should use GetCapacity instead of deriving the
+			// capacity for every node status request
+			initialCapacity := kl.containerManager.GetCapacity()
+			if initialCapacity != nil {
+				node.Status.Capacity[v1.ResourceStorageScratch] = initialCapacity[v1.ResourceStorageScratch]
+				imageCapacity, ok := initialCapacity[v1.ResourceStorageOverlay]
+				if ok {
+					node.Status.Capacity[v1.ResourceStorageOverlay] = imageCapacity
+				}
+			}
+		}
 	}
 
 	// Set Allocatable.
-	node.Status.Allocatable = make(v1.ResourceList)
+	if node.Status.Allocatable == nil {
+		node.Status.Allocatable = make(v1.ResourceList)
+	}
+	// Remove opaque integer resources from allocatable that are no longer
+	// present in capacity.
+	for k := range node.Status.Allocatable {
+		_, found := node.Status.Capacity[k]
+		if !found && v1helper.IsOpaqueIntResourceName(k) {
+			delete(node.Status.Allocatable, k)
+		}
+	}
+	allocatableReservation := kl.containerManager.GetNodeAllocatableReservation()
 	for k, v := range node.Status.Capacity {
 		value := *(v.Copy())
-		if kl.reservation.System != nil {
-			value.Sub(kl.reservation.System[k])
-		}
-		if kl.reservation.Kubernetes != nil {
-			value.Sub(kl.reservation.Kubernetes[k])
+		if res, exists := allocatableReservation[k]; exists {
+			value.Sub(res)
 		}
 		if value.Sign() < 0 {
 			// Negative Allocatable resources don't make sense.
@@ -564,7 +617,6 @@ func (kl *Kubelet) setNodeStatusVersionInfo(node *v1.Node) {
 		// TODO: kube-proxy might be different version from kubelet in the future
 		node.Status.NodeInfo.KubeProxyVersion = version.Get().String()
 	}
-
 }
 
 // Set daemonEndpoints for the node.

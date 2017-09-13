@@ -268,8 +268,8 @@ func (v *Cmd) Tags(dir string) ([]string, error) {
 	return tags, nil
 }
 
-// TagSync syncs the repo in dir to the named tag,
-// which either is a tag returned by tags or is v.TagDefault.
+// TagSync syncs the repo in dir to the named tag, which is either a
+// tag returned by Tags or the empty string (the default tag).
 // dir must be a valid VCS repo compatible with v and the tag must exist.
 func (v *Cmd) TagSync(dir, tag string) error {
 	if v.TagSyncCmd == "" {
@@ -347,7 +347,7 @@ func FromDir(dir, srcRoot string) (vcs *Cmd, root string, err error) {
 	origDir := dir
 	for len(dir) > len(srcRoot) {
 		for _, vcs := range vcsList {
-			if fi, err := os.Stat(filepath.Join(dir, "."+vcs.Cmd)); err == nil && fi.IsDir() {
+			if _, err := os.Stat(filepath.Join(dir, "."+vcs.Cmd)); err == nil {
 				return vcs, filepath.ToSlash(dir[len(srcRoot)+1:]), nil
 			}
 		}
@@ -602,7 +602,7 @@ var vcsPaths = []*vcsPath{
 	// Github
 	{
 		prefix: "github.com/",
-		re:     `^(?P<root>github\.com/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+)(/[A-Za-z0-9_.\-]+)*$`,
+		re:     `^(?P<root>github\.com/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+)(/[\p{L}0-9_.\-]+)*$`,
 		vcs:    "git",
 		repo:   "https://{root}",
 		check:  noVCSSuffix,

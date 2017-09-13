@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
-	utiltesting "k8s.io/client-go/pkg/util/testing"
+	utiltesting "k8s.io/client-go/util/testing"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/util/mount"
 	"k8s.io/kubernetes/pkg/volume"
@@ -116,8 +116,8 @@ func (fake *fakePDManager) DetachDisk(c *cinderVolumeUnmounter) error {
 	return nil
 }
 
-func (fake *fakePDManager) CreateVolume(c *cinderVolumeProvisioner) (volumeID string, volumeSizeGB int, err error) {
-	return "test-volume-name", 1, nil
+func (fake *fakePDManager) CreateVolume(c *cinderVolumeProvisioner) (volumeID string, volumeSizeGB int, labels map[string]string, err error) {
+	return "test-volume-name", 1, nil, nil
 }
 
 func (fake *fakePDManager) DeleteVolume(cd *cinderVolumeDeleter) error {

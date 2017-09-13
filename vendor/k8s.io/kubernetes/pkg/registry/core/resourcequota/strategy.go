@@ -24,11 +24,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/generic"
+	"k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/validation"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/generic"
-	"k8s.io/kubernetes/pkg/storage"
 )
 
 // resourcequotaStrategy implements behavior for ResourceQuota objects
@@ -101,12 +101,12 @@ func (resourcequotaStatusStrategy) ValidateUpdate(ctx genericapirequest.Context,
 }
 
 // GetAttrs returns labels and fields of a given object for filtering purposes.
-func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, error) {
+func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, bool, error) {
 	resourcequotaObj, ok := obj.(*api.ResourceQuota)
 	if !ok {
-		return nil, nil, fmt.Errorf("not a resourcequota")
+		return nil, nil, false, fmt.Errorf("not a resourcequota")
 	}
-	return labels.Set(resourcequotaObj.Labels), ResourceQuotaToSelectableFields(resourcequotaObj), nil
+	return labels.Set(resourcequotaObj.Labels), ResourceQuotaToSelectableFields(resourcequotaObj), resourcequotaObj.Initializers != nil, nil
 }
 
 // MatchResourceQuota returns a generic matcher for a given label and field selector.

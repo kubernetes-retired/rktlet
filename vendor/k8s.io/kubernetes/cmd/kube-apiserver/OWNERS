@@ -1,9 +1,12 @@
 approvers:
 - caesarxuchao
+- deads2k
 - lavalamp
+- liggitt
 - mml
 - nikhiljindal
 - smarterclayton
+- sttts
 reviewers:
 - lavalamp
 - smarterclayton
@@ -15,3 +18,4 @@ reviewers:
 - liggitt
 - nikhiljindal
 - ncdc
+- sttts

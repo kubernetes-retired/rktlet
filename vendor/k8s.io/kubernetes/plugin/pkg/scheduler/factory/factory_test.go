@@ -25,14 +25,15 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	utiltesting "k8s.io/client-go/pkg/util/testing"
 	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
+	utiltesting "k8s.io/client-go/util/testing"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/testapi"
 	apitesting "k8s.io/kubernetes/pkg/api/testing"
 	"k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/client/cache"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	informers "k8s.io/kubernetes/pkg/client/informers/informers_generated/externalversions"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/algorithm"
 	schedulerapi "k8s.io/kubernetes/plugin/pkg/scheduler/api"
 	latestschedulerapi "k8s.io/kubernetes/plugin/pkg/scheduler/api/latest"
@@ -49,7 +50,20 @@ func TestCreate(t *testing.T) {
 	server := httptest.NewServer(&handler)
 	defer server.Close()
 	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	factory := NewConfigFactory(client, v1.DefaultSchedulerName, v1.DefaultHardPodAffinitySymmetricWeight, v1.DefaultFailureDomains)
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	factory := NewConfigFactory(
+		v1.DefaultSchedulerName,
+		client,
+		informerFactory.Core().V1().Nodes(),
+		informerFactory.Core().V1().Pods(),
+		informerFactory.Core().V1().PersistentVolumes(),
+		informerFactory.Core().V1().PersistentVolumeClaims(),
+		informerFactory.Core().V1().ReplicationControllers(),
+		informerFactory.Extensions().V1beta1().ReplicaSets(),
+		informerFactory.Apps().V1beta1().StatefulSets(),
+		informerFactory.Core().V1().Services(),
+		v1.DefaultHardPodAffinitySymmetricWeight,
+	)
 	factory.Create()
 }
 
@@ -67,7 +81,20 @@ func TestCreateFromConfig(t *testing.T) {
 	server := httptest.NewServer(&handler)
 	defer server.Close()
 	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	factory := NewConfigFactory(client, v1.DefaultSchedulerName, v1.DefaultHardPodAffinitySymmetricWeight, v1.DefaultFailureDomains)
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	factory := NewConfigFactory(
+		v1.DefaultSchedulerName,
+		client,
+		informerFactory.Core().V1().Nodes(),
+		informerFactory.Core().V1().Pods(),
+		informerFactory.Core().V1().PersistentVolumes(),
+		informerFactory.Core().V1().PersistentVolumeClaims(),
+		informerFactory.Core().V1().ReplicationControllers(),
+		informerFactory.Extensions().V1beta1().ReplicaSets(),
+		informerFactory.Apps().V1beta1().StatefulSets(),
+		informerFactory.Core().V1().Services(),
+		v1.DefaultHardPodAffinitySymmetricWeight,
+	)
 
 	// Pre-register some predicate and priority functions
 	RegisterFitPredicate("PredicateOne", PredicateOne)
@@ -94,6 +121,69 @@ func TestCreateFromConfig(t *testing.T) {
 	}
 
 	factory.CreateFromConfig(policy)
+	hpa := factory.GetHardPodAffinitySymmetricWeight()
+	if hpa != v1.DefaultHardPodAffinitySymmetricWeight {
+		t.Errorf("Wrong hardPodAffinitySymmetricWeight, ecpected: %d, got: %d", v1.DefaultHardPodAffinitySymmetricWeight, hpa)
+	}
+}
+
+func TestCreateFromConfigWithHardPodAffinitySymmetricWeight(t *testing.T) {
+	var configData []byte
+	var policy schedulerapi.Policy
+
+	handler := utiltesting.FakeHandler{
+		StatusCode:   500,
+		ResponseBody: "",
+		T:            t,
+	}
+	server := httptest.NewServer(&handler)
+	defer server.Close()
+	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	factory := NewConfigFactory(
+		v1.DefaultSchedulerName,
+		client,
+		informerFactory.Core().V1().Nodes(),
+		informerFactory.Core().V1().Pods(),
+		informerFactory.Core().V1().PersistentVolumes(),
+		informerFactory.Core().V1().PersistentVolumeClaims(),
+		informerFactory.Core().V1().ReplicationControllers(),
+		informerFactory.Extensions().V1beta1().ReplicaSets(),
+		informerFactory.Apps().V1beta1().StatefulSets(),
+		informerFactory.Core().V1().Services(),
+		v1.DefaultHardPodAffinitySymmetricWeight,
+	)
+
+	// Pre-register some predicate and priority functions
+	RegisterFitPredicate("PredicateOne", PredicateOne)
+	RegisterFitPredicate("PredicateTwo", PredicateTwo)
+	RegisterPriorityFunction("PriorityOne", PriorityOne, 1)
+	RegisterPriorityFunction("PriorityTwo", PriorityTwo, 1)
+
+	configData = []byte(`{
+		"kind" : "Policy",
+		"apiVersion" : "v1",
+		"predicates" : [
+			{"name" : "TestZoneAffinity", "argument" : {"serviceAffinity" : {"labels" : ["zone"]}}},
+			{"name" : "TestRequireZone", "argument" : {"labelsPresence" : {"labels" : ["zone"], "presence" : true}}},
+			{"name" : "PredicateOne"},
+			{"name" : "PredicateTwo"}
+		],
+		"priorities" : [
+			{"name" : "RackSpread", "weight" : 3, "argument" : {"serviceAntiAffinity" : {"label" : "rack"}}},
+			{"name" : "PriorityOne", "weight" : 2},
+			{"name" : "PriorityTwo", "weight" : 1}
+		],
+		"hardPodAffinitySymmetricWeight" : 10
+	}`)
+	if err := runtime.DecodeInto(latestschedulerapi.Codec, configData, &policy); err != nil {
+		t.Errorf("Invalid configuration: %v", err)
+	}
+	factory.CreateFromConfig(policy)
+	hpa := factory.GetHardPodAffinitySymmetricWeight()
+	if hpa != 10 {
+		t.Errorf("Wrong hardPodAffinitySymmetricWeight, ecpected: %d, got: %d", 10, hpa)
+	}
 }
 
 func TestCreateFromEmptyConfig(t *testing.T) {
@@ -108,7 +198,20 @@ func TestCreateFromEmptyConfig(t *testing.T) {
 	server := httptest.NewServer(&handler)
 	defer server.Close()
 	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-	factory := NewConfigFactory(client, v1.DefaultSchedulerName, v1.DefaultHardPodAffinitySymmetricWeight, v1.DefaultFailureDomains)
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	factory := NewConfigFactory(
+		v1.DefaultSchedulerName,
+		client,
+		informerFactory.Core().V1().Nodes(),
+		informerFactory.Core().V1().Pods(),
+		informerFactory.Core().V1().PersistentVolumes(),
+		informerFactory.Core().V1().PersistentVolumeClaims(),
+		informerFactory.Core().V1().ReplicationControllers(),
+		informerFactory.Extensions().V1beta1().ReplicaSets(),
+		informerFactory.Apps().V1beta1().StatefulSets(),
+		informerFactory.Core().V1().Services(),
+		v1.DefaultHardPodAffinitySymmetricWeight,
+	)
 
 	configData = []byte(`{}`)
 	if err := runtime.DecodeInto(latestschedulerapi.Codec, configData, &policy); err != nil {
@@ -150,7 +253,21 @@ func TestDefaultErrorFunc(t *testing.T) {
 	mux.Handle(testapi.Default.ResourcePath("pods", "bar", "foo"), &handler)
 	server := httptest.NewServer(mux)
 	defer server.Close()
-	factory := NewConfigFactory(clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}}), v1.DefaultSchedulerName, v1.DefaultHardPodAffinitySymmetricWeight, v1.DefaultFailureDomains)
+	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	factory := NewConfigFactory(
+		v1.DefaultSchedulerName,
+		client,
+		informerFactory.Core().V1().Nodes(),
+		informerFactory.Core().V1().Pods(),
+		informerFactory.Core().V1().PersistentVolumes(),
+		informerFactory.Core().V1().PersistentVolumeClaims(),
+		informerFactory.Core().V1().ReplicationControllers(),
+		informerFactory.Extensions().V1beta1().ReplicaSets(),
+		informerFactory.Apps().V1beta1().StatefulSets(),
+		informerFactory.Core().V1().Services(),
+		v1.DefaultHardPodAffinitySymmetricWeight,
+	)
 	queue := cache.NewFIFO(cache.MetaNamespaceKeyFunc)
 	podBackoff := util.CreatePodBackoff(1*time.Millisecond, 1*time.Second)
 	errFunc := factory.MakeDefaultErrorFunc(podBackoff, queue)
@@ -228,7 +345,9 @@ func TestBind(t *testing.T) {
 			continue
 		}
 		expectedBody := runtime.EncodeOrDie(testapi.Default.Codec(), item.binding)
-		handler.ValidateRequest(t, testapi.Default.ResourcePath("bindings", metav1.NamespaceDefault, ""), "POST", &expectedBody)
+		handler.ValidateRequest(t,
+			testapi.Default.SubResourcePath("pods", metav1.NamespaceDefault, "foo", "binding"),
+			"POST", &expectedBody)
 	}
 }
 
@@ -247,9 +366,34 @@ func TestResponsibleForPod(t *testing.T) {
 	defer server.Close()
 	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
 	// factory of "default-scheduler"
-	factoryDefaultScheduler := NewConfigFactory(client, v1.DefaultSchedulerName, v1.DefaultHardPodAffinitySymmetricWeight, v1.DefaultFailureDomains)
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	factoryDefaultScheduler := NewConfigFactory(
+		v1.DefaultSchedulerName,
+		client,
+		informerFactory.Core().V1().Nodes(),
+		informerFactory.Core().V1().Pods(),
+		informerFactory.Core().V1().PersistentVolumes(),
+		informerFactory.Core().V1().PersistentVolumeClaims(),
+		informerFactory.Core().V1().ReplicationControllers(),
+		informerFactory.Extensions().V1beta1().ReplicaSets(),
+		informerFactory.Apps().V1beta1().StatefulSets(),
+		informerFactory.Core().V1().Services(),
+		v1.DefaultHardPodAffinitySymmetricWeight,
+	)
 	// factory of "foo-scheduler"
-	factoryFooScheduler := NewConfigFactory(client, "foo-scheduler", v1.DefaultHardPodAffinitySymmetricWeight, v1.DefaultFailureDomains)
+	factoryFooScheduler := NewConfigFactory(
+		"foo-scheduler",
+		client,
+		informerFactory.Core().V1().Nodes(),
+		informerFactory.Core().V1().Pods(),
+		informerFactory.Core().V1().PersistentVolumes(),
+		informerFactory.Core().V1().PersistentVolumeClaims(),
+		informerFactory.Core().V1().ReplicationControllers(),
+		informerFactory.Extensions().V1beta1().ReplicaSets(),
+		informerFactory.Apps().V1beta1().StatefulSets(),
+		informerFactory.Core().V1().Services(),
+		v1.DefaultHardPodAffinitySymmetricWeight,
+	)
 	// scheduler annotations to be tested
 	schedulerFitsDefault := "default-scheduler"
 	schedulerFitsFoo := "foo-scheduler"
@@ -305,7 +449,20 @@ func TestInvalidHardPodAffinitySymmetricWeight(t *testing.T) {
 	// defer server.Close()
 	client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
 	// factory of "default-scheduler"
-	factory := NewConfigFactory(client, v1.DefaultSchedulerName, -1, v1.DefaultFailureDomains)
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	factory := NewConfigFactory(
+		v1.DefaultSchedulerName,
+		client,
+		informerFactory.Core().V1().Nodes(),
+		informerFactory.Core().V1().Pods(),
+		informerFactory.Core().V1().PersistentVolumes(),
+		informerFactory.Core().V1().PersistentVolumeClaims(),
+		informerFactory.Core().V1().ReplicationControllers(),
+		informerFactory.Extensions().V1beta1().ReplicaSets(),
+		informerFactory.Apps().V1beta1().StatefulSets(),
+		informerFactory.Core().V1().Services(),
+		-1,
+	)
 	_, err := factory.Create()
 	if err == nil {
 		t.Errorf("expected err: invalid hardPodAffinitySymmetricWeight, got nothing")
@@ -324,28 +481,33 @@ func TestInvalidFactoryArgs(t *testing.T) {
 
 	testCases := []struct {
 		hardPodAffinitySymmetricWeight int
-		failureDomains                 string
 		expectErr                      string
 	}{
 		{
 			hardPodAffinitySymmetricWeight: -1,
-			failureDomains:                 v1.DefaultFailureDomains,
 			expectErr:                      "invalid hardPodAffinitySymmetricWeight: -1, must be in the range 0-100",
 		},
 		{
 			hardPodAffinitySymmetricWeight: 101,
-			failureDomains:                 v1.DefaultFailureDomains,
 			expectErr:                      "invalid hardPodAffinitySymmetricWeight: 101, must be in the range 0-100",
-		},
-		{
-			hardPodAffinitySymmetricWeight: 0,
-			failureDomains:                 "INVALID_FAILURE_DOMAINS",
-			expectErr:                      "invalid failure domain: INVALID_FAILURE_DOMAINS",
 		},
 	}
 
 	for _, test := range testCases {
-		factory := NewConfigFactory(client, v1.DefaultSchedulerName, test.hardPodAffinitySymmetricWeight, test.failureDomains)
+		informerFactory := informers.NewSharedInformerFactory(client, 0)
+		factory := NewConfigFactory(
+			v1.DefaultSchedulerName,
+			client,
+			informerFactory.Core().V1().Nodes(),
+			informerFactory.Core().V1().Pods(),
+			informerFactory.Core().V1().PersistentVolumes(),
+			informerFactory.Core().V1().PersistentVolumeClaims(),
+			informerFactory.Core().V1().ReplicationControllers(),
+			informerFactory.Extensions().V1beta1().ReplicaSets(),
+			informerFactory.Apps().V1beta1().StatefulSets(),
+			informerFactory.Core().V1().Services(),
+			test.hardPodAffinitySymmetricWeight,
+		)
 		_, err := factory.Create()
 		if err == nil {
 			t.Errorf("expected err: %s, got nothing", test.expectErr)

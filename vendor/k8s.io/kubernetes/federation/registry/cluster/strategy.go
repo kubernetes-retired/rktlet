@@ -24,12 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/generic"
+	apistorage "k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/federation/apis/federation"
 	"k8s.io/kubernetes/federation/apis/federation/validation"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/generic"
-	apistorage "k8s.io/kubernetes/pkg/storage"
 )
 
 type clusterStrategy struct {
@@ -48,12 +48,12 @@ func ClusterToSelectableFields(cluster *federation.Cluster) fields.Set {
 }
 
 // GetAttrs returns labels and fields of a given object for filtering purposes.
-func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, error) {
+func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, bool, error) {
 	cluster, ok := obj.(*federation.Cluster)
 	if !ok {
-		return nil, nil, fmt.Errorf("given object is not a cluster.")
+		return nil, nil, false, fmt.Errorf("given object is not a cluster.")
 	}
-	return labels.Set(cluster.ObjectMeta.Labels), ClusterToSelectableFields(cluster), nil
+	return labels.Set(cluster.ObjectMeta.Labels), ClusterToSelectableFields(cluster), cluster.Initializers != nil, nil
 }
 
 func MatchCluster(label labels.Selector, field fields.Selector) apistorage.SelectionPredicate {

@@ -17,6 +17,10 @@
 # Script that starts kubelet on kubemark-master as a supervisord process
 # and then runs the master components as pods using kubelet.
 
+set -o errexit
+set -o nounset
+set -o pipefail
+
 # Define key path variables.
 KUBE_ROOT="/home/kubernetes"
 KUBE_BINDIR="${KUBE_ROOT}/kubernetes/server/bin"
@@ -93,7 +97,6 @@ function safe-format-and-mount() {
 		mkfs.ext4 -F "${device}"
 	fi
 
-	mkdir -p "${mountpoint}"
 	echo "Mounting '${device}' at '${mountpoint}'"
 	mount -o discard,defaults "${device}" "${mountpoint}"
 }
@@ -138,8 +141,8 @@ function mount-pd() {
 # Create kubeconfig for controller-manager's service account authentication.
 function create-kubecontrollermanager-kubeconfig {
 	echo "Creating kube-controller-manager kubeconfig file"
-	mkdir -p /etc/srv/kubernetes/kube-controller-manager
-	cat <<EOF >/etc/srv/kubernetes/kube-controller-manager/kubeconfig
+	mkdir -p "${KUBE_ROOT}/k8s_auth_data/kube-controller-manager"
+	cat <<EOF >"${KUBE_ROOT}/k8s_auth_data/kube-controller-manager/kubeconfig"
 apiVersion: v1
 kind: Config
 users:
@@ -157,6 +160,30 @@ contexts:
     user: kube-controller-manager
   name: service-account-context
 current-context: service-account-context
+EOF
+}
+
+function create-kubescheduler-kubeconfig {
+  echo "Creating kube-scheduler kubeconfig file"
+  mkdir -p "${KUBE_ROOT}/k8s_auth_data/kube-scheduler"
+  cat <<EOF >"${KUBE_ROOT}/k8s_auth_data/kube-scheduler/kubeconfig"
+apiVersion: v1
+kind: Config
+users:
+- name: kube-scheduler
+  user:
+    token: ${KUBE_SCHEDULER_TOKEN}
+clusters:
+- name: local
+  cluster:
+    insecure-skip-tls-verify: true
+    server: https://localhost:443
+contexts:
+- context:
+    cluster: local
+    user: kube-scheduler
+  name: kube-scheduler
+current-context: kube-scheduler
 EOF
 }
 
@@ -207,10 +234,9 @@ function load-docker-images {
 function compute-kubelet-params {
 	local params="${KUBELET_TEST_ARGS:-}"
 	params+=" --allow-privileged=true"
-	params+=" --babysit-daemons=true"
 	params+=" --cgroup-root=/"
 	params+=" --cloud-provider=gce"
-	params+=" --config=/etc/kubernetes/manifests"
+	params+=" --pod-manifest-path=/etc/kubernetes/manifests"
 	if [[ -n "${KUBELET_PORT:-}" ]]; then
 		params+=" --port=${KUBELET_PORT}"
 	fi
@@ -313,8 +339,12 @@ function compute-etcd-events-params {
 function compute-kube-apiserver-params {
 	local params="${APISERVER_TEST_ARGS:-}"
 	params+=" --insecure-bind-address=0.0.0.0"
-	params+=" --etcd-servers=http://127.0.0.1:2379"
-	params+=" --etcd-servers-overrides=/events#${EVENT_STORE_URL}"
+	if [[ -z "${ETCD_SERVERS:-}" ]]; then
+		params+=" --etcd-servers=http://127.0.0.1:2379"
+		params+=" --etcd-servers-overrides=/events#${EVENT_STORE_URL}"
+	else
+		params+=" --etcd-servers=${ETCD_SERVERS}"
+	fi
 	params+=" --tls-cert-file=/etc/srv/kubernetes/server.cert"
 	params+=" --tls-private-key-file=/etc/srv/kubernetes/server.key"
 	params+=" --client-ca-file=/etc/srv/kubernetes/ca.crt"
@@ -325,7 +355,7 @@ function compute-kube-apiserver-params {
 	params+=" --storage-backend=${STORAGE_BACKEND}"
 	params+=" --service-cluster-ip-range=${SERVICE_CLUSTER_IP_RANGE}"
 	params+=" --admission-control=${CUSTOM_ADMISSION_PLUGINS}"
-	params+=" --authorization-mode=RBAC"
+	params+=" --authorization-mode=Node,RBAC"
 	echo "${params}"
 }
 
@@ -346,7 +376,7 @@ function compute-kube-controller-manager-params {
 # Computes command line arguments to be passed to scheduler.
 function compute-kube-scheduler-params {
 	local params="${SCHEDULER_TEST_ARGS:-}"
-	params+=" --master=127.0.0.1:8080"
+	params+=" --kubeconfig=/etc/srv/kubernetes/kube-scheduler/kubeconfig"
 	echo "${params}"
 }
 
@@ -395,7 +425,9 @@ echo "Start to configure master instance for kubemark"
 
 # Extract files from the server tar and setup master env variables.
 cd "${KUBE_ROOT}"
-tar xzf kubernetes-server-linux-amd64.tar.gz
+if [[ ! -d "${KUBE_ROOT}/kubernetes" ]]; then
+	tar xzf kubernetes-server-linux-amd64.tar.gz
+fi
 source "${KUBE_ROOT}/kubemark-master-env.sh"
 
 # Setup IP firewall rules, required directory structure and etcd config.
@@ -405,10 +437,18 @@ setup-kubelet-dir
 delete-default-etcd-configs
 compute-etcd-variables
 
-# Setup authentication token and kubeconfig for controller-manager.
-KUBE_CONTROLLER_MANAGER_TOKEN=$(dd if=/dev/urandom bs=128 count=1 2>/dev/null | base64 | tr -d "=+/" | dd bs=32 count=1 2>/dev/null)
-echo "${KUBE_CONTROLLER_MANAGER_TOKEN},system:kube-controller-manager,uid:system:kube-controller-manager" >> /etc/srv/kubernetes/known_tokens.csv
-create-kubecontrollermanager-kubeconfig
+# Setup authentication tokens and kubeconfigs for kube-controller-manager and kube-scheduler,
+# only if their kubeconfigs don't already exist as this script could be running on reboot.
+if [[ ! -f "${KUBE_ROOT}/k8s_auth_data/kube-controller-manager/kubeconfig" ]]; then
+	KUBE_CONTROLLER_MANAGER_TOKEN=$(dd if=/dev/urandom bs=128 count=1 2>/dev/null | base64 | tr -d "=+/" | dd bs=32 count=1 2>/dev/null)
+	echo "${KUBE_CONTROLLER_MANAGER_TOKEN},system:kube-controller-manager,uid:system:kube-controller-manager" >> "${KUBE_ROOT}/k8s_auth_data/known_tokens.csv"
+	create-kubecontrollermanager-kubeconfig
+fi
+if [[ ! -f "${KUBE_ROOT}/k8s_auth_data/kube-scheduler/kubeconfig" ]]; then
+	KUBE_SCHEDULER_TOKEN=$(dd if=/dev/urandom bs=128 count=1 2>/dev/null | base64 | tr -d "=+/" | dd bs=32 count=1 2>/dev/null)
+	echo "${KUBE_SCHEDULER_TOKEN},system:kube-scheduler,uid:system:kube-scheduler" >> "${KUBE_ROOT}/k8s_auth_data/known_tokens.csv"
+	create-kubescheduler-kubeconfig
+fi
 
 # Mount master PD for etcd and create symbolic links to it.
 {
@@ -418,9 +458,13 @@ create-kubecontrollermanager-kubeconfig
 	mkdir -m 700 -p "${main_etcd_mount_point}/var/etcd"
 	ln -s -f "${main_etcd_mount_point}/var/etcd" /var/etcd
 	mkdir -p /etc/srv
-	# Contains the dynamically generated apiserver auth certs and keys.
+	# Setup the dynamically generated apiserver auth certs and keys to pd.
 	mkdir -p "${main_etcd_mount_point}/srv/kubernetes"
 	ln -s -f "${main_etcd_mount_point}/srv/kubernetes" /etc/srv/kubernetes
+	# Copy the files to the PD only if they don't exist (so we do it only the first time).
+	if [[ "$(ls -A ${main_etcd_mount_point}/srv/kubernetes/)" == "" ]]; then
+		cp -r "${KUBE_ROOT}"/k8s_auth_data/* "${main_etcd_mount_point}/srv/kubernetes/"
+	fi
 	# Directory for kube-apiserver to store SSH key (if necessary).
 	mkdir -p "${main_etcd_mount_point}/srv/sshproxy"
 	ln -s -f "${main_etcd_mount_point}/srv/sshproxy" /etc/srv/sshproxy
@@ -456,9 +500,17 @@ start-kubemaster-component "kube-controller-manager"
 start-kubemaster-component "kube-scheduler"
 start-kubemaster-component "kube-addon-manager"
 
-# Wait till apiserver is working fine.
+# Wait till apiserver is working fine or timeout.
+echo -n "Waiting for apiserver to be healthy"
+start=$(date +%s)
 until [ "$(curl 127.0.0.1:8080/healthz 2> /dev/null)" == "ok" ]; do
+	echo -n "."
 	sleep 1
+	now=$(date +%s)
+	if [ $((now - start)) -gt 300 ]; then
+		echo "Timeout!"
+		exit 1
+	fi
 done
 
 echo "Done for the configuration for kubermark master"

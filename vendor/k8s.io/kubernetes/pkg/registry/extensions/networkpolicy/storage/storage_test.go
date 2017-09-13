@@ -23,12 +23,12 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/generic"
+	etcdtesting "k8s.io/apiserver/pkg/storage/etcd/testing"
 	"k8s.io/kubernetes/pkg/apis/extensions"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/generic"
 	"k8s.io/kubernetes/pkg/registry/registrytest"
-	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
-	"k8s.io/kubernetes/pkg/util/intstr"
 )
 
 func newStorage(t *testing.T) (*REST, *etcdtesting.EtcdTestServer) {
@@ -45,7 +45,7 @@ func newStorage(t *testing.T) (*REST, *etcdtesting.EtcdTestServer) {
 // createNetworkPolicy is a helper function that returns a NetworkPolicy with the updated resource version.
 func createNetworkPolicy(storage *REST, np extensions.NetworkPolicy, t *testing.T) (extensions.NetworkPolicy, error) {
 	ctx := genericapirequest.WithNamespace(genericapirequest.NewContext(), np.Namespace)
-	obj, err := storage.Create(ctx, &np)
+	obj, err := storage.Create(ctx, &np, false)
 	if err != nil {
 		t.Errorf("Failed to create NetworkPolicy, %v", err)
 	}

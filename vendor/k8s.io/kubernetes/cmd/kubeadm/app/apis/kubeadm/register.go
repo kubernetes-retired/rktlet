@@ -17,10 +17,8 @@ limitations under the License.
 package kubeadm
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/kubernetes/pkg/api"
 )
 
 // GroupName is the group name use in this package
@@ -48,13 +46,6 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
 		&MasterConfiguration{},
 		&NodeConfiguration{},
-		&ClusterInfo{},
-		&api.DeleteOptions{},
-		&metav1.ExportOptions{},
 	)
 	return nil
 }
-
-func (obj *MasterConfiguration) GetObjectKind() schema.ObjectKind { return &obj.TypeMeta }
-func (obj *NodeConfiguration) GetObjectKind() schema.ObjectKind   { return &obj.TypeMeta }
-func (obj *ClusterInfo) GetObjectKind() schema.ObjectKind         { return &obj.TypeMeta }

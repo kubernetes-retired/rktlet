@@ -22,6 +22,7 @@ import (
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/api"
+	scheme "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/scheme"
 )
 
 // LimitRangesGetter has a method to return a LimitRangeInterface.
@@ -34,8 +35,8 @@ type LimitRangesGetter interface {
 type LimitRangeInterface interface {
 	Create(*api.LimitRange) (*api.LimitRange, error)
 	Update(*api.LimitRange) (*api.LimitRange, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*api.LimitRange, error)
 	List(opts v1.ListOptions) (*api.LimitRangeList, error)
 	Watch(opts v1.ListOptions) (watch.Interface, error)
@@ -83,7 +84,7 @@ func (c *limitRanges) Update(limitRange *api.LimitRange) (result *api.LimitRange
 }
 
 // Delete takes name of the limitRange and deletes it. Returns an error if one occurs.
-func (c *limitRanges) Delete(name string, options *api.DeleteOptions) error {
+func (c *limitRanges) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("limitranges").
@@ -94,11 +95,11 @@ func (c *limitRanges) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *limitRanges) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *limitRanges) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("limitranges").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -111,7 +112,7 @@ func (c *limitRanges) Get(name string, options v1.GetOptions) (result *api.Limit
 		Namespace(c.ns).
 		Resource("limitranges").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -123,7 +124,7 @@ func (c *limitRanges) List(opts v1.ListOptions) (result *api.LimitRangeList, err
 	err = c.client.Get().
 		Namespace(c.ns).
 		Resource("limitranges").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -131,11 +132,11 @@ func (c *limitRanges) List(opts v1.ListOptions) (result *api.LimitRangeList, err
 
 // Watch returns a watch.Interface that watches the requested limitRanges.
 func (c *limitRanges) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Namespace(c.ns).
 		Resource("limitranges").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

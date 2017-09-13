@@ -24,10 +24,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/validation"
-	"k8s.io/kubernetes/pkg/storage"
 )
 
 // podTemplateStrategy implements behavior for PodTemplates
@@ -89,12 +89,12 @@ func PodTemplateToSelectableFields(podTemplate *api.PodTemplate) fields.Set {
 }
 
 // GetAttrs returns labels and fields of a given object for filtering purposes.
-func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, error) {
+func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, bool, error) {
 	pt, ok := obj.(*api.PodTemplate)
 	if !ok {
-		return nil, nil, fmt.Errorf("given object is not a pod template.")
+		return nil, nil, false, fmt.Errorf("given object is not a pod template.")
 	}
-	return labels.Set(pt.ObjectMeta.Labels), PodTemplateToSelectableFields(pt), nil
+	return labels.Set(pt.ObjectMeta.Labels), PodTemplateToSelectableFields(pt), pt.Initializers != nil, nil
 }
 
 func MatchPodTemplate(label labels.Selector, field fields.Selector) storage.SelectionPredicate {

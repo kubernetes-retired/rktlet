@@ -22,6 +22,7 @@ import (
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/api"
+	scheme "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/scheme"
 )
 
 // PodsGetter has a method to return a PodInterface.
@@ -35,8 +36,8 @@ type PodInterface interface {
 	Create(*api.Pod) (*api.Pod, error)
 	Update(*api.Pod) (*api.Pod, error)
 	UpdateStatus(*api.Pod) (*api.Pod, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*api.Pod, error)
 	List(opts v1.ListOptions) (*api.PodList, error)
 	Watch(opts v1.ListOptions) (watch.Interface, error)
@@ -100,7 +101,7 @@ func (c *pods) UpdateStatus(pod *api.Pod) (result *api.Pod, err error) {
 }
 
 // Delete takes name of the pod and deletes it. Returns an error if one occurs.
-func (c *pods) Delete(name string, options *api.DeleteOptions) error {
+func (c *pods) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("pods").
@@ -111,11 +112,11 @@ func (c *pods) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *pods) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *pods) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("pods").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -128,7 +129,7 @@ func (c *pods) Get(name string, options v1.GetOptions) (result *api.Pod, err err
 		Namespace(c.ns).
 		Resource("pods").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -140,7 +141,7 @@ func (c *pods) List(opts v1.ListOptions) (result *api.PodList, err error) {
 	err = c.client.Get().
 		Namespace(c.ns).
 		Resource("pods").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -148,11 +149,11 @@ func (c *pods) List(opts v1.ListOptions) (result *api.PodList, err error) {
 
 // Watch returns a watch.Interface that watches the requested pods.
 func (c *pods) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Namespace(c.ns).
 		Resource("pods").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

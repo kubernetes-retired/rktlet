@@ -21,8 +21,8 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
-	api "k8s.io/kubernetes/pkg/api"
 	rbac "k8s.io/kubernetes/pkg/apis/rbac"
+	scheme "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/scheme"
 )
 
 // ClusterRoleBindingsGetter has a method to return a ClusterRoleBindingInterface.
@@ -35,8 +35,8 @@ type ClusterRoleBindingsGetter interface {
 type ClusterRoleBindingInterface interface {
 	Create(*rbac.ClusterRoleBinding) (*rbac.ClusterRoleBinding, error)
 	Update(*rbac.ClusterRoleBinding) (*rbac.ClusterRoleBinding, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*rbac.ClusterRoleBinding, error)
 	List(opts v1.ListOptions) (*rbac.ClusterRoleBindingList, error)
 	Watch(opts v1.ListOptions) (watch.Interface, error)
@@ -80,7 +80,7 @@ func (c *clusterRoleBindings) Update(clusterRoleBinding *rbac.ClusterRoleBinding
 }
 
 // Delete takes name of the clusterRoleBinding and deletes it. Returns an error if one occurs.
-func (c *clusterRoleBindings) Delete(name string, options *api.DeleteOptions) error {
+func (c *clusterRoleBindings) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Resource("clusterrolebindings").
 		Name(name).
@@ -90,10 +90,10 @@ func (c *clusterRoleBindings) Delete(name string, options *api.DeleteOptions) er
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *clusterRoleBindings) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *clusterRoleBindings) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Resource("clusterrolebindings").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -105,7 +105,7 @@ func (c *clusterRoleBindings) Get(name string, options v1.GetOptions) (result *r
 	err = c.client.Get().
 		Resource("clusterrolebindings").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -116,7 +116,7 @@ func (c *clusterRoleBindings) List(opts v1.ListOptions) (result *rbac.ClusterRol
 	result = &rbac.ClusterRoleBindingList{}
 	err = c.client.Get().
 		Resource("clusterrolebindings").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -124,10 +124,10 @@ func (c *clusterRoleBindings) List(opts v1.ListOptions) (result *rbac.ClusterRol
 
 // Watch returns a watch.Interface that watches the requested clusterRoleBindings.
 func (c *clusterRoleBindings) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Resource("clusterrolebindings").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

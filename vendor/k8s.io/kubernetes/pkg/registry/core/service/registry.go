@@ -23,8 +23,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/rest"
 )
 
 // Registry is an interface for things that know how to store services.
@@ -58,7 +58,7 @@ func (s *storage) ListServices(ctx genericapirequest.Context, options *metainter
 }
 
 func (s *storage) CreateService(ctx genericapirequest.Context, svc *api.Service) (*api.Service, error) {
-	obj, err := s.Create(ctx, svc)
+	obj, err := s.Create(ctx, svc, false)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (s *storage) GetService(ctx genericapirequest.Context, name string, options
 }
 
 func (s *storage) DeleteService(ctx genericapirequest.Context, name string) error {
-	_, err := s.Delete(ctx, name, nil)
+	_, _, err := s.Delete(ctx, name, nil)
 	return err
 }
 

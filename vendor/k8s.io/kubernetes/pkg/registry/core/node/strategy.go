@@ -31,12 +31,12 @@ import (
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/generic"
+	pkgstorage "k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/validation"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/generic"
 	"k8s.io/kubernetes/pkg/kubelet/client"
-	pkgstorage "k8s.io/kubernetes/pkg/storage"
 )
 
 // nodeStrategy implements behavior for nodes
@@ -148,12 +148,12 @@ func NodeToSelectableFields(node *api.Node) fields.Set {
 }
 
 // GetAttrs returns labels and fields of a given object for filtering purposes.
-func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, error) {
+func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, bool, error) {
 	nodeObj, ok := obj.(*api.Node)
 	if !ok {
-		return nil, nil, fmt.Errorf("not a node")
+		return nil, nil, false, fmt.Errorf("not a node")
 	}
-	return labels.Set(nodeObj.ObjectMeta.Labels), NodeToSelectableFields(nodeObj), nil
+	return labels.Set(nodeObj.ObjectMeta.Labels), NodeToSelectableFields(nodeObj), nodeObj.Initializers != nil, nil
 }
 
 // MatchNode returns a generic matcher for a given label and field selector.

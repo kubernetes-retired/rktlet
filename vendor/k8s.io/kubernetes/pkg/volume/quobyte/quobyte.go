@@ -24,15 +24,16 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/pborman/uuid"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/kubernetes/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/util/exec"
 	"k8s.io/kubernetes/pkg/util/mount"
 	"k8s.io/kubernetes/pkg/util/strings"
 	"k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util"
+	"k8s.io/kubernetes/pkg/volume/util/volumehelper"
 )
 
 // ProbeVolumePlugins is the primary entrypoint for volume plugins.
@@ -61,10 +62,6 @@ var _ volume.Deleter = &quobyteVolumeDeleter{}
 
 const (
 	quobytePluginName = "kubernetes.io/quobyte"
-
-	annotationQuobyteAPIServer          = "quobyte.kubernetes.io/api"
-	annotationQuobyteAPISecret          = "quobyte.kubernetes.io/apiuser"
-	annotationQuobyteAPISecretNamespace = "quobyte.kubernetes.io/apipassword"
 )
 
 func (plugin *quobytePlugin) Init(host volume.VolumeHost) error {
@@ -115,6 +112,14 @@ func (plugin *quobytePlugin) CanSupport(spec *volume.Spec) bool {
 }
 
 func (plugin *quobytePlugin) RequiresRemount() bool {
+	return false
+}
+
+func (plugin *quobytePlugin) SupportsMountOption() bool {
+	return true
+}
+
+func (plugin *quobytePlugin) SupportsBulkVolumeVerification() bool {
 	return false
 }
 
@@ -169,8 +174,9 @@ func (plugin *quobytePlugin) newMounterInternal(spec *volume.Spec, pod *v1.Pod, 
 			volume:  source.Volume,
 			plugin:  plugin,
 		},
-		registry: source.Registry,
-		readOnly: readOnly,
+		registry:     source.Registry,
+		readOnly:     readOnly,
+		mountOptions: volume.MountOptionFromSpec(spec),
 	}, nil
 }
 
@@ -205,8 +211,9 @@ type quobyte struct {
 
 type quobyteMounter struct {
 	*quobyte
-	registry string
-	readOnly bool
+	registry     string
+	readOnly     bool
+	mountOptions []string
 }
 
 var _ volume.Mounter = &quobyteMounter{}
@@ -249,7 +256,8 @@ func (mounter *quobyteMounter) SetUpAt(dir string, fsGroup *int64) error {
 	}
 
 	//if a trailing slash is missing we add it here
-	if err := mounter.mounter.Mount(mounter.correctTraillingSlash(mounter.registry), dir, "quobyte", options); err != nil {
+	mountOptions := volume.JoinMountOptions(mounter.mountOptions, options)
+	if err := mounter.mounter.Mount(mounter.correctTraillingSlash(mounter.registry), dir, "quobyte", mountOptions); err != nil {
 		return fmt.Errorf("quobyte: mount failed: %v", err)
 	}
 
@@ -348,6 +356,10 @@ type quobyteVolumeProvisioner struct {
 }
 
 func (provisioner *quobyteVolumeProvisioner) Provision() (*v1.PersistentVolume, error) {
+	if !volume.AccessModesContainedInAll(provisioner.plugin.GetAccessModes(), provisioner.options.PVC.Spec.AccessModes) {
+		return nil, fmt.Errorf("invalid AccessModes %v: only AccessModes %v are supported", provisioner.options.PVC.Spec.AccessModes, provisioner.plugin.GetAccessModes())
+	}
+
 	if provisioner.options.PVC.Spec.Selector != nil {
 		return nil, fmt.Errorf("claim Selector is not supported")
 	}
@@ -395,6 +407,7 @@ func (provisioner *quobyteVolumeProvisioner) Provision() (*v1.PersistentVolume, 
 		return nil, err
 	}
 	pv := new(v1.PersistentVolume)
+	metav1.SetMetaDataAnnotation(&pv.ObjectMeta, volumehelper.VolumeDynamicallyCreatedByKey, "quobyte-dynamic-provisioner")
 	pv.Spec.PersistentVolumeSource.Quobyte = vol
 	pv.Spec.PersistentVolumeReclaimPolicy = provisioner.options.PersistentVolumeReclaimPolicy
 	pv.Spec.AccessModes = provisioner.options.PVC.Spec.AccessModes

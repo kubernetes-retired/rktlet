@@ -65,34 +65,12 @@ func newApp(ra *schema.RuntimeApp, podManifest *schema.PodManifest, pod *pkgPod.
 		UserLabels:      ra.App.UserLabels,
 	}
 
-	// Generate mounts
-	for _, mnt := range ra.App.MountPoints {
-		name := mnt.Name.String()
-		containerPath := mnt.Path
-		readOnly := mnt.ReadOnly
-
-		var hostPath string
-		for _, vol := range podManifest.Volumes {
-			if vol.Name != mnt.Name {
-				continue
-			}
-
-			hostPath = vol.Source
-			if vol.ReadOnly != nil && !readOnly {
-				readOnly = *vol.ReadOnly
-			}
-			break
-		}
-
-		if hostPath == "" { // This should not happen.
-			return nil, fmt.Errorf("cannot find corresponded volume for mount %v", mnt)
-		}
-
+	for _, mnt := range ra.Mounts {
 		app.Mounts = append(app.Mounts, &Mount{
-			Name:          name,
-			ContainerPath: containerPath,
-			HostPath:      hostPath,
-			ReadOnly:      readOnly,
+			Name:          mnt.Volume.String(),
+			ContainerPath: mnt.Path,
+			HostPath:      mnt.AppVolume.Source,
+			ReadOnly:      *mnt.AppVolume.ReadOnly,
 		})
 	}
 
@@ -108,7 +86,7 @@ func appState(app *App, pod *pkgPod.Pod) error {
 	app.State = AppStateUnknown
 
 	defer func() {
-		if pod.AfterRun() {
+		if pod.IsAfterRun() {
 			// If the pod is hard killed, set the app to 'exited' state.
 			// Other than this case, status file is guaranteed to be written.
 			if app.State != AppStateExited {
@@ -168,7 +146,7 @@ func appState(app *App, pod *pkgPod.Pod) error {
 	// Read exit code.
 	exitCode, err := readExitCode(appStatusFile)
 	if err != nil {
-		return fmt.Errorf("cannot read exit code: %v", err)
+		return err
 	}
 	app.ExitCode = &exitCode
 

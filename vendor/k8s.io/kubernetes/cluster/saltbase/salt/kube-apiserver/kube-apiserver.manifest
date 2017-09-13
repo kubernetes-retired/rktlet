@@ -61,6 +61,11 @@
 {% set etcd_servers = "--etcd-servers=http://127.0.0.1:2379" -%}
 {% set etcd_servers_overrides = "--etcd-servers-overrides=/events#http://127.0.0.1:4002" -%}
 
+{% set storage_media_type = "" -%}
+{% if pillar['storage_media_type'] is defined -%}
+  {% set storage_media_type = "--storage-media-type=" + pillar['storage_media_type'] -%}
+{% endif -%}
+
 {% set max_requests_inflight = "" -%}
 {% set target_ram_mb = "" -%}
 {% if pillar['num_nodes'] is defined -%}
@@ -170,7 +175,28 @@
   {% set etcd_quorum_read = "--etcd_quorum_read=" + pillar['etcd_quorum_read'] -%}
 {% endif -%}
 
-{% set params = address + " " + storage_backend + " " + etcd_servers + " " + etcd_servers_overrides + " " + cloud_provider + " " + cloud_config + " " + runtime_config + " " + feature_gates + " " + admission_control + " " + max_requests_inflight + " " + target_ram_mb + " " + service_cluster_ip_range + " " + client_ca_file + basic_auth_file + " " + min_request_timeout + " " + enable_garbage_collector + " " + etcd_quorum_read -%}
+{% set audit_log = "" -%}
+{% set audit_policy_config_mount = "" -%}
+{% set audit_policy_config_volume = "" -%}
+{% set audit_webhook_config_mount = "" -%}
+{% set audit_webhook_config_volume = "" -%}
+{% if pillar['enable_apiserver_basic_audit'] is defined and pillar['enable_apiserver_basic_audit'] in ['true']  -%}
+  {% set audit_log = "--audit-log-path=/var/log/kube-apiserver-audit.log --audit-log-maxage=0 --audit-log-maxbackup=0 --audit-log-maxsize=2000000000" -%}
+{% elif pillar['enable_apiserver_advanced_audit'] is defined and pillar['enable_apiserver_advanced_audit'] in ['true']  -%}
+  {% set audit_log = "--audit-policy-file=/etc/audit_policy.config" -%}
+  {% set audit_policy_config_mount = "{\"name\": \"auditpolicyconfigmount\",\"mountPath\": \"/etc/audit_policy.config\", \"readOnly\": true}," -%}
+  {% set audit_policy_config_volume = "{\"name\": \"auditpolicyconfigmount\",\"hostPath\": {\"path\": \"/etc/audit_policy.config\"}}," -%}
+  {% if pillar['advanced_audit_backend'] is defined and 'log' in pillar['advanced_audit_backend'] -%}
+    {% set audit_log = audit_log + " --audit-log-path=/var/log/kube-apiserver-audit.log --audit-log-maxage=0 --audit-log-maxbackup=0 --audit-log-maxsize=2000000000" -%}
+  {% endif %}
+  {% if pillar['advanced_audit_backend'] is defined and 'webhook' in pillar['advanced_audit_backend'] -%}
+    {% set audit_log = audit_log + " --audit-webhook-mode=batch" -%}
+    {% set audit_webhook_config_mount = "{\"name\": \"auditwebhookconfigmount\",\"mountPath\": \"/etc/audit_webhook.config\", \"readOnly\": true}," -%}
+    {% set audit_webhook_config_volume = "{\"name\": \"auditwebhookconfigmount\",\"hostPath\": {\"path\": \"/etc/audit_webhook.config\"}}," -%}
+  {% endif %}
+{% endif -%}
+
+{% set params = address + " " + storage_backend + " " + storage_media_type + " " + etcd_servers + " " + etcd_servers_overrides + " " + cloud_provider + " " + cloud_config + " " + runtime_config + " " + feature_gates + " " + admission_control + " " + max_requests_inflight + " " + target_ram_mb + " " + service_cluster_ip_range + " " + client_ca_file + basic_auth_file + " " + min_request_timeout + " " + enable_garbage_collector + " " + etcd_quorum_read + " " + audit_log -%}
 {% set params = params + " " + cert_file + " " + key_file + " " + kubelet_cert_file + " " + kubelet_key_file + " --secure-port=" + secure_port + token_auth_file + " " + bind_address + " " + log_level + " " + advertise_address  + " " + proxy_ssh_options + authz_mode + abac_policy_file + webhook_authentication_config + webhook_authorization_config + image_review_config -%}
 
 # test_args has to be kept at the end, so they'll overwrite any prior configuration
@@ -178,12 +204,17 @@
   {% set params = params + " " + pillar['apiserver_test_args'] -%}
 {% endif -%}
 
+{% set container_env = "" -%}
+
 {
 "apiVersion": "v1",
 "kind": "Pod",
 "metadata": {
   "name":"kube-apiserver",
   "namespace": "kube-system",
+  "annotations": {
+    "scheduler.alpha.kubernetes.io/critical-pod": ""
+  },
   "labels": {
     "tier": "control-plane",
     "component": "kube-apiserver"
@@ -205,6 +236,7 @@
                  "-c",
                  "/usr/local/bin/kube-apiserver {{params}} --allow-privileged={{pillar['allow_privileged']}} 1>>/var/log/kube-apiserver.log 2>&1"
                ],
+    {{container_env}}
     "livenessProbe": {
       "httpGet": {
         "host": "127.0.0.1",
@@ -227,6 +259,8 @@
         {{additional_cloud_config_mount}}
         {{webhook_config_mount}}
         {{webhook_authn_config_mount}}
+        {{audit_policy_config_mount}}
+        {{audit_webhook_config_mount}}
         {{admission_controller_config_mount}}
         {{image_policy_webhook_config_mount}}
         { "name": "srvkube",
@@ -234,6 +268,9 @@
         "readOnly": true},
         { "name": "logfile",
         "mountPath": "/var/log/kube-apiserver.log",
+        "readOnly": false},
+        { "name": "auditlogfile",
+        "mountPath": "/var/log/kube-apiserver-audit.log",
         "readOnly": false},
         { "name": "etcssl",
         "mountPath": "/etc/ssl",
@@ -248,7 +285,7 @@
         "mountPath": "/etc/openssl",
         "readOnly": true},
         { "name": "etcpki",
-        "mountPath": "/etc/pki",
+        "mountPath": "/etc/srv/pki",
         "readOnly": true},
         { "name": "srvsshproxy",
         "mountPath": "{{srv_sshproxy_path}}",
@@ -261,6 +298,8 @@
   {{additional_cloud_config_volume}}
   {{webhook_config_volume}}
   {{webhook_authn_config_volume}}
+  {{audit_policy_config_volume}}
+  {{audit_webhook_config_volume}}
   {{admission_controller_config_volume}}
   {{image_policy_webhook_config_volume}}
   { "name": "srvkube",
@@ -270,6 +309,10 @@
   { "name": "logfile",
     "hostPath": {
         "path": "/var/log/kube-apiserver.log"}
+  },
+  { "name": "auditlogfile",
+    "hostPath": {
+        "path": "/var/log/kube-apiserver-audit.log"}
   },
   { "name": "etcssl",
     "hostPath": {
@@ -289,7 +332,7 @@
   },
   { "name": "etcpki",
     "hostPath": {
-        "path": "/etc/pki"}
+        "path": "/etc/srv/pki"}
   },
   { "name": "srvsshproxy",
     "hostPath": {

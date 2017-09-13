@@ -1,11 +1,11 @@
 {
     "acKind": "ImageManifest",
-    "acVersion": "0.8.9",
+    "acVersion": "0.8.10",
     "name": "coreos.com/rkt-empty",
     "labels": [
         {
             "name": "version",
-            "value": "1.20.0"
+            "value": "1.25.0"
         },
         {
             "name": "arch",

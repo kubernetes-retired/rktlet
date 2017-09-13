@@ -23,16 +23,19 @@ import (
 	"sync"
 	"time"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/api/v1"
 	batchinternal "k8s.io/kubernetes/pkg/apis/batch"
 	batch "k8s.io/kubernetes/pkg/apis/batch/v1"
@@ -40,8 +43,6 @@ import (
 	extensions "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
-	"k8s.io/kubernetes/pkg/util/uuid"
-	"k8s.io/kubernetes/pkg/util/workqueue"
 
 	"github.com/golang/glog"
 )
@@ -50,6 +51,52 @@ const (
 	// String used to mark pod deletion
 	nonExist = "NonExist"
 )
+
+func removePtr(replicas *int32) int32 {
+	if replicas == nil {
+		return 0
+	}
+	return *replicas
+}
+
+func WaitUntilPodIsScheduled(c clientset.Interface, name, namespace string, timeout time.Duration) (*v1.Pod, error) {
+	// Wait until it's scheduled
+	p, err := c.Core().Pods(namespace).Get(name, metav1.GetOptions{ResourceVersion: "0"})
+	if err == nil && p.Spec.NodeName != "" {
+		return p, nil
+	}
+	pollingPeriod := 200 * time.Millisecond
+	startTime := time.Now()
+	for startTime.Add(timeout).After(time.Now()) {
+		time.Sleep(pollingPeriod)
+		p, err := c.Core().Pods(namespace).Get(name, metav1.GetOptions{ResourceVersion: "0"})
+		if err == nil && p.Spec.NodeName != "" {
+			return p, nil
+		}
+	}
+	return nil, fmt.Errorf("Timed out after %v when waiting for pod %v/%v to start.", timeout, namespace, name)
+}
+
+func RunPodAndGetNodeName(c clientset.Interface, pod *v1.Pod, timeout time.Duration) (string, error) {
+	name := pod.Name
+	namespace := pod.Namespace
+	var err error
+	// Create a Pod
+	for i := 0; i < retries; i++ {
+		_, err = c.Core().Pods(namespace).Create(pod)
+		if err == nil || apierrs.IsAlreadyExists(err) {
+			break
+		}
+	}
+	if err != nil && !apierrs.IsAlreadyExists(err) {
+		return "", err
+	}
+	p, err := WaitUntilPodIsScheduled(c, name, namespace, timeout)
+	if err != nil {
+		return "", err
+	}
+	return p.Spec.NodeName, nil
+}
 
 type RunObjectConfig interface {
 	Run() error
@@ -64,6 +111,7 @@ type RunObjectConfig interface {
 }
 
 type RCConfig struct {
+	Affinity       *v1.Affinity
 	Client         clientset.Interface
 	InternalClient internalclientset.Interface
 	Image          string
@@ -116,8 +164,9 @@ type RCConfig struct {
 	NodeDumpFunc      func(c clientset.Interface, nodeNames []string, logFunc func(fmt string, args ...interface{}))
 	ContainerDumpFunc func(c clientset.Interface, ns string, logFunc func(ftm string, args ...interface{}))
 
-	// Names of the secrets to mount
-	SecretNames []string
+	// Names of the secrets and configmaps to mount.
+	SecretNames    []string
+	ConfigMapNames []string
 }
 
 func (rc *RCConfig) RCConfigLog(fmt string, args ...interface{}) {
@@ -259,6 +308,9 @@ func (config *DeploymentConfig) create() error {
 	if len(config.SecretNames) > 0 {
 		attachSecrets(&deployment.Spec.Template, config.SecretNames)
 	}
+	if len(config.ConfigMapNames) > 0 {
+		attachConfigMaps(&deployment.Spec.Template, config.ConfigMapNames)
+	}
 
 	config.applyTo(&deployment.Spec.Template)
 
@@ -266,7 +318,7 @@ func (config *DeploymentConfig) create() error {
 	if err != nil {
 		return fmt.Errorf("Error creating deployment: %v", err)
 	}
-	config.RCConfigLog("Created deployment with name: %v, namespace: %v, replica count: %v", deployment.Name, config.Namespace, deployment.Spec.Replicas)
+	config.RCConfigLog("Created deployment with name: %v, namespace: %v, replica count: %v", deployment.Name, config.Namespace, removePtr(deployment.Spec.Replicas))
 	return nil
 }
 
@@ -323,6 +375,9 @@ func (config *ReplicaSetConfig) create() error {
 	if len(config.SecretNames) > 0 {
 		attachSecrets(&rs.Spec.Template, config.SecretNames)
 	}
+	if len(config.ConfigMapNames) > 0 {
+		attachConfigMaps(&rs.Spec.Template, config.ConfigMapNames)
+	}
 
 	config.applyTo(&rs.Spec.Template)
 
@@ -330,7 +385,7 @@ func (config *ReplicaSetConfig) create() error {
 	if err != nil {
 		return fmt.Errorf("Error creating replica set: %v", err)
 	}
-	config.RCConfigLog("Created replica set with name: %v, namespace: %v, replica count: %v", rs.Name, config.Namespace, rs.Spec.Replicas)
+	config.RCConfigLog("Created replica set with name: %v, namespace: %v, replica count: %v", rs.Name, config.Namespace, removePtr(rs.Spec.Replicas))
 	return nil
 }
 
@@ -382,6 +437,9 @@ func (config *JobConfig) create() error {
 
 	if len(config.SecretNames) > 0 {
 		attachSecrets(&job.Spec.Template, config.SecretNames)
+	}
+	if len(config.ConfigMapNames) > 0 {
+		attachConfigMaps(&job.Spec.Template, config.ConfigMapNames)
 	}
 
 	config.applyTo(&job.Spec.Template)
@@ -447,6 +505,7 @@ func (config *RCConfig) create() error {
 	if config.DNSPolicy == nil {
 		config.DNSPolicy = &dnsDefault
 	}
+	one := int64(1)
 	rc := &v1.ReplicationController{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: config.Name,
@@ -461,6 +520,7 @@ func (config *RCConfig) create() error {
 					Labels: map[string]string{"name": config.Name},
 				},
 				Spec: v1.PodSpec{
+					Affinity: config.Affinity,
 					Containers: []v1.Container{
 						{
 							Name:           config.Name,
@@ -470,8 +530,9 @@ func (config *RCConfig) create() error {
 							ReadinessProbe: config.ReadinessProbe,
 						},
 					},
-					DNSPolicy:    *config.DNSPolicy,
-					NodeSelector: config.NodeSelector,
+					DNSPolicy:                     *config.DNSPolicy,
+					NodeSelector:                  config.NodeSelector,
+					TerminationGracePeriodSeconds: &one,
 				},
 			},
 		},
@@ -480,6 +541,9 @@ func (config *RCConfig) create() error {
 	if len(config.SecretNames) > 0 {
 		attachSecrets(rc.Spec.Template, config.SecretNames)
 	}
+	if len(config.ConfigMapNames) > 0 {
+		attachConfigMaps(rc.Spec.Template, config.ConfigMapNames)
+	}
 
 	config.applyTo(rc.Spec.Template)
 
@@ -487,7 +551,7 @@ func (config *RCConfig) create() error {
 	if err != nil {
 		return fmt.Errorf("Error creating replication controller: %v", err)
 	}
-	config.RCConfigLog("Created replication controller with name: %v, namespace: %v, replica count: %v", rc.Name, config.Namespace, rc.Spec.Replicas)
+	config.RCConfigLog("Created replication controller with name: %v, namespace: %v, replica count: %v", rc.Name, config.Namespace, removePtr(rc.Spec.Replicas))
 	return nil
 }
 
@@ -845,7 +909,7 @@ func DoCleanupNode(client clientset.Interface, nodeName string, strategy Prepare
 			return fmt.Errorf("Skipping cleanup of Node: failed to get Node %v: %v", nodeName, err)
 		}
 		updatedNode := strategy.CleanupNode(node)
-		if api.Semantic.DeepEqual(node, updatedNode) {
+		if apiequality.Semantic.DeepEqual(node, updatedNode) {
 			return nil
 		}
 		if _, err = client.Core().Nodes().Update(updatedNode); err == nil {
@@ -1039,7 +1103,7 @@ func (config *SecretConfig) Run() error {
 }
 
 func (config *SecretConfig) Stop() error {
-	if err := config.Client.Core().Secrets(config.Namespace).Delete(config.Name, &v1.DeleteOptions{}); err != nil {
+	if err := config.Client.Core().Secrets(config.Namespace).Delete(config.Name, &metav1.DeleteOptions{}); err != nil {
 		return fmt.Errorf("Error deleting secret: %v", err)
 	}
 	config.LogFunc("Deleted secret %v/%v", config.Namespace, config.Name)
@@ -1056,6 +1120,67 @@ func attachSecrets(template *v1.PodTemplateSpec, secretNames []string) {
 			VolumeSource: v1.VolumeSource{
 				Secret: &v1.SecretVolumeSource{
 					SecretName: name,
+				},
+			},
+		})
+		mounts = append(mounts, v1.VolumeMount{
+			Name:      name,
+			MountPath: fmt.Sprintf("/%v", name),
+		})
+	}
+
+	template.Spec.Volumes = volumes
+	template.Spec.Containers[0].VolumeMounts = mounts
+}
+
+type ConfigMapConfig struct {
+	Content   map[string]string
+	Client    clientset.Interface
+	Name      string
+	Namespace string
+	// If set this function will be used to print log lines instead of glog.
+	LogFunc func(fmt string, args ...interface{})
+}
+
+func (config *ConfigMapConfig) Run() error {
+	configMap := &v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: config.Name,
+		},
+		Data: map[string]string{},
+	}
+	for k, v := range config.Content {
+		configMap.Data[k] = v
+	}
+
+	_, err := config.Client.Core().ConfigMaps(config.Namespace).Create(configMap)
+	if err != nil {
+		return fmt.Errorf("Error creating configmap: %v", err)
+	}
+	config.LogFunc("Created configmap %v/%v", config.Namespace, config.Name)
+	return nil
+}
+
+func (config *ConfigMapConfig) Stop() error {
+	if err := config.Client.Core().ConfigMaps(config.Namespace).Delete(config.Name, &metav1.DeleteOptions{}); err != nil {
+		return fmt.Errorf("Error deleting configmap: %v", err)
+	}
+	config.LogFunc("Deleted configmap %v/%v", config.Namespace, config.Name)
+	return nil
+}
+
+// TODO: attach configmaps using different possibilities: env vars.
+func attachConfigMaps(template *v1.PodTemplateSpec, configMapNames []string) {
+	volumes := make([]v1.Volume, 0, len(configMapNames))
+	mounts := make([]v1.VolumeMount, 0, len(configMapNames))
+	for _, name := range configMapNames {
+		volumes = append(volumes, v1.Volume{
+			Name: name,
+			VolumeSource: v1.VolumeSource{
+				ConfigMap: &v1.ConfigMapVolumeSource{
+					LocalObjectReference: v1.LocalObjectReference{
+						Name: name,
+					},
 				},
 			},
 		})

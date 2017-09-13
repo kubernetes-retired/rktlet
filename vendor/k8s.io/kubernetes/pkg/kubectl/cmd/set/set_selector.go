@@ -31,6 +31,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
+	"k8s.io/kubernetes/pkg/util/i18n"
 )
 
 // SelectorOptions is the start of the data required to perform the operation.  As new fields are added, add them here instead of
@@ -78,11 +79,11 @@ func NewCmdSelector(f cmdutil.Factory, out io.Writer) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:     "selector (-f FILENAME | TYPE NAME) EXPRESSIONS [--resource-version=version]",
-		Short:   "Set the selector on a resource",
+		Short:   i18n.T("Set the selector on a resource"),
 		Long:    fmt.Sprintf(selectorLong, validation.LabelValueMaxLength),
 		Example: selectorExample,
 		Run: func(cmd *cobra.Command, args []string) {
-			cmdutil.CheckErr(options.Complete(f, cmd, args, out))
+			cmdutil.CheckErr(options.Complete(f, cmd, args))
 			cmdutil.CheckErr(options.Validate())
 			cmdutil.CheckErr(options.RunSelector())
 		},
@@ -100,7 +101,7 @@ func NewCmdSelector(f cmdutil.Factory, out io.Writer) *cobra.Command {
 }
 
 // Complete assigns the SelectorOptions from args.
-func (o *SelectorOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, args []string, out io.Writer) error {
+func (o *SelectorOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, args []string) error {
 	o.local = cmdutil.GetFlagBool(cmd, "local")
 	o.all = cmdutil.GetFlagBool(cmd, "all")
 	o.record = cmdutil.GetRecordFlag(cmd)
@@ -111,25 +112,33 @@ func (o *SelectorOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, args [
 		return err
 	}
 
-	o.changeCause = f.Command()
+	o.changeCause = f.Command(cmd, false)
 	mapper, _ := f.Object()
 	o.mapper = mapper
 	o.encoder = f.JSONEncoder()
+	o.resources, o.selector, err = getResourcesAndSelector(args)
+	if err != nil {
+		return err
+	}
 
-	o.builder = f.NewBuilder().
+	o.builder = f.NewBuilder(!o.local).
 		ContinueOnError().
 		NamespaceParam(cmdNamespace).DefaultNamespace().
 		FilenameParam(enforceNamespace, &o.fileOptions).
 		Flatten()
 
+	if !o.local {
+		o.builder = o.builder.
+			ResourceTypeOrNameArgs(o.all, o.resources...).
+			Latest()
+	}
+
 	o.PrintObject = func(obj runtime.Object) error {
-		return f.PrintObject(cmd, mapper, obj, o.out)
+		return f.PrintObject(cmd, o.local, mapper, obj, o.out)
 	}
 	o.ClientForMapping = func(mapping *meta.RESTMapping) (resource.RESTClient, error) {
 		return f.ClientForMapping(mapping)
 	}
-
-	o.resources, o.selector, err = getResourcesAndSelector(args)
 	return err
 }
 
@@ -146,10 +155,6 @@ func (o *SelectorOptions) Validate() error {
 
 // RunSelector executes the command.
 func (o *SelectorOptions) RunSelector() error {
-	if !o.local {
-		o.builder = o.builder.ResourceTypeOrNameArgs(o.all, o.resources...).
-			Latest()
-	}
 	r := o.builder.Do()
 	err := r.Err()
 	if err != nil {
@@ -171,7 +176,6 @@ func (o *SelectorOptions) RunSelector() error {
 			return patch.Err
 		}
 		if o.local || o.dryrun {
-			fmt.Fprintln(o.out, "running in local/dry-run mode...")
 			o.PrintObject(info.Object)
 			return nil
 		}

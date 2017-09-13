@@ -35,7 +35,7 @@ Alternatively, you can build rkt in a Docker container with the following comman
 Replace `$SRC` with the absolute path to your rkt source code:
 
 ```
-# docker run -v $SRC:/opt/rkt debian:sid /bin/bash -c "cd /opt/rkt && ./scripts/install-deps-debian-sid.sh && go get github.com/appc/spec/... && ./autogen.sh && ./configure && make"
+# docker run -v $SRC:/opt/rkt debian:sid /bin/bash -c "cd /opt/rkt && ./scripts/install-deps-debian-sid.sh && ./autogen.sh && ./configure && make"
 ```
 
 ### Building systemd in stage1 from source
@@ -210,6 +210,6 @@ If something looks awry, restart, pray to your preferred deity, and try again.
 [glide-vc]: https://github.com/sgotti/glide-vc
 [glide-versioning]: https://glide.readthedocs.io/en/latest/versions/
 [go]: https://golang.org/
-[rkt-builer]: https://github.com/coreos/rkt-builder
+[rkt-builder]: https://github.com/coreos/rkt-builder
 [run-time-dependencies]: dependencies.md#run-time-dependencies
 [update-coreos-stage1]: devel/update-coreos-stage1.md

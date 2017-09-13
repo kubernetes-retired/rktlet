@@ -1,5 +1,5 @@
 AC_PREREQ([2.63])
-AC_INIT([rkt], [1.20.0], [https://github.com/coreos/rkt/issues])
+AC_INIT([rkt], [1.25.0], [https://github.com/coreos/rkt/issues])
 
 AC_PROG_CC
 AC_PROG_CXX
@@ -124,9 +124,9 @@ AC_ARG_WITH([stage1-systemd-revision],
 # STAGE1 - kvm hypervisor. lkvm or/and qemu can be chosen
 AC_ARG_WITH([stage1-kvm-hypervisors],
             [AS_HELP_STRING([--with-stage1-kvm-hypervisors],
-                            [select hypervisors for kvm flavor; build stage1 aci for each of them. select "lkvm", "qemu" or both (default: 'lkvm')])],
+                            [select hypervisors for kvm flavor; build stage1 aci for each of them. select "lkvm", "qemu" or both (default: 'qemu')])],
             [RKT_STAGE1_KVM_HV="${withval}"],
-            [RKT_STAGE1_KVM_HV='lkvm'])
+            [RKT_STAGE1_KVM_HV='qemu'])
 
 ## STAGE1 - path to coreos pxe and its systemd version for kvm and coreos flavors
 
@@ -152,6 +152,13 @@ AC_ARG_ENABLE([functional-tests],
               [RKT_RUN_FUNCTIONAL_TESTS="${enableval}"],
               [RKT_RUN_FUNCTIONAL_TESTS="no"])
 
+## Incremental build
+
+AC_ARG_ENABLE([incremental-build],
+              [AS_HELP_STRING([--enable-incremental-build],
+                              [enable incremental build. Note: this does not work for cross compile builds.])],
+              [INCREMENTAL_BUILD="${enableval}"],
+              [INCREMENTAL_BUILD="no"])
 ## TPM
 
 AC_ARG_ENABLE([tpm],
@@ -797,6 +804,7 @@ AC_SUBST(RKT_STAGE1_COREOS_BOARD)
 AC_SUBST(RKT_STAGE1_INTERPRETER)
 
 AC_SUBST(RKT_RUN_FUNCTIONAL_TESTS)
+AC_SUBST(INCREMENTAL_BUILD)
 
 AC_SUBST(GOARCH)
 AC_SUBST(GOARM)
@@ -882,6 +890,7 @@ AC_MSG_RESULT([
         other build parameters
 
         functional tests enabled:               '${RKT_RUN_FUNCTIONAL_TESTS}'
+        incremental build:                      '${INCREMENTAL_BUILD}'
         features:                               '${RKT_FEATURES}'
         ACI arch:                               '${RKT_ACI_ARCH}'
         go version:                             '${GO_VERSION}'

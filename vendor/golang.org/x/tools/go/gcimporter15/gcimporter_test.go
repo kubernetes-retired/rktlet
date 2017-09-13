@@ -2,10 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build go1.5
-
-// This file is a copy of $GOROOT/src/go/internal/gcimporter/gcimporter_test.go, tagged for go1.5,
-// and minimally adjusted to make it build with code from (std lib) internal/testenv copied.
+// This file is a copy of $GOROOT/src/go/internal/gcimporter/gcimporter_test.go,
+// adjusted to make it build with code from (std lib) internal/testenv copied.
 
 package gcimporter
 
@@ -130,25 +128,30 @@ func testDir(t *testing.T, dir string, endTime time.Time) (nimports int) {
 	return
 }
 
+const testfile = "exports.go"
+
 func TestImportTestdata(t *testing.T) {
 	// This package only handles gc export data.
 	if runtime.Compiler != "gc" {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
-		return
 	}
 
-	if outFn := compile(t, "testdata", "exports.go"); outFn != "" {
+	if outFn := compile(t, "testdata", testfile); outFn != "" {
 		defer os.Remove(outFn)
 	}
 
-	if pkg := testPath(t, "./testdata/exports", "."); pkg != nil {
+	// filename should end with ".go"
+	filename := testfile[:len(testfile)-3]
+	if pkg := testPath(t, "./testdata/"+filename, "."); pkg != nil {
 		// The package's Imports list must include all packages
-		// explicitly imported by exports.go, plus all packages
-		// referenced indirectly via exported objects in exports.go.
-		// With the textual export format, the list may also include
-		// additional packages that are not strictly required for
-		// import processing alone (they are exported to err "on
-		// the safe side").
+		// explicitly imported by testfile, plus all packages
+		// referenced indirectly via exported objects in testfile.
+		// With the textual export format (when run against Go1.6),
+		// the list may also include additional packages that are
+		// not strictly required for import processing alone (they
+		// are exported to err "on the safe side").
+		// For now, we just test the presence of a few packages
+		// that we know are there for sure.
 		got := fmt.Sprint(pkg.Imports())
 		for _, want := range []string{"go/ast", "go/token"} {
 			if !strings.Contains(got, want) {
@@ -164,7 +167,6 @@ func TestVersionHandling(t *testing.T) {
 	// This package only handles gc export data.
 	if runtime.Compiler != "gc" {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
-		return
 	}
 
 	const dir = "./testdata/versions"
@@ -228,7 +230,6 @@ func TestImportStdLib(t *testing.T) {
 	// This package only handles gc export data.
 	if runtime.Compiler != "gc" {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
-		return
 	}
 
 	dt := maxTime
@@ -245,7 +246,10 @@ var importedObjectTests = []struct {
 }{
 	{"math.Pi", "const Pi untyped float"},
 	{"io.Reader", "type Reader interface{Read(p []byte) (n int, err error)}"},
-	{"io.ReadWriter", "type ReadWriter interface{Read(p []byte) (n int, err error); Write(p []byte) (n int, err error)}"},
+	// Go 1.7 and 1.8 don't know about embedded interfaces. Leave this
+	// test out for now - the code is tested in the std library anyway.
+	// TODO(gri) enable again once we're off 1.7 and 1.8.
+	// {"io.ReadWriter", "type ReadWriter interface{Reader; Writer}"},
 	{"math.Sin", "func Sin(x float64) float64"},
 	// TODO(gri) add more tests
 }
@@ -256,7 +260,6 @@ func TestImportedTypes(t *testing.T) {
 	// This package only handles gc export data.
 	if runtime.Compiler != "gc" {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
-		return
 	}
 
 	for _, test := range importedObjectTests {
@@ -292,13 +295,9 @@ func TestIssue5815(t *testing.T) {
 	// This package only handles gc export data.
 	if runtime.Compiler != "gc" {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
-		return
 	}
 
-	pkg, err := Import(make(map[string]*types.Package), "strings", ".")
-	if err != nil {
-		t.Fatal(err)
-	}
+	pkg := importPkg(t, "strings")
 
 	scope := pkg.Scope()
 	for _, name := range scope.Names() {
@@ -325,7 +324,6 @@ func TestCorrectMethodPackage(t *testing.T) {
 	// This package only handles gc export data.
 	if runtime.Compiler != "gc" {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
-		return
 	}
 
 	imports := make(map[string]*types.Package)
@@ -349,7 +347,6 @@ func TestIssue13566(t *testing.T) {
 	// This package only handles gc export data.
 	if runtime.Compiler != "gc" {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
-		return
 	}
 
 	// On windows, we have to set the -D option for the compiler to avoid having a drive
@@ -366,10 +363,7 @@ func TestIssue13566(t *testing.T) {
 	}
 
 	// import must succeed (test for issue at hand)
-	pkg, err := Import(make(map[string]*types.Package), "./testdata/b", ".")
-	if err != nil {
-		t.Fatal(err)
-	}
+	pkg := importPkg(t, "./testdata/b")
 
 	// make sure all indirectly imported packages have names
 	for _, imp := range pkg.Imports() {
@@ -385,7 +379,6 @@ func TestIssue13898(t *testing.T) {
 	// This package only handles gc export data.
 	if runtime.Compiler != "gc" {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
-		return
 	}
 
 	// import go/internal/gcimporter which imports go/types partially
@@ -408,10 +401,7 @@ func TestIssue13898(t *testing.T) {
 	}
 
 	// look for go/types.Object type
-	obj := goTypesPkg.Scope().Lookup("Object")
-	if obj == nil {
-		t.Fatal("go/types.Object not found")
-	}
+	obj := lookupObj(t, goTypesPkg.Scope(), "Object")
 	typ, ok := obj.Type().(*types.Named)
 	if !ok {
 		t.Fatalf("go/types.Object type is %v; wanted named type", typ)
@@ -435,7 +425,6 @@ func TestIssue15517(t *testing.T) {
 	// This package only handles gc export data.
 	if runtime.Compiler != "gc" {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
-		return
 	}
 
 	// On windows, we have to set the -D option for the compiler to avoid having a drive
@@ -474,7 +463,6 @@ func TestIssue15920(t *testing.T) {
 	// This package only handles gc export data.
 	if runtime.Compiler != "gc" {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
-		return
 	}
 
 	// On windows, we have to set the -D option for the compiler to avoid having a drive
@@ -487,8 +475,47 @@ func TestIssue15920(t *testing.T) {
 		defer os.Remove(f)
 	}
 
-	imports := make(map[string]*types.Package)
-	if _, err := Import(imports, "./testdata/issue15920", "."); err != nil {
+	importPkg(t, "./testdata/issue15920")
+}
+
+func TestIssue20046(t *testing.T) {
+	skipSpecialPlatforms(t)
+
+	// This package only handles gc export data.
+	if runtime.Compiler != "gc" {
+		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
+	}
+
+	// On windows, we have to set the -D option for the compiler to avoid having a drive
+	// letter and an illegal ':' in the import path - just skip it (see also issue #3483).
+	if runtime.GOOS == "windows" {
+		t.Skip("avoid dealing with relative paths/drive letters on windows")
+	}
+
+	if f := compile(t, "testdata", "issue20046.go"); f != "" {
+		defer os.Remove(f)
+	}
+
+	// "./issue20046".V.M must exist
+	pkg := importPkg(t, "./testdata/issue20046")
+	obj := lookupObj(t, pkg.Scope(), "V")
+	if m, index, indirect := types.LookupFieldOrMethod(obj.Type(), false, nil, "M"); m == nil {
+		t.Fatalf("V.M not found (index = %v, indirect = %v)", index, indirect)
+	}
+}
+
+func importPkg(t *testing.T, path string) *types.Package {
+	pkg, err := Import(make(map[string]*types.Package), path, ".")
+	if err != nil {
 		t.Fatal(err)
 	}
+	return pkg
+}
+
+func lookupObj(t *testing.T, scope *types.Scope, name string) types.Object {
+	if obj := scope.Lookup(name); obj != nil {
+		return obj
+	}
+	t.Fatalf("%s not found", name)
+	return nil
 }

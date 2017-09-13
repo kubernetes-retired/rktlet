@@ -48,13 +48,14 @@ func init() {
 	cmdApp.AddCommand(cmdAppSandbox)
 
 	addStage1ImageFlags(cmdAppSandbox.Flags())
-	// TODO(sur)
 	cmdAppSandbox.Flags().StringVar(&flagUUIDFileSave, "uuid-file-save", "", "write out pod UUID to specified file")
 	cmdAppSandbox.Flags().Var(&flagNet, "net", "configure the pod's networking. Optionally, pass a list of user-configured networks to load and set arguments to pass to each network, respectively. Syntax: --net[=n[:args], ...]")
 	cmdAppSandbox.Flags().BoolVar(&flagNoOverlay, "no-overlay", false, "disable overlay filesystem")
 	cmdAppSandbox.Flags().Var(&flagDNS, "dns", "name servers to write in /etc/resolv.conf")
 	cmdAppSandbox.Flags().Var(&flagDNSSearch, "dns-search", "DNS search domains to write in /etc/resolv.conf")
 	cmdAppSandbox.Flags().Var(&flagDNSOpt, "dns-opt", "DNS options to write in /etc/resolv.conf")
+	cmdAppSandbox.Flags().StringVar(&flagDNSDomain, "dns-domain", "", "DNS domain to write in /etc/resolv.conf")
+	cmdAppSandbox.Flags().Var(&flagHostsEntries, "hosts-entry", "Entries to add to the pod-wide /etc/hosts. Pass 'host' to use the host's /etc/hosts")
 	cmdAppSandbox.Flags().StringVar(&flagHostname, "hostname", "", `pod's hostname. If empty, it will be "rkt-$PODUUID"`)
 	cmdAppSandbox.Flags().Var(&flagAppPorts, "port", "ports to forward. format: \"name:proto:podPort:hostIP:hostPort\"")
 
@@ -109,6 +110,7 @@ func runAppSandbox(cmd *cobra.Command, args []string) int {
 
 	p.MountLabel = mountLabel
 	cfg := stage0.CommonConfig{
+		DataDir:      getDataDir(),
 		MountLabel:   mountLabel,
 		ProcessLabel: processLabel,
 		Store:        s,
@@ -190,7 +192,7 @@ func runAppSandbox(cmd *cobra.Command, args []string) int {
 		CommonConfig:         &cfg,
 		Net:                  flagNet,
 		LockFd:               lfd,
-		Interactive:          true,
+		Interactive:          false,
 		DNSConfMode:          DNSConfMode,
 		DNSConfig:            DNSConfig,
 		MDSRegister:          false,

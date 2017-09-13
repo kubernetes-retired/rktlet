@@ -7,7 +7,7 @@
 
 The CNI (_Container Network Interface_) project consists of a specification and libraries for writing plugins to configure network interfaces in Linux containers, along with a number of supported plugins.
 CNI concerns itself only with network connectivity of containers and removing allocated resources when the container is deleted.
-Because of this focus, CNI has a wide range of support and the specification is simple to implement.
+Because of this focus CNI has a wide range of support and the specification is simple to implement.
 
 As well as the [specification](SPEC.md), this repository contains the Go source code of a library for integrating CNI into applications, an example command-line tool, a template for making new plugins, and the supported plugins.
 
@@ -22,21 +22,15 @@ We believe that many container runtimes and orchestrators will seek to solve the
 To avoid duplication, we think it is prudent to define a common interface between the network plugins and container execution: hence we put forward this specification, along with libraries for Go and a set of plugins.
 
 ## Who is using CNI?
-### Container runtimes
+
 - [rkt - container engine](https://coreos.com/blog/rkt-cni-networking.html)
 - [Kurma - container runtime](http://kurma.io/)
 - [Kubernetes - a system to simplify container operations](http://kubernetes.io/docs/admin/network-plugins/)
 - [Cloud Foundry - a platform for cloud applications](https://github.com/cloudfoundry-incubator/guardian-cni-adapter)
-- [Mesos - a distributed systems kernel](https://github.com/apache/mesos/blob/master/docs/cni.md)
-
-### 3rd Party Network plugins
-- [Project Calico - a layer 3 virtual network](https://github.com/projectcalico/calico-cni)
 - [Weave - a multi-host Docker network](https://github.com/weaveworks/weave)
+- [Project Calico - a layer 3 virtual network](https://github.com/projectcalico/calico-cni)
 - [Contiv Networking - policy networking for various use cases](https://github.com/contiv/netplugin)
-- [SR-IOV](https://github.com/hustcat/sriov-cni)
-
-The CNI team also maintains some [core plugins](plugins).
-
+- [Mesos - a distributed systems kernel](https://github.com/apache/mesos/blob/master/docs/cni.md)
 
 ## Contributing to CNI
 
@@ -161,7 +155,7 @@ However, in the future CNI might want to branch out into other directions:
 - Dynamic updates to existing network configuration
 - Dynamic policies for network bandwidth and firewall rules
 
-If these topics of are interest, please contact the team via the mailing list or IRC and find some like-minded people in the community to put a proposal together.
+If these topics of are interest please contact the team via the mailing list or IRC and find some like minded people in the community to put a proposal together.
 
 ## Contact
 

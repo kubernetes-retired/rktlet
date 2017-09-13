@@ -20,12 +20,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/v1"
+	"k8s.io/kubernetes/pkg/printers"
 )
 
 // FilterFunc is a function that knows how to filter a specific resource kind.
 // It receives a generic runtime.Object which must be type-checked by the function.
 // Returns a boolean value true if a resource is filtered, or false otherwise.
-type FilterFunc func(runtime.Object, PrintOptions) bool
+type FilterFunc func(runtime.Object, printers.PrintOptions) bool
 
 // Filters is a collection of filter funcs
 type Filters []FilterFunc
@@ -37,27 +38,24 @@ func NewResourceFilter() Filters {
 }
 
 // filterPods returns true if a pod should be skipped.
-// defaults to true for terminated pods
-func filterPods(obj runtime.Object, options PrintOptions) bool {
+// If show-all is true, the pod will be never be skipped (return false);
+// otherwise, skip terminated pod.
+func filterPods(obj runtime.Object, options printers.PrintOptions) bool {
+	if options.ShowAll {
+		return false
+	}
+
 	switch p := obj.(type) {
 	case *v1.Pod:
-		reason := string(p.Status.Phase)
-		if p.Status.Reason != "" {
-			reason = p.Status.Reason
-		}
-		return !options.ShowAll && (reason == string(v1.PodSucceeded) || reason == string(v1.PodFailed))
+		return p.Status.Phase == v1.PodSucceeded || p.Status.Phase == v1.PodFailed
 	case *api.Pod:
-		reason := string(p.Status.Phase)
-		if p.Status.Reason != "" {
-			reason = p.Status.Reason
-		}
-		return !options.ShowAll && (reason == string(api.PodSucceeded) || reason == string(api.PodFailed))
+		return p.Status.Phase == api.PodSucceeded || p.Status.Phase == api.PodFailed
 	}
 	return false
 }
 
 // Filter loops through a collection of FilterFuncs until it finds one that can filter the given resource
-func (f Filters) Filter(obj runtime.Object, opts *PrintOptions) (bool, error) {
+func (f Filters) Filter(obj runtime.Object, opts *printers.PrintOptions) (bool, error) {
 	// check if the object is unstructured. If so, let's attempt to convert it to a type we can understand
 	// before apply filter func.
 	obj, _ = DecodeUnknownObject(obj)

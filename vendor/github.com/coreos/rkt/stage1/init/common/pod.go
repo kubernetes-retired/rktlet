@@ -27,6 +27,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/coreos/rkt/pkg/acl"
 	stage1commontypes "github.com/coreos/rkt/stage1/common/types"
@@ -43,15 +44,8 @@ import (
 
 const (
 	// FlavorFile names the file storing the pod's flavor
-	FlavorFile    = "flavor"
-	SharedVolPerm = os.FileMode(0755)
+	FlavorFile = "flavor"
 )
-
-type Stage1InsecureOptions struct {
-	DisablePaths        bool
-	DisableCapabilities bool
-	DisableSeccomp      bool
-}
 
 // execEscape uses Golang's string quoting for ", \, \n, and regex for special cases
 func execEscape(i int, str string) string {
@@ -309,7 +303,7 @@ func FindBinPath(p *stage1commontypes.Pod, ra *schema.RuntimeApp) (string, error
 // node, we create a symlink to its target in "/rkt/volumes". Later,
 // prepare-app will copy those to "/dev/.rkt/" so that's what we use in the
 // DeviceAllow= line.
-func generateDeviceAllows(root string, appName types.ACName, mountPoints []types.MountPoint, mounts []mountWrapper, uidRange *user.UidRange) ([]string, error) {
+func generateDeviceAllows(root string, appName types.ACName, mountPoints []types.MountPoint, mounts []Mount, uidRange *user.UidRange) ([]string, error) {
 	var devAllow []string
 
 	rktVolumeLinksPath := filepath.Join(root, "rkt", "volumes")
@@ -371,7 +365,7 @@ func supportsNotify(p *stage1commontypes.Pod, appName string) bool {
 //   3. a number
 //   4. a name in reference to /etc/{group,passwd} in the image
 // See https://github.com/appc/spec/blob/master/spec/aci.md#image-manifest-schema
-func parseUserGroup(p *stage1commontypes.Pod, ra *schema.RuntimeApp, uidRange *user.UidRange) (int, int, error) {
+func parseUserGroup(p *stage1commontypes.Pod, ra *schema.RuntimeApp) (int, int, error) {
 	var uidResolver, gidResolver user.Resolver
 	var uid, gid int
 	var err error
@@ -380,7 +374,7 @@ func parseUserGroup(p *stage1commontypes.Pod, ra *schema.RuntimeApp, uidRange *u
 
 	uidResolver, err = user.NumericIDs(ra.App.User)
 	if err != nil {
-		uidResolver, err = user.IDsFromStat(root, ra.App.User, uidRange)
+		uidResolver, err = user.IDsFromStat(root, ra.App.User, &p.UidRange)
 	}
 
 	if err != nil {
@@ -397,7 +391,7 @@ func parseUserGroup(p *stage1commontypes.Pod, ra *schema.RuntimeApp, uidRange *u
 
 	gidResolver, err = user.NumericIDs(ra.App.Group)
 	if err != nil {
-		gidResolver, err = user.IDsFromStat(root, ra.App.Group, uidRange)
+		gidResolver, err = user.IDsFromStat(root, ra.App.Group, &p.UidRange)
 	}
 
 	if err != nil {
@@ -417,64 +411,41 @@ func parseUserGroup(p *stage1commontypes.Pod, ra *schema.RuntimeApp, uidRange *u
 
 // EvaluateSymlinksInsideApp tries to resolve symlinks within the path.
 // It returns the actual path relative to the app rootfs for the given path.
+// This is needed for absolute symlinks - we are in a different rootfs.
 func EvaluateSymlinksInsideApp(appRootfs, path string) (string, error) {
-	link := appRootfs
-
-	paths := strings.Split(path, "/")
-	for i, p := range paths {
-		next := filepath.Join(link, p)
-
-		if !strings.HasPrefix(next, appRootfs) {
-			return "", fmt.Errorf("path escapes app's root: %q", path)
-		}
-
-		fi, err := os.Lstat(next)
-		if err != nil {
-			if os.IsNotExist(err) {
-				link = filepath.Join(append([]string{link}, paths[i:]...)...)
-				break
-			}
-			return "", err
-		}
-
-		if fi.Mode()&os.ModeType != os.ModeSymlink {
-			link = filepath.Join(link, p)
-			continue
-		}
-
-		// Evaluate the symlink.
-		target, err := os.Readlink(next)
-		if err != nil {
-			return "", err
-		}
-
-		if filepath.IsAbs(target) {
-			link = filepath.Join(appRootfs, target)
-		} else {
-			link = filepath.Join(link, target)
-		}
-
-		if !strings.HasPrefix(link, appRootfs) {
-			return "", fmt.Errorf("symlink %q escapes app's root with value %q", next, target)
-		}
+	chroot, err := newChroot(appRootfs)
+	if err != nil {
+		return "", errwrap.Wrapf(fmt.Sprintf("chroot to %q failed", appRootfs), err)
 	}
 
-	return strings.TrimPrefix(link, appRootfs), nil
+	target, err := fileutil.EvalSymlinksAlways(path)
+	if err != nil {
+		return "", errwrap.Wrapf(fmt.Sprintf("evaluating symlinks of %q failed", path), err)
+	}
+
+	// EvalSymlinksAlways might return a relative path
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return "", errwrap.Wrapf(fmt.Sprintf("failed to get absolute representation of %q", target), err)
+	}
+
+	if err := chroot.escape(); err != nil {
+		return "", errwrap.Wrapf(fmt.Sprintf("escaping chroot %q failed", appRootfs), err)
+	}
+
+	return abs, nil
 }
 
 // appToNspawnArgs transforms the given app manifest, with the given associated
 // app name, into a subset of applicable systemd-nspawn argument
-func appToNspawnArgs(p *stage1commontypes.Pod, ra *schema.RuntimeApp, insecureOptions Stage1InsecureOptions) ([]string, error) {
+func appToNspawnArgs(p *stage1commontypes.Pod, ra *schema.RuntimeApp) ([]string, error) {
 	var args []string
 	appName := ra.Name
 	app := ra.App
 
-	sharedVolPath := common.SharedVolumesPath(p.Root)
-	if err := os.MkdirAll(sharedVolPath, SharedVolPerm); err != nil {
-		return nil, errwrap.Wrap(errors.New("could not create shared volumes directory"), err)
-	}
-	if err := os.Chmod(sharedVolPath, SharedVolPerm); err != nil {
-		return nil, errwrap.Wrap(fmt.Errorf("could not change permissions of %q", sharedVolPath), err)
+	sharedVolPath, err := common.CreateSharedVolumesPath(p.Root)
+	if err != nil {
+		return nil, err
 	}
 
 	vols := make(map[types.ACName]types.Volume)
@@ -488,7 +459,6 @@ func appToNspawnArgs(p *stage1commontypes.Pod, ra *schema.RuntimeApp, insecureOp
 		return nil, errwrap.Wrap(fmt.Errorf("could not generate app %q mounts", appName), err)
 	}
 	for _, m := range mounts {
-
 		shPath := filepath.Join(sharedVolPath, m.Volume.Name.String())
 
 		absRoot, err := filepath.Abs(p.Root) // Absolute path to the pod's rootfs.
@@ -498,9 +468,10 @@ func appToNspawnArgs(p *stage1commontypes.Pod, ra *schema.RuntimeApp, insecureOp
 
 		appRootfs := common.AppRootfsPath(absRoot, appName)
 
-		// TODO(yifan): This is a temporary fix for systemd-nspawn not handling symlink mounts well.
-		// Could be removed when https://github.com/systemd/systemd/issues/2860 is resolved, and systemd
-		// version is bumped.
+		// Evaluate symlinks within the app's rootfs. This is needed because symlinks
+		// within the container can be absolute, which will, of course, be wrong in our ns.
+		// Systemd also gets this wrong, see https://github.com/systemd/systemd/issues/2860
+		// When the above issue is fixed, we can pass the un-evaluated path to --bind instead.
 		mntPath, err := EvaluateSymlinksInsideApp(appRootfs, m.Mount.Path)
 		if err != nil {
 			return nil, errwrap.Wrap(fmt.Errorf("could not evaluate path %v", m.Mount.Path), err)
@@ -519,14 +490,7 @@ func appToNspawnArgs(p *stage1commontypes.Pod, ra *schema.RuntimeApp, insecureOp
 			opt[0] = "--bind="
 		}
 
-		switch m.Volume.Kind {
-		case "host":
-			opt[1] = m.Volume.Source
-		case "empty":
-			opt[1] = filepath.Join(common.SharedVolumesPath(absRoot), m.Volume.Name.String())
-		default:
-			return nil, fmt.Errorf(`invalid volume kind %q. Must be one of "host" or "empty"`, m.Volume.Kind)
-		}
+		opt[1] = m.Source(absRoot)
 		opt[2] = ":"
 		opt[3] = filepath.Join(common.RelAppRootfsPath(appName), mntPath)
 		opt[4] = ":"
@@ -546,7 +510,7 @@ func appToNspawnArgs(p *stage1commontypes.Pod, ra *schema.RuntimeApp, insecureOp
 		args = append(args, strings.Join(opt, ""))
 	}
 
-	if !insecureOptions.DisableCapabilities {
+	if !p.InsecureOptions.DisableCapabilities {
 		capabilitiesStr, err := getAppCapabilities(app.Isolators)
 		if err != nil {
 			return nil, err
@@ -560,7 +524,7 @@ func appToNspawnArgs(p *stage1commontypes.Pod, ra *schema.RuntimeApp, insecureOp
 
 // PodToNspawnArgs renders a prepared Pod as a systemd-nspawn
 // argument list ready to be executed
-func PodToNspawnArgs(p *stage1commontypes.Pod, insecureOptions Stage1InsecureOptions) ([]string, error) {
+func PodToNspawnArgs(p *stage1commontypes.Pod) ([]string, error) {
 	args := []string{
 		"--uuid=" + p.UUID.String(),
 		"--machine=" + GetMachineID(p),
@@ -568,14 +532,14 @@ func PodToNspawnArgs(p *stage1commontypes.Pod, insecureOptions Stage1InsecureOpt
 	}
 
 	for i := range p.Manifest.Apps {
-		aa, err := appToNspawnArgs(p, &p.Manifest.Apps[i], insecureOptions)
+		aa, err := appToNspawnArgs(p, &p.Manifest.Apps[i])
 		if err != nil {
 			return nil, err
 		}
 		args = append(args, aa...)
 	}
 
-	if insecureOptions.DisableCapabilities {
+	if p.InsecureOptions.DisableCapabilities {
 		args = append(args, "--capability=all")
 	}
 
@@ -742,55 +706,60 @@ func getAppNoNewPrivileges(isolators types.Isolators) bool {
 	return false
 }
 
-// protectKernelTunables restricts access to some security-sensitive paths under
-// /proc and /sys. Entries are either hidden or just made read-only to app.
-// This protection is enabled by default.
-func protectKernelTunables(opts []*unit.UnitOption, appName types.ACName, systemdVersion int) []*unit.UnitOption {
-	roPaths := []string{
-		"/proc/bus/",
-		"/proc/sys/kernel/core_pattern",
-		"/proc/sys/kernel/modprobe",
-		"/proc/sys/vm/panic_on_oom",
-		"/proc/sysrq-trigger",
-		"/sys/block/",
-		"/sys/bus/",
-		"/sys/class/",
-		"/sys/dev/",
-		"/sys/devices/",
-		"/sys/kernel/",
-	}
-	hiddenDirs := []string{
-		"/sys/firmware/",
-		"/sys/fs/",
-		"/sys/hypervisor/",
-		"/sys/module/",
-		"/sys/power/",
-	}
-	hiddenPaths := []string{
-		"/proc/config.gz",
-		"/proc/kallsyms",
-		"/proc/sched_debug",
-		"/proc/kcore",
-		"/proc/kmem",
-		"/proc/mem",
+// chroot is the struct that represents a chroot environment
+type chroot struct {
+	wd   string   // the working directory in the outer root
+	root *os.File // the outer root directory
+}
+
+// newChroot creates a new chroot environment for the given path.
+// Unless the caller calls Escape() all system operations will be invoked in that environment.
+// It stores the working directory at the point it was invoked.
+func newChroot(path string) (*chroot, error) {
+	var err error
+	var c chroot
+
+	c.wd, err = os.Getwd()
+	if err != nil {
+		return nil, errwrap.Wrapf("getwd before chroot failed", err)
 	}
 
-	// Paths prefixed with "-" are ignored if they do not exist:
-	// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ReadWriteDirectories=
-	for _, p := range roPaths {
-		opts = append(opts, unit.NewUnitOption("Service", "ReadOnlyDirectories", fmt.Sprintf("-%s", filepath.Join(common.RelAppRootfsPath(appName), p))))
-	}
-	for _, p := range hiddenDirs {
-		opts = append(opts, unit.NewUnitOption("Service", "InaccessibleDirectories", fmt.Sprintf("-%s", filepath.Join(common.RelAppRootfsPath(appName), p))))
-	}
-	if systemdVersion >= 231 {
-		for _, p := range hiddenPaths {
-			opts = append(opts, unit.NewUnitOption("Service", "InaccessiblePaths", fmt.Sprintf("-%s", filepath.Join(common.RelAppRootfsPath(appName), p))))
-		}
-	}
-	if systemdVersion >= 232 {
-		opts = append(opts, unit.NewUnitOption("Service", "ProtectKernelTunables", "true"))
+	c.root, err = os.Open("/")
+	if err != nil {
+		return nil, errwrap.Wrapf("error opening outer root", err)
 	}
 
-	return opts
+	if err := syscall.Chroot(path); err != nil {
+		return nil, errwrap.Wrapf("chroot to "+path+" failed", err)
+	}
+
+	if err := os.Chdir("/"); err != nil {
+		return nil, errwrap.Wrapf("chdir to \"/\" failed", err)
+	}
+
+	return &c, nil
+}
+
+// Escape escapes the chroot environment changing back to the original working directory where newChroot was invoked.
+func (c *chroot) escape() error {
+	// change directory to outer root and close it
+	if err := syscall.Fchdir(int(c.root.Fd())); err != nil {
+		return errwrap.Wrapf("changing directory to outer root failed", err)
+	}
+
+	if err := c.root.Close(); err != nil {
+		return errwrap.Wrapf("closing outer root failed", err)
+	}
+
+	// chroot to current directory aka "." being the outer root
+	if err := syscall.Chroot("."); err != nil {
+		return errwrap.Wrapf("chroot to current directory failed", err)
+	}
+
+	// chdir into previous working directory
+	if err := os.Chdir(c.wd); err != nil {
+		return errwrap.Wrapf("chdir to working directory failed", err)
+	}
+
+	return nil
 }

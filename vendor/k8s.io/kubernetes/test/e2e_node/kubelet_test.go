@@ -19,11 +19,12 @@ package e2e_node
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/util/uuid"
 	"k8s.io/kubernetes/test/e2e/framework"
 
 	. "github.com/onsi/ginkgo"
@@ -112,8 +113,53 @@ var _ = framework.KubeDescribe("Kubelet", func() {
 		})
 
 		It("should be possible to delete", func() {
-			err := podClient.Delete(podName, &v1.DeleteOptions{})
+			err := podClient.Delete(podName, &metav1.DeleteOptions{})
 			Expect(err).To(BeNil(), fmt.Sprintf("Error deleting Pod %v", err))
+		})
+	})
+	Context("when scheduling a busybox Pod with hostAliases", func() {
+		podName := "busybox-host-aliases" + string(uuid.NewUUID())
+
+		It("it should write entries to /etc/hosts", func() {
+			podClient.CreateSync(&v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: podName,
+				},
+				Spec: v1.PodSpec{
+					// Don't restart the Pod since it is expected to exit
+					RestartPolicy: v1.RestartPolicyNever,
+					Containers: []v1.Container{
+						{
+							Image:   "gcr.io/google_containers/busybox:1.24",
+							Name:    podName,
+							Command: []string{"/bin/sh", "-c", "cat /etc/hosts; sleep 6000"},
+						},
+					},
+					HostAliases: []v1.HostAlias{
+						{
+							IP:        "123.45.67.89",
+							Hostnames: []string{"foo", "bar"},
+						},
+					},
+				},
+			})
+
+			Eventually(func() error {
+				rc, err := podClient.GetLogs(podName, &v1.PodLogOptions{}).Stream()
+				defer rc.Close()
+				if err != nil {
+					return err
+				}
+				buf := new(bytes.Buffer)
+				buf.ReadFrom(rc)
+				hostsFileContent := buf.String()
+
+				if !strings.Contains(hostsFileContent, "123.45.67.89\tfoo") || !strings.Contains(hostsFileContent, "123.45.67.89\tbar") {
+					return fmt.Errorf("expected hosts file to contain entries from HostAliases. Got:\n%+v", hostsFileContent)
+				}
+
+				return nil
+			}, time.Minute, time.Second*4).Should(BeNil())
 		})
 	})
 	Context("when scheduling a read only busybox container", func() {
@@ -131,7 +177,7 @@ var _ = framework.KubeDescribe("Kubelet", func() {
 						{
 							Image:   "gcr.io/google_containers/busybox:1.24",
 							Name:    podName,
-							Command: []string{"sh", "-c", "echo test > /file; sleep 240"},
+							Command: []string{"/bin/sh", "-c", "echo test > /file; sleep 240"},
 							SecurityContext: &v1.SecurityContext{
 								ReadOnlyRootFilesystem: &isReadOnly,
 							},
@@ -148,7 +194,7 @@ var _ = framework.KubeDescribe("Kubelet", func() {
 				buf := new(bytes.Buffer)
 				buf.ReadFrom(rc)
 				return buf.String()
-			}, time.Minute, time.Second*4).Should(Equal("sh: can't create /file: Read-only file system\n"))
+			}, time.Minute, time.Second*4).Should(Equal("/bin/sh: can't create /file: Read-only file system\n"))
 		})
 	})
 })

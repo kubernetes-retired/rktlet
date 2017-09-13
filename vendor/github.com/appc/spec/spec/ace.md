@@ -200,6 +200,38 @@ In the example above, the process will not be allowed to invoke `clock_adjtime(2
 
 In the example above, the process will be only allowed to invoke syscalls specified in the custom network-related set (and any other syscall in the implementation-specific whitelist). All other syscalls will result in app termination via `SIGSYS` signal.
 
+#### os/linux/selinux-context
+
+* Scope: app/pod
+
+**Parameters:**
+
+* **user** case-sensitive string containing the user portion of the SELinux security context to be used to label the current pod or application.
+* **role** case-sensitive string containing the role portion of the SELinux security context to be used to label the current pod or application.
+* **type** case-sensitive string containing the type/domain portion of the SELinux security context to be used to label the current pod or application.
+* **level** case-sensitive string containing the level portion of the SELinux security context to be used to label the current pod or application.
+
+**Notes:**
+ 1. Only a single `os/linux/selinux-context` isolator can be specified per-pod.
+ 2. Only a single `os/linux/selinux-context` isolator can be specified per-app.
+ 3. If a SELinux security context is specified at pod level, it applies to all processes involved in running the pod.
+ 4. If specified both at pod and app level, app values override pod ones.
+ 5. Implementations MAY ignore this isolator if the host does not support SELinux labeling.
+
+**Example:**
+
+```json
+"name": "os/linux/selinux-context",
+"value": {
+  "user": "system_u",
+  "role": "system_r",
+  "type": "dhcpc_t",
+  "level": "s0",
+}
+```
+
+In the example above, the SELinux security context `system_u:system_r:dhcpc_t:s0` will be applied to a pod or to a single application, depending on where this isolator is specified.
+
 #### os/linux/capabilities-remove-set
 
 * Scope: app
@@ -442,11 +474,11 @@ Information about the pod that this app is executing in.
 
 Retrievable at `$AC_METADATA_URL/acMetadata/v1/pod`
 
-| Entry       | Description |
-|-------------|-------------|
-|annotations | Top level annotations from Pod Manifest. Response body should conform to the sub-schema of the annotations property from the Pod specification (e.g. ```[ { "name": "ip-address", "value": "10.1.2.3" } ]```). |
-|manifest     | Fully-reified Pod Manifest JSON. |
-|uuid         | Pod UUID. The metadata service must return the `Content-Type` of `text/plain; charset=us-ascii` and the body of the response must be the pod UUID in canonical form. |
+| Entry       | Method | Content-Type | Description |
+|-------------|--------|--------------|-------------|
+|annotations  | GET    | application/json | Top level annotations from Pod Manifest. Response body should conform to the sub-schema of the annotations property from the Pod specification (e.g. ```[ { "name": "ip-address", "value": "10.1.2.3" } ]```). |
+|manifest     | GET    | application/json | Fully-reified Pod Manifest JSON. |
+|uuid         | GET    | text/plain; charset=us-ascii | Pod UUID. The body of the response must be the pod UUID in canonical form. |
 
 ### App Metadata
 
@@ -455,11 +487,11 @@ This is necessary to query for the correct endpoint metadata.
 
 Retrievable at `$AC_METADATA_URL/acMetadata/v1/apps/$AC_APP_NAME/`
 
-| Entry         | Description |
-|---------------|-------------|
-|annotations   | Annotations from Image Manifest merged with app annotations from Pod Manifest. Response body should conform to the sub-schema of the annotations property from the ACE and Pod specifications (e.g. ```[ { "name": "ip-address", "value": "10.1.2.3" } ]```). |
-|image/manifest | Original Image Manifest of the app. |
-|image/id       | Image ID (digest) this app is contained in. The metadata service must return the `Content-Type` of `text/plain; charset=us-ascii` and the body of the response must be the image ID as described in the ACI specification.|
+| Entry         | Method | Content-Type | Description |
+|---------------|--------|--------------|-------------|
+|annotations    | GET    | application/json | Annotations from Image Manifest merged with app annotations from Pod Manifest. Response body should conform to the sub-schema of the annotations property from the ACE and Pod specifications (e.g. ```[ { "name": "ip-address", "value": "10.1.2.3" } ]```). |
+|image/manifest | GET    | application/json | Original Image Manifest of the app. |
+|image/id       | GET    | text/plain; charset=us-ascii |  Image ID (digest) this app is contained in. The body of the response must be the image ID as described in the ACI specification.|
 
 ### Identity Endpoint
 
@@ -468,7 +500,7 @@ This gives a cryptographically verifiable identity to the pod based on its uniqu
 
 Accessible at `$AC_METADATA_URL/acMetadata/v1/pod/hmac`
 
-| Entry | Description |
-|-------|-------------|
-|sign   | Client applications must POST a form with content=&lt;object to sign&gt;. The response must specify a `Content-Type` header of `text/plain; charset=us-ascii` and the body must be a base64 encoded hmac-sha512 signature based on an HMAC key maintained by the Metadata Service. |
-|verify | Verify a signature from another pod. POST a form with content=&lt;object that was signed&gt;, uuid=&lt;uuid of the pod that generated the signature&gt;, signature=&lt;base64 encoded signature&gt;. Returns 200 OK if the signature passes and 403 Forbidden if the signature check fails. |
+| Entry | Method | Content-Type | Description |
+|-------|--------|--------------|-------------|
+|sign   | POST   | text/plain; charset=us-ascii | Client applications must POST a form with content=&lt;object to sign&gt;. The body must be a base64 encoded hmac-sha512 signature based on an HMAC key maintained by the Metadata Service. |
+|verify | POST   | text/plain; charset=us-ascii | Verify a signature from another pod. POST a form with content=&lt;object that was signed&gt;, uuid=&lt;uuid of the pod that generated the signature&gt;, signature=&lt;base64 encoded signature&gt;. Returns 200 OK if the signature passes and 403 Forbidden if the signature check fails. |

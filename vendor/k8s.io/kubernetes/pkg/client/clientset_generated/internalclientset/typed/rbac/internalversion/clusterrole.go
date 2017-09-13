@@ -21,8 +21,8 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
-	api "k8s.io/kubernetes/pkg/api"
 	rbac "k8s.io/kubernetes/pkg/apis/rbac"
+	scheme "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/scheme"
 )
 
 // ClusterRolesGetter has a method to return a ClusterRoleInterface.
@@ -35,8 +35,8 @@ type ClusterRolesGetter interface {
 type ClusterRoleInterface interface {
 	Create(*rbac.ClusterRole) (*rbac.ClusterRole, error)
 	Update(*rbac.ClusterRole) (*rbac.ClusterRole, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*rbac.ClusterRole, error)
 	List(opts v1.ListOptions) (*rbac.ClusterRoleList, error)
 	Watch(opts v1.ListOptions) (watch.Interface, error)
@@ -80,7 +80,7 @@ func (c *clusterRoles) Update(clusterRole *rbac.ClusterRole) (result *rbac.Clust
 }
 
 // Delete takes name of the clusterRole and deletes it. Returns an error if one occurs.
-func (c *clusterRoles) Delete(name string, options *api.DeleteOptions) error {
+func (c *clusterRoles) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Resource("clusterroles").
 		Name(name).
@@ -90,10 +90,10 @@ func (c *clusterRoles) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *clusterRoles) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *clusterRoles) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Resource("clusterroles").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -105,7 +105,7 @@ func (c *clusterRoles) Get(name string, options v1.GetOptions) (result *rbac.Clu
 	err = c.client.Get().
 		Resource("clusterroles").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -116,7 +116,7 @@ func (c *clusterRoles) List(opts v1.ListOptions) (result *rbac.ClusterRoleList, 
 	result = &rbac.ClusterRoleList{}
 	err = c.client.Get().
 		Resource("clusterroles").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -124,10 +124,10 @@ func (c *clusterRoles) List(opts v1.ListOptions) (result *rbac.ClusterRoleList, 
 
 // Watch returns a watch.Interface that watches the requested clusterRoles.
 func (c *clusterRoles) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Resource("clusterroles").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

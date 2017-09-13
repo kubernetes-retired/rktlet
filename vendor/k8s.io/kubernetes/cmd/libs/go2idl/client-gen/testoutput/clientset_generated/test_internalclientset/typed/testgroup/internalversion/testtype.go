@@ -22,7 +22,7 @@ import (
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
 	testgroup "k8s.io/kubernetes/cmd/libs/go2idl/client-gen/test_apis/testgroup"
-	api "k8s.io/kubernetes/pkg/api"
+	scheme "k8s.io/kubernetes/cmd/libs/go2idl/client-gen/testoutput/clientset_generated/test_internalclientset/scheme"
 )
 
 // TestTypesGetter has a method to return a TestTypeInterface.
@@ -36,8 +36,8 @@ type TestTypeInterface interface {
 	Create(*testgroup.TestType) (*testgroup.TestType, error)
 	Update(*testgroup.TestType) (*testgroup.TestType, error)
 	UpdateStatus(*testgroup.TestType) (*testgroup.TestType, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*testgroup.TestType, error)
 	List(opts v1.ListOptions) (*testgroup.TestTypeList, error)
 	Watch(opts v1.ListOptions) (watch.Interface, error)
@@ -101,7 +101,7 @@ func (c *testTypes) UpdateStatus(testType *testgroup.TestType) (result *testgrou
 }
 
 // Delete takes name of the testType and deletes it. Returns an error if one occurs.
-func (c *testTypes) Delete(name string, options *api.DeleteOptions) error {
+func (c *testTypes) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("testtypes").
@@ -112,11 +112,11 @@ func (c *testTypes) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *testTypes) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *testTypes) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("testtypes").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -129,7 +129,7 @@ func (c *testTypes) Get(name string, options v1.GetOptions) (result *testgroup.T
 		Namespace(c.ns).
 		Resource("testtypes").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -141,7 +141,7 @@ func (c *testTypes) List(opts v1.ListOptions) (result *testgroup.TestTypeList, e
 	err = c.client.Get().
 		Namespace(c.ns).
 		Resource("testtypes").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -149,11 +149,11 @@ func (c *testTypes) List(opts v1.ListOptions) (result *testgroup.TestTypeList, e
 
 // Watch returns a watch.Interface that watches the requested testTypes.
 func (c *testTypes) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Namespace(c.ns).
 		Resource("testtypes").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

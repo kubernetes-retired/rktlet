@@ -30,9 +30,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/appc/spec/schema/types"
+	"github.com/coreos/rkt/common"
+	"github.com/coreos/rkt/pkg/aci/acitest"
 	"github.com/coreos/rkt/tests/testutils"
 	taas "github.com/coreos/rkt/tests/testutils/aci-server"
+
+	"github.com/appc/spec/schema"
+	"github.com/appc/spec/schema/types"
 )
 
 // TestFetchFromFile tests that 'rkt fetch/run/prepare' for a file will always
@@ -77,16 +81,16 @@ func testFetchFromFile(t *testing.T, arg string, image string) {
 	if err := expectWithOutput(child, fetchFromFileMsg); err != nil {
 		t.Fatalf("%q should be found: %v", fetchFromFileMsg, err)
 	}
-	child.Wait()
+	waitOrFail(t, child, 0)
 
 	// 1. Run cmd again, should get $fetchFromFileMsg.
 	runRktAndCheckOutput(t, cmd, fetchFromFileMsg, false)
 }
 
-// TestFetch tests that 'rkt fetch/run/prepare' for any type (image name string
+// TestFetchAny tests that 'rkt fetch/run/prepare' for any type (image name string
 // or URL) except file:// URL will work with the default, store only
 // (--store-only) and remote only (--no-store) behaviors.
-func TestFetch(t *testing.T) {
+func TestFetchAny(t *testing.T) {
 	image := "rkt-inspect-implicit-fetch.aci"
 	imagePath := patchTestACI(image, "--exec=/inspect")
 
@@ -115,9 +119,9 @@ func TestFetch(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		testFetchDefault(t, tt.args, tt.image, tt.imageArgs, tt.finalURL)
-		testFetchStoreOnly(t, tt.args, tt.image, tt.imageArgs, tt.finalURL)
-		testFetchNoStore(t, tt.args, tt.image, tt.imageArgs, tt.finalURL)
+		testFetchNew(t, tt.args, tt.image, tt.imageArgs, tt.finalURL)
+		testFetchNever(t, tt.args, tt.image, tt.imageArgs, tt.finalURL)
+		testFetchUpdate(t, tt.args, tt.image, tt.imageArgs, tt.finalURL)
 	}
 }
 
@@ -146,7 +150,7 @@ func TestFetchFullHash(t *testing.T) {
 	}
 }
 
-func testFetchDefault(t *testing.T, arg string, image string, imageArgs string, finalURL string) {
+func testFetchNew(t *testing.T, arg string, image string, imageArgs string, finalURL string) {
 	remoteFetchMsgTpl := `remote fetching from URL %q`
 	storeMsgTpl := `using image from local store for .* %s`
 	if finalURL == "" {
@@ -158,24 +162,21 @@ func testFetchDefault(t *testing.T, arg string, image string, imageArgs string, 
 	ctx := testutils.NewRktRunCtx()
 	defer ctx.Cleanup()
 
-	cmd := fmt.Sprintf("%s %s %s %s", ctx.Cmd(), arg, image, imageArgs)
+	cmd := fmt.Sprintf("%s --pull-policy=new %s %s %s", ctx.Cmd(), arg, image, imageArgs)
 
 	// 1. Run cmd with the image not available in the store, should get $remoteFetchMsg.
-	child := spawnOrFail(t, cmd)
-	err := expectWithOutput(child, remoteFetchMsg)
-	if exitErr := checkExitStatus(child); exitErr != nil {
-		t.Logf("%v", exitErr)
+	err := runRktAndCheckRegexOutput(t, cmd, remoteFetchMsg)
+	status, _ := common.GetExitStatus(err)
+	if status != 0 {
+		t.Logf("%v", err)
 		t.Skip("remote fetching failed, probably a network failure. Skipping...")
-	}
-	if err != nil {
-		t.Fatalf("%q should be found: %v", remoteFetchMsg, err)
 	}
 
 	// 2. Run cmd with the image available in the store, should get $storeMsg.
 	runRktAndCheckRegexOutput(t, cmd, storeMsg)
 }
 
-func testFetchStoreOnly(t *testing.T, args string, image string, imageArgs string, finalURL string) {
+func testFetchNever(t *testing.T, args string, image string, imageArgs string, finalURL string) {
 	cannotFetchMsgTpl := `unable to fetch.* image from .* %q`
 	storeMsgTpl := `using image from local store for .* %s`
 	cannotFetchMsg := fmt.Sprintf(cannotFetchMsgTpl, image)
@@ -184,7 +185,7 @@ func testFetchStoreOnly(t *testing.T, args string, image string, imageArgs strin
 	ctx := testutils.NewRktRunCtx()
 	defer ctx.Cleanup()
 
-	cmd := fmt.Sprintf("%s --store-only %s %s %s", ctx.Cmd(), args, image, imageArgs)
+	cmd := fmt.Sprintf("%s --pull-policy=never %s %s %s", ctx.Cmd(), args, image, imageArgs)
 
 	// 1. Run cmd with the image not available in the store should get $cannotFetchMsg.
 	runRktAndCheckRegexOutput(t, cmd, cannotFetchMsg)
@@ -197,7 +198,7 @@ func testFetchStoreOnly(t *testing.T, args string, image string, imageArgs strin
 	runRktAndCheckRegexOutput(t, cmd, storeMsg)
 }
 
-func testFetchNoStore(t *testing.T, args string, image string, imageArgs string, finalURL string) {
+func testFetchUpdate(t *testing.T, args string, image string, imageArgs string, finalURL string) {
 	remoteFetchMsgTpl := `remote fetching from URL %q`
 	remoteFetchMsg := fmt.Sprintf(remoteFetchMsgTpl, finalURL)
 
@@ -208,15 +209,16 @@ func testFetchNoStore(t *testing.T, args string, image string, imageArgs string,
 		t.Skip(fmt.Sprintf("%v, probably a network failure. Skipping...", err))
 	}
 
-	cmd := fmt.Sprintf("%s --no-store %s %s %s", ctx.Cmd(), args, image, imageArgs)
+	cmd := fmt.Sprintf("%s --pull-policy=update %s %s %s", ctx.Cmd(), args, image, imageArgs)
 
 	// 1. Run cmd with the image available in the store, should get $remoteFetchMsg.
-	child := spawnOrFail(t, cmd)
-	err := expectWithOutput(child, remoteFetchMsg)
-	if exitErr := checkExitStatus(child); exitErr != nil {
-		t.Logf("%v", exitErr)
+	err := runRktAndCheckRegexOutput(t, cmd, remoteFetchMsg)
+	status, _ := common.GetExitStatus(err)
+	if status != 0 {
+		t.Logf("%v", err)
 		t.Skip("remote fetching failed, probably a network failure. Skipping...")
 	}
+
 	if err != nil {
 		t.Fatalf("%q should be found: %v", remoteFetchMsg, err)
 	}
@@ -536,11 +538,22 @@ func TestDeferredSignatureDownload(t *testing.T) {
 }
 
 func TestDifferentDiscoveryLabels(t *testing.T) {
-	manifestTemplate := `{"acKind":"ImageManifest","acVersion":"0.8.9","name":"IMG_NAME","labels":[{"name":"version","value":"1.2.0"},{"name":"arch","value":"amd64"},{"name":"os","value":"linux"}]}`
+	const imageName = "localhost/rkt-test-different-discovery-labels-image"
+
+	manifest, err := acitest.ImageManifestString(&schema.ImageManifest{
+		Name: imageName, Labels: types.Labels{
+			{"version", "1.2.0"},
+			{"arch", "amd64"},
+			{"os", "linux"},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error %v", err)
+	}
+
 	emptyImage := getEmptyImagePath()
-	imageName := "localhost/rkt-test-different-discovery-labels-image"
-	manifest := strings.Replace(manifestTemplate, "IMG_NAME", imageName, -1)
-	tmpDir := createTempDirOrPanic("rkt-TestDifferentDiscoveryLabels-")
+	tmpDir := mustTempDir("rkt-TestDifferentDiscoveryLabels-")
 	defer os.RemoveAll(tmpDir)
 
 	tmpManifest, err := ioutil.TempFile(tmpDir, "manifest")
@@ -552,8 +565,8 @@ func TestDifferentDiscoveryLabels(t *testing.T) {
 	}
 	defer os.Remove(tmpManifest.Name())
 
-	image := patchACI(emptyImage, "rkt-test-different-discovery-labels-image.aci", "--manifest", tmpManifest.Name())
 	imageFileName := fmt.Sprintf("%s.aci", filepath.Base(imageName))
+	image := patchACI(emptyImage, imageFileName, "--manifest", tmpManifest.Name())
 	defer os.Remove(image)
 
 	asc := runSignImage(t, image, 1)

@@ -21,9 +21,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/rbac"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/rest"
 )
 
 // Registry is an interface for things that know how to store Roles.
@@ -57,7 +57,7 @@ func (s *storage) ListRoles(ctx genericapirequest.Context, options *metainternal
 }
 
 func (s *storage) CreateRole(ctx genericapirequest.Context, role *rbac.Role) error {
-	_, err := s.Create(ctx, role)
+	_, err := s.Create(ctx, role, false)
 	return err
 }
 
@@ -79,7 +79,7 @@ func (s *storage) GetRole(ctx genericapirequest.Context, name string, options *m
 }
 
 func (s *storage) DeleteRole(ctx genericapirequest.Context, name string) error {
-	_, err := s.Delete(ctx, name, nil)
+	_, _, err := s.Delete(ctx, name, nil)
 	return err
 }
 

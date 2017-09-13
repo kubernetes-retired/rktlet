@@ -3,7 +3,7 @@ import:
 - package: github.com/StackExchange/wmi
   version: f3e2bae1e0cb5aef83e319133eabfee30013a4a5
 - package: github.com/appc/docker2aci
-  version: v0.14.0
+  version: v0.16.0
   subpackages:
   - lib
   - lib/common
@@ -20,7 +20,7 @@ import:
   subpackages:
   - proj2aci
 - package: github.com/appc/spec
-  version: v0.8.9
+  version: v0.8.10
   subpackages:
   - ace
   - aci
@@ -68,7 +68,7 @@ import:
   - plugins/meta/flannel
   - plugins/meta/tuning
 - package: github.com/coreos/gexpect
-  version: v0.1.0
+  version: v0.1.1
 - package: github.com/coreos/go-iptables
   version: v0.1.0
   subpackages:
@@ -147,7 +147,7 @@ import:
   subpackages:
   - proto
 - package: github.com/golang/protobuf
-  version: c3cefd437628a0b7d31b34fe44b3a7a540e98527
+  version: 8ee79997227bf9b34611aee7946ae64735e6fd93
   subpackages:
   - proto
   - protoc-gen-go
@@ -201,7 +201,7 @@ import:
 - package: github.com/spf13/pflag
   version: 08b1a584251b5b62f458943640fc8ebd4d50aaa5
 - package: github.com/syndtr/gocapability
-  version: 8e4cdcb3c22b40d5e330ade0b68cb2e2a3cf6f98
+  version: e7cb7fa329f456b3855136a2642b197bad7366ba
   subpackages:
   - capability
 - package: github.com/vishvananda/netlink
@@ -242,7 +242,7 @@ import:
   subpackages:
   - go/vcs
 - package: google.golang.org/grpc
-  version: 02fca896ff5f50c6bbbee0860345a49344b37a03
+  version: v1.0.4
   subpackages:
   - codes
   - credentials

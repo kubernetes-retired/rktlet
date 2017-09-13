@@ -21,6 +21,7 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
+	scheme "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset/scheme"
 	api "k8s.io/kubernetes/pkg/api"
 )
 
@@ -34,8 +35,8 @@ type SecretsGetter interface {
 type SecretInterface interface {
 	Create(*api.Secret) (*api.Secret, error)
 	Update(*api.Secret) (*api.Secret, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*api.Secret, error)
 	List(opts v1.ListOptions) (*api.SecretList, error)
 	Watch(opts v1.ListOptions) (watch.Interface, error)
@@ -83,7 +84,7 @@ func (c *secrets) Update(secret *api.Secret) (result *api.Secret, err error) {
 }
 
 // Delete takes name of the secret and deletes it. Returns an error if one occurs.
-func (c *secrets) Delete(name string, options *api.DeleteOptions) error {
+func (c *secrets) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("secrets").
@@ -94,11 +95,11 @@ func (c *secrets) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *secrets) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *secrets) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("secrets").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -111,7 +112,7 @@ func (c *secrets) Get(name string, options v1.GetOptions) (result *api.Secret, e
 		Namespace(c.ns).
 		Resource("secrets").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -123,7 +124,7 @@ func (c *secrets) List(opts v1.ListOptions) (result *api.SecretList, err error) 
 	err = c.client.Get().
 		Namespace(c.ns).
 		Resource("secrets").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -131,11 +132,11 @@ func (c *secrets) List(opts v1.ListOptions) (result *api.SecretList, err error) 
 
 // Watch returns a watch.Interface that watches the requested secrets.
 func (c *secrets) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Namespace(c.ns).
 		Resource("secrets").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

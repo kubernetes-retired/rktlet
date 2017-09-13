@@ -15,7 +15,7 @@ Note that specifying this parameter does not necessarily mean that rkt will use 
 Available flavors are:
 
 - `coreos` - it takes systemd and bash from a CoreOS PXE image; uses systemd-nspawn
-- `kvm` - it takes systemd, bash and other binaries from a CoreOS PXE image; uses lkvm
+- `kvm` - it takes systemd, bash and other binaries from a CoreOS PXE image; uses lkvm or qemu
 - `src` - it builds systemd, takes bash from the host at build time; uses built systemd-nspawn
 - `host` - it takes systemd and bash from host at runtime; uses systemd-nspawn from the host
 - `fly` - chroot-only approach for single-application minimal isolation containers; native Go implementation
@@ -160,6 +160,16 @@ This option to enable [logging to the TPM][rkt-tpm] is set by default. For loggi
 #### `--enable-insecure-go`
 
 This option to allow building rkt with go having known security issues is unset by default. Use it with caution.
+
+## Development
+
+#### `--enable-incremental-build`
+
+This option enables incremental compilation. This is useful for local development.
+In contrast to a release build this option enables `go install` vs `go build`
+which decreases incremental compilation time.
+Note that this option is not supported in cross-compile builds.
+For this reason the incremental build option must not be used for release builds.
 
 [rkt-tpm]: devel/tpm.md
 [trousers]: http://trousers.sourceforge.net/

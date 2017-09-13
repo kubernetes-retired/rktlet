@@ -24,13 +24,13 @@ import (
 	"strconv"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/kubernetes/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/util/uuid"
 	"k8s.io/kubernetes/test/e2e/framework"
 
 	. "github.com/onsi/ginkgo"
@@ -45,7 +45,8 @@ var _ = framework.KubeDescribe("Pods Extended", func() {
 		BeforeEach(func() {
 			podClient = f.PodClient()
 		})
-		It("should be submitted and removed [Conformance]", func() {
+		// Flaky issue #36821.
+		It("should be submitted and removed [Conformance] [Flaky]", func() {
 			By("creating the pod")
 			name := "pod-submit-remove-" + string(uuid.NewUUID())
 			value := strconv.Itoa(time.Now().Nanosecond())
@@ -97,7 +98,7 @@ var _ = framework.KubeDescribe("Pods Extended", func() {
 					framework.Failf("Failed to observe pod creation: %v", event)
 				}
 			case <-time.After(framework.PodStartTimeout):
-				Fail("Timeout while waiting for pod creation")
+				framework.Failf("Timeout while waiting for pod creation")
 			}
 
 			// We need to wait for the pod to be running, otherwise the deletion
@@ -164,7 +165,7 @@ var _ = framework.KubeDescribe("Pods Extended", func() {
 			deleted := false
 			timeout := false
 			var lastPod *v1.Pod
-			timer := time.After(30 * time.Second)
+			timer := time.After(1 * time.Minute)
 			for !deleted && !timeout {
 				select {
 				case event, _ := <-w.ResultChan():
@@ -177,7 +178,7 @@ var _ = framework.KubeDescribe("Pods Extended", func() {
 				}
 			}
 			if !deleted {
-				Fail("Failed to observe pod deletion")
+				framework.Failf("Failed to observe pod deletion")
 			}
 
 			Expect(lastPod.DeletionTimestamp).ToNot(BeNil())

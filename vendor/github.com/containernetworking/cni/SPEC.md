@@ -23,7 +23,6 @@ The intention is for the container runtime to first create a new network namespa
 It then determines which networks this container should belong to and for each network, which plugin must be executed.
 The network configuration is in JSON format and can easily be stored in a file.
 The network configuration includes mandatory fields such as "name" and "type" as well as plugin (type) specific ones.
-The network configuration allows for fields to change values between invocations. For this purpose there is an optional field "args" which should contain the varying information.
 The container runtime sequentially sets up the networks by executing the corresponding plugin for each network.
 Upon completion of the container lifecycle, the runtime executes the plugins in reverse order (relative to the order in which they were added) to disconnect them from the networks.
 
@@ -47,7 +46,7 @@ The operations that the CNI plugin needs to support are:
     - **Container ID**. This is optional but recommended, and should be unique across an administrative domain while the container is live (it may be reused in the future). For example, an environment with an IPAM system may require that each container is allocated a unique ID and that each IP allocation can thus be correlated back to a particular container. As another example, in appc implementations this would be the _pod ID_.
     - **Network namespace path**. This represents the path to the network namespace to be added, i.e. /proc/[pid]/ns/net or a bind-mount/link to it.
     - **Network configuration**. This is a JSON document describing a network to which a container can be joined. The schema is described below.
-    - **Extra arguments**. This provides an alternative mechanism to allow simple configuration of CNI plugins on a per-container basis.
+    - **Extra arguments**. This allows granular configuration of CNI plugins on a per-container basis.
     - **Name of the interface inside the container**. This is the name that should be assigned to the interface created inside the container (network namespace); consequently it must comply with the standard Linux restrictions on interface names.
   - Result:
     - **IPs assigned to the interface**. This is either an IPv4 address, an IPv6 address, or both.
@@ -62,21 +61,17 @@ The operations that the CNI plugin needs to support are:
     - **Extra arguments**, as defined above.
     - **Name of the interface inside the container**, as defined above.
 
-- Report version
-  - Parameters: NONE.
-  - Result:
-    - The version of the CNI spec implemented by the plugin: `{ "cniVersion": "0.2.0" }`
-
 The executable command-line API uses the type of network (see [Network Configuration](#network-configuration) below) as the name of the executable to invoke.
 It will then look for this executable in a list of predefined directories. Once found, it will invoke the executable using the following environment variables for argument passing:
-- `CNI_COMMAND`: indicates the desired operation; `ADD`, `DEL` or `VERSION`.
+- `CNI_VERSION`:  [Semantic Version 2.0](http://semver.org) of CNI specification. This effectively versions the CNI_XXX environment variables.
+- `CNI_COMMAND`: indicates the desired operation; either `ADD` or `DEL`
 - `CNI_CONTAINERID`: Container ID
 - `CNI_NETNS`: Path to network namespace file
 - `CNI_IFNAME`: Interface name to set up
 - `CNI_ARGS`: Extra arguments passed in by the user at invocation time. Alphanumeric key-value pairs separated by semicolons; for example, "FOO=BAR;ABC=123"
 - `CNI_PATH`: Colon-separated list of paths to search for CNI plugin executables
 
-Network configuration in JSON format is streamed to the plugin through stdin. This means it is not tied to a particular file on disk and can contain information which changes between invocations.
+Network configuration in JSON format is streamed through stdin.
 
 
 ### Result
@@ -85,7 +80,7 @@ Success is indicated by a return code of zero and the following JSON printed to 
 
 ```
 {
-  "cniVersion": "0.2.0",
+  "cniVersion": "0.1.0",
   "ip4": {
     "ip": <ipv4-and-subnet-in-CIDR>,
     "gateway": <ipv4-of-the-gateway>,  (optional)
@@ -114,7 +109,7 @@ Examples include generating an `/etc/resolv.conf` file to be injected into the c
 Errors are indicated by a non-zero return code and the following JSON being printed to stdout:
 ```
 {
-  "cniVersion": "0.2.0",
+  "cniVersion": "0.1.0",
   "code": <numeric-error-code>,
   "msg": <short-error-message>,
   "details": <long-error-message> (optional)
@@ -133,7 +128,6 @@ The network configuration is described in JSON form. The configuration can be st
 - `cniVersion` (string): [Semantic Version 2.0](http://semver.org) of CNI specification to which this configuration conforms.
 - `name` (string): Network name. This should be unique across all containers on the host (or other administrative domain).
 - `type` (string): Refers to the filename of the CNI plugin executable.
-- `args` (dictionary): Optional additional arguments provided by the container runtime. For example a dictionary of labels could be passed to CNI plugins by adding them to a labels field under `args`.
 - `ipMasq` (boolean): Optional (if supported by the plugin). Set up an IP masquerade on the host for this network. This is necessary if the host will act as a gateway to subnets that are not able to route to the IP assigned to the container.
 - `ipam`: Dictionary with IPAM specific values:
   - `type` (string): Refers to the filename of the IPAM plugin executable.
@@ -146,12 +140,11 @@ The network configuration is described in JSON form. The configuration can be st
   - `search` (list of strings): list of priority ordered search domains for short hostname lookups. Will be preferred over `domain` by most resolvers.
   - `options` (list of strings): list of options that can be passed to the resolver
 
-Plugins may define additional fields that they accept and may generate an error if called with unknown fields. The exception to this is the `args` field may be used to pass arbitrary data which may be ignored by plugins.
 ### Example configurations
 
 ```json
 {
-  "cniVersion": "0.2.0",
+  "cniVersion": "0.1.0",
   "name": "dbnet",
   "type": "bridge",
   // type (plugin) specific
@@ -170,7 +163,7 @@ Plugins may define additional fields that they accept and may generate an error 
 
 ```json
 {
-  "cniVersion": "0.2.0",
+  "cniVersion": "0.1.0",
   "name": "pci",
   "type": "ovs",
   // type (plugin) specific
@@ -179,12 +172,6 @@ Plugins may define additional fields that they accept and may generate an error 
   "ipam": {
     "type": "dhcp",
     "routes": [ { "dst": "10.3.0.0/16" }, { "dst": "10.4.0.0/16" } ]
-  }
-  // args may be ignored by plugins
-  "args": {
-    "labels" : {
-        "appVersion" : "1.0"
-    }
   }
 }
 ```
@@ -214,13 +201,13 @@ To lessen the burden and make IP management strategy be orthogonal to the type o
 
 #### IP Address Management (IPAM) Interface
 
-Like CNI plugins, the IPAM plugins are invoked by running an executable. The executable is searched for in a predefined list of paths, indicated to the CNI plugin via `CNI_PATH`. The IPAM Plugin receives all the same environment variables that were passed in to the CNI plugin. Just like the CNI plugin, IPAM receives the network configuration via stdin.
+Like CNI plugins, the IPAM plugins are invoked by running an executable. The executable is searched for in a predefined list of paths, indicated to the CNI plugin via `CNI_PATH`. The IPAM Plugin receives all the same environment variables that were passed in to the CNI plugin. Just like the CNI plugin, IPAM receives the network configuration file via stdin.
 
 Success is indicated by a zero return code and the following JSON being printed to stdout (in the case of the ADD command):
 
 ```
 {
-  "cniVersion": "0.2.0",
+  "cniVersion": "0.1.0",
   "ip4": {
     "ip": <ipv4-and-subnet-in-CIDR>,
     "gateway": <ipv4-of-the-gateway>,  (optional)
@@ -268,4 +255,3 @@ IPAM plugin examples:
 
 ## Well-known Error Codes
 - `1` - Incompatible CNI version
-- `2` - Unsupported field in network configuration. The error message must contain the key and value of the unsupported field.

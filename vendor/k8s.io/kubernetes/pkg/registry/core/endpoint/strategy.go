@@ -24,12 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/generic"
+	pkgstorage "k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/pkg/api"
 	endptspkg "k8s.io/kubernetes/pkg/api/endpoints"
 	"k8s.io/kubernetes/pkg/api/validation"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/generic"
-	pkgstorage "k8s.io/kubernetes/pkg/storage"
 )
 
 // endpointsStrategy implements behavior for Endpoints
@@ -82,12 +82,12 @@ func (endpointsStrategy) AllowUnconditionalUpdate() bool {
 }
 
 // GetAttrs returns labels and fields of a given object for filtering purposes.
-func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, error) {
+func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, bool, error) {
 	endpoints, ok := obj.(*api.Endpoints)
 	if !ok {
-		return nil, nil, fmt.Errorf("invalid object type %#v", obj)
+		return nil, nil, false, fmt.Errorf("invalid object type %#v", obj)
 	}
-	return endpoints.Labels, EndpointsToSelectableFields(endpoints), nil
+	return endpoints.Labels, EndpointsToSelectableFields(endpoints), endpoints.Initializers != nil, nil
 }
 
 // MatchEndpoints returns a generic matcher for a given label and field selector.

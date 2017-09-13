@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
 	"sync"
@@ -34,14 +35,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	runtimeutils "k8s.io/apimachinery/pkg/util/runtime"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
-	federationapi "k8s.io/kubernetes/federation/apis/federation/v1beta1"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	"k8s.io/kubernetes/pkg/cloudprovider/providers/azure"
 	gcecloud "k8s.io/kubernetes/pkg/cloudprovider/providers/gce"
+	"k8s.io/kubernetes/pkg/metrics"
 	"k8s.io/kubernetes/pkg/util/logs"
 	commontest "k8s.io/kubernetes/test/e2e/common"
 	"k8s.io/kubernetes/test/e2e/framework"
+	"k8s.io/kubernetes/test/e2e/framework/ginkgowrapper"
 	"k8s.io/kubernetes/test/e2e/generated"
 	federationtest "k8s.io/kubernetes/test/e2e_federation"
 	testutils "k8s.io/kubernetes/test/utils"
@@ -73,8 +76,13 @@ func setupProviderConfig() error {
 		if err != nil {
 			return fmt.Errorf("error parsing GCE/GKE region from zone %q: %v", zone, err)
 		}
-		managedZones := []string{zone} // Only single-zone for now
-		cloudConfig.Provider, err = gcecloud.CreateGCECloud(framework.TestContext.CloudConfig.ProjectID, region, zone, managedZones, "" /* networkUrl */, nil /* nodeTags */, "" /* nodeInstancePerfix */, nil /* tokenSource */, false /* useMetadataServer */)
+		managedZones := []string{} // Manage all zones in the region
+		if !framework.TestContext.CloudConfig.MultiZone {
+			managedZones = []string{zone}
+		}
+		cloudConfig.Provider, err = gcecloud.CreateGCECloud(framework.TestContext.CloudConfig.ProjectID,
+			region, zone, managedZones, "" /* networkUrl */, "" /* subnetworkUrl */, nil, /* nodeTags */
+			"" /* nodeInstancePerfix */, nil /* tokenSource */, false /* useMetadataServer */)
 		if err != nil {
 			return fmt.Errorf("Error building GCE/GKE provider: %v", err)
 		}
@@ -83,6 +91,17 @@ func setupProviderConfig() error {
 		if cloudConfig.Zone == "" {
 			return fmt.Errorf("gce-zone must be specified for AWS")
 		}
+	case "azure":
+		if cloudConfig.ConfigFile == "" {
+			return fmt.Errorf("config-file must be specified for Azure")
+		}
+		config, err := os.Open(cloudConfig.ConfigFile)
+		if err != nil {
+			framework.Logf("Couldn't open cloud provider configuration %s: %#v",
+				cloudConfig.ConfigFile, err)
+		}
+		defer config.Close()
+		cloudConfig.Provider, err = azure.NewCloud(config)
 	}
 
 	return nil
@@ -103,15 +122,26 @@ var _ = ginkgo.SynchronizedBeforeSuite(func() []byte {
 		framework.Failf("Failed to setup provider config: %v", err)
 	}
 
+	switch framework.TestContext.Provider {
+	case "gce", "gke":
+		framework.LogClusterImageSources()
+	}
+
 	c, err := framework.LoadClientset()
 	if err != nil {
 		glog.Fatal("Error loading client: ", err)
 	}
 
-	// Delete any namespaces except default and kube-system. This ensures no
+	// Delete any namespaces except those created by the system. This ensures no
 	// lingering resources are left over from a previous test run.
 	if framework.TestContext.CleanStart {
-		deleted, err := framework.DeleteNamespaces(c, nil /* deleteFilter */, []string{metav1.NamespaceSystem, metav1.NamespaceDefault, federationapi.FederationNamespaceSystem})
+		deleted, err := framework.DeleteNamespaces(c, nil, /* deleteFilter */
+			[]string{
+				metav1.NamespaceSystem,
+				metav1.NamespaceDefault,
+				metav1.NamespacePublic,
+				framework.FederationSystemNamespace(),
+			})
 		if err != nil {
 			framework.Failf("Error deleting orphaned namespaces: %v", err)
 		}
@@ -131,7 +161,11 @@ var _ = ginkgo.SynchronizedBeforeSuite(func() []byte {
 	// test pods from running, and tests that ensure all pods are running and
 	// ready will fail).
 	podStartupTimeout := framework.TestContext.SystemPodsStartupTimeout
-	if err := framework.WaitForPodsRunningReady(c, metav1.NamespaceSystem, int32(framework.TestContext.MinStartupPods), podStartupTimeout, framework.ImagePullerLabels, true); err != nil {
+	// TODO: In large clusters, we often observe a non-starting pods due to
+	// #41007. To avoid those pods preventing the whole test runs (and just
+	// wasting the whole run), we allow for some not-ready pods (with the
+	// number equal to the number of allowed not-ready nodes).
+	if err := framework.WaitForPodsRunningReady(c, metav1.NamespaceSystem, int32(framework.TestContext.MinStartupPods), int32(framework.TestContext.AllowedNotReadyNodes), podStartupTimeout, framework.ImagePullerLabels); err != nil {
 		framework.DumpAllNamespaceInfo(c, metav1.NamespaceSystem)
 		framework.LogFailedContainers(c, metav1.NamespaceSystem, framework.Logf)
 		runKubernetesServiceTestContainer(c, metav1.NamespaceDefault)
@@ -148,8 +182,24 @@ var _ = ginkgo.SynchronizedBeforeSuite(func() []byte {
 
 	// Dump the output of the nethealth containers only once per run
 	if framework.TestContext.DumpLogsOnFailure {
-		framework.Logf("Dumping network health container logs from all nodes")
-		framework.LogContainersInPodsWithLabels(c, metav1.NamespaceSystem, framework.ImagePullerLabels, "nethealth", framework.Logf)
+		logFunc := framework.Logf
+		if framework.TestContext.ReportDir != "" {
+			filePath := path.Join(framework.TestContext.ReportDir, "nethealth.txt")
+			file, err := os.Create(filePath)
+			if err != nil {
+				framework.Logf("Failed to create a file with network health data %v: %v\nPrinting to stdout", filePath, err)
+			} else {
+				defer file.Close()
+				if err = file.Chmod(0644); err != nil {
+					framework.Logf("Failed to chmod to 644 of %v: %v", filePath, err)
+				}
+				logFunc = framework.GetLogToFileFunc(file)
+				framework.Logf("Dumping network health container logs from all nodes to file %v", filePath)
+			}
+		} else {
+			framework.Logf("Dumping network health container logs from all nodes...")
+		}
+		framework.LogContainersInPodsWithLabels(c, metav1.NamespaceSystem, framework.ImagePullerLabels, "nethealth", logFunc)
 	}
 
 	// Reference common test to make the import valid.
@@ -217,13 +267,52 @@ func RunCleanupActions() {
 // and then the function that only runs on the first Ginkgo node.
 var _ = ginkgo.SynchronizedAfterSuite(func() {
 	// Run on all Ginkgo nodes
+	framework.Logf("Running AfterSuite actions on all node")
 	RunCleanupActions()
 }, func() {
 	// Run only Ginkgo on node 1
+	framework.Logf("Running AfterSuite actions on node 1")
 	if framework.TestContext.ReportDir != "" {
 		framework.CoreDump(framework.TestContext.ReportDir)
 	}
+	if framework.TestContext.GatherSuiteMetricsAfterTest {
+		if err := gatherTestSuiteMetrics(); err != nil {
+			framework.Logf("Error gathering metrics: %v", err)
+		}
+	}
 })
+
+func gatherTestSuiteMetrics() error {
+	framework.Logf("Gathering metrics")
+	c, err := framework.LoadClientset()
+	if err != nil {
+		return fmt.Errorf("error loading client: %v", err)
+	}
+
+	// Grab metrics for apiserver, scheduler, controller-manager, kubelet (for non-kubemark case).
+	grabber, err := metrics.NewMetricsGrabber(c, !framework.ProviderIs("kubemark"), true, true, true)
+	if err != nil {
+		return fmt.Errorf("failed to create MetricsGrabber: %v", err)
+	}
+
+	received, err := grabber.Grab()
+	if err != nil {
+		return fmt.Errorf("failed to grab metrics: %v", err)
+	}
+
+	metricsForE2E := (*framework.MetricsForE2E)(&received)
+	metricsJson := metricsForE2E.PrintJSON()
+	if framework.TestContext.ReportDir != "" {
+		filePath := path.Join(framework.TestContext.ReportDir, "MetricsForE2ESuite_"+time.Now().Format(time.RFC3339)+".json")
+		if err := ioutil.WriteFile(filePath, []byte(metricsJson), 0644); err != nil {
+			return fmt.Errorf("error writing to %q: %v", filePath, err)
+		}
+	} else {
+		framework.Logf("\n\nTest Suite Metrics:\n%s\n\n", metricsJson)
+	}
+
+	return nil
+}
 
 // TestE2E checks configuration parameters (specified through flags) and then runs
 // E2E tests using the Ginkgo runner.
@@ -235,7 +324,7 @@ func RunE2ETests(t *testing.T) {
 	logs.InitLogs()
 	defer logs.FlushLogs()
 
-	gomega.RegisterFailHandler(ginkgo.Fail)
+	gomega.RegisterFailHandler(ginkgowrapper.Fail)
 	// Disable skipped tests unless they are explicitly requested.
 	if config.GinkgoConfig.FocusString == "" && config.GinkgoConfig.SkipString == "" {
 		config.GinkgoConfig.SkipString = `\[Flaky\]|\[Feature:.+\]`

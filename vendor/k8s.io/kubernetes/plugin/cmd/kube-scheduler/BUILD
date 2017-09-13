@@ -7,11 +7,19 @@ load(
     "go_binary",
     "go_library",
 )
+load("//pkg/version:def.bzl", "version_x_defs")
 
 go_binary(
     name = "kube-scheduler",
+    gc_linkopts = [
+        "-linkmode",
+        "external",
+        "-extldflags",
+        "-static",
+    ],
     library = ":go_default_library",
     tags = ["automanaged"],
+    x_defs = version_x_defs(),
 )
 
 go_library(
@@ -19,13 +27,13 @@ go_library(
     srcs = ["scheduler.go"],
     tags = ["automanaged"],
     deps = [
-        "//pkg/util/flag:go_default_library",
-        "//pkg/util/logs:go_default_library",
         "//pkg/version/verflag:go_default_library",
         "//plugin/cmd/kube-scheduler/app:go_default_library",
         "//plugin/cmd/kube-scheduler/app/options:go_default_library",
-        "//vendor:github.com/golang/glog",
-        "//vendor:github.com/spf13/pflag",
+        "//vendor/github.com/golang/glog:go_default_library",
+        "//vendor/github.com/spf13/pflag:go_default_library",
+        "//vendor/k8s.io/apiserver/pkg/util/flag:go_default_library",
+        "//vendor/k8s.io/apiserver/pkg/util/logs:go_default_library",
     ],
 )
 

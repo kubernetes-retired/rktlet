@@ -19,22 +19,27 @@
     - group: root
     - mode: 755
 
+/var/lib/kubelet/pki:
+  file.directory:
+    - mode: 755
+    - makedirs: True
+
 # The default here is that this file is blank. If this is the case, the kubelet
 # won't be able to parse it as JSON and it will not be able to publish events
 # to the apiserver. You'll see a single error line in the kubelet start up file
 # about this.
-/var/lib/kubelet/kubeconfig:
+/var/lib/kubelet/bootstrap-kubeconfig:
   file.managed:
-    - source: salt://kubelet/kubeconfig
+    - source: salt://kubelet/bootstrap-kubeconfig
     - user: root
     - group: root
     - mode: 400
     - makedirs: true
 
-{% if pillar['kubelet_auth_ca_cert'] is defined %}
-/var/lib/kubelet/kubelet_auth_ca.crt:
+{% if grains.cloud != 'gce' %}
+/var/lib/kubelet/ca.crt:
   file.managed:
-    - source: salt://kubelet/kubelet_auth_ca.crt
+    - source: salt://kubelet/ca.crt
     - user: root
     - group: root
     - mode: 400
@@ -57,11 +62,14 @@ fix-service-kubelet:
   cmd.wait:
     - name: /opt/kubernetes/helpers/services bounce kubelet
     - watch:
+      - file: /var/lib/kubelet/pki
       - file: /usr/local/bin/kubelet
       - file: {{ pillar.get('systemd_system_path') }}/kubelet.service
       - file: {{ environment_file }}
-      - file: /var/lib/kubelet/kubeconfig
-      - file: /var/lib/kubelet/kubelet_auth_ca.crt
+      - file: /var/lib/kubelet/bootstrap-kubeconfig
+{% if grains.cloud != 'gce' %}
+      - file: /var/lib/kubelet/ca.crt
+{% endif %}
 
 {% else %}
 
@@ -88,9 +96,9 @@ kubelet:
       - file: /usr/lib/systemd/system/kubelet.service
 {% endif %}
       - file: {{ environment_file }}
-      - file: /var/lib/kubelet/kubeconfig
-{% if pillar['kubelet_auth_ca_cert'] is defined  %}
-      - file: /var/lib/kubelet/kubelet_auth_ca.crt
+      - file: /var/lib/kubelet/bootstrap-kubeconfig
+{% if grains.cloud != 'gce' %}
+      - file: /var/lib/kubelet/ca.crt
 {% endif %}
 {% if pillar.get('is_systemd') %}
     - provider:

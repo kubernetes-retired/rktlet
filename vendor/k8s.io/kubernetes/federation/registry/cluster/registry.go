@@ -21,9 +21,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/kubernetes/federation/apis/federation"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/rest"
 )
 
 // Registry is an interface implemented by things that know how to store Cluster objects.
@@ -68,7 +68,7 @@ func (s *storage) GetCluster(ctx genericapirequest.Context, name string, options
 }
 
 func (s *storage) CreateCluster(ctx genericapirequest.Context, cluster *federation.Cluster) error {
-	_, err := s.Create(ctx, cluster)
+	_, err := s.Create(ctx, cluster, false)
 	return err
 }
 
@@ -78,6 +78,6 @@ func (s *storage) UpdateCluster(ctx genericapirequest.Context, cluster *federati
 }
 
 func (s *storage) DeleteCluster(ctx genericapirequest.Context, name string) error {
-	_, err := s.Delete(ctx, name, nil)
+	_, _, err := s.Delete(ctx, name, nil)
 	return err
 }

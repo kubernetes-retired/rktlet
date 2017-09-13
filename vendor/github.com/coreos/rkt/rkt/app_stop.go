@@ -41,58 +41,69 @@ func init() {
 func runAppStop(cmd *cobra.Command, args []string) (exit int) {
 	if len(args) < 1 {
 		stderr.Print("must provide the pod UUID")
-		return 1
+		return 254
 	}
 
 	if flagAppName == "" {
 		stderr.Print("must provide the app to remove")
-		return 1
+		return 254
+	}
+
+	appName, err := types.NewACName(flagAppName)
+	if err != nil {
+		stderr.PrintE("invalid app name", err)
+		return 254
 	}
 
 	p, err := pkgPod.PodFromUUIDString(getDataDir(), args[0])
 	if err != nil {
 		stderr.PrintE("problem retrieving pod", err)
-		return 1
+		return 254
 	}
 	defer p.Close()
 
-	if p.AfterRun() {
+	if p.IsAfterRun() {
 		stdout.Printf("pod %q is already stopped", p.UUID)
 		return 0
 	}
 
 	if p.State() != pkgPod.Running {
 		stderr.Printf("pod %q isn't currently running", p.UUID)
-		return 1
+		return 254
 	}
 
-	appName, err := types.NewACName(flagAppName)
-	if err != nil {
-		stderr.PrintE("invalid app name", err)
+	if !p.IsSupervisorReady() {
+		stderr.Printf("supervisor for pod %q is not yet ready", p.UUID)
+		return 254
 	}
 
 	podPID, err := p.ContainerPid1()
 	if err != nil {
 		stderr.PrintE(fmt.Sprintf("unable to determine the pid for pod %q", p.UUID), err)
-		return 1
+		return 254
 	}
 
 	cfg := stage0.CommonConfig{
-		UUID:  p.UUID,
-		Debug: globalFlags.Debug,
+		DataDir: getDataDir(),
+		UUID:    p.UUID,
+		Debug:   globalFlags.Debug,
 	}
 
 	scfg := stage0.StopConfig{
 		CommonConfig: &cfg,
-		Dir:          p.Path(),
+		PodPath:      p.Path(),
 		AppName:      appName,
 		PodPID:       podPID,
+	}
+
+	if globalFlags.Debug {
+		stage0.InitDebug()
 	}
 
 	err = stage0.StopApp(scfg)
 	if err != nil {
 		stderr.PrintE("error stopping app", err)
-		return 1
+		return 254
 	}
 
 	return 0

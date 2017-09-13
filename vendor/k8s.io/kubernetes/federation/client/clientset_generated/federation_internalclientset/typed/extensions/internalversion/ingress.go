@@ -21,7 +21,7 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
-	api "k8s.io/kubernetes/pkg/api"
+	scheme "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset/scheme"
 	extensions "k8s.io/kubernetes/pkg/apis/extensions"
 )
 
@@ -36,8 +36,8 @@ type IngressInterface interface {
 	Create(*extensions.Ingress) (*extensions.Ingress, error)
 	Update(*extensions.Ingress) (*extensions.Ingress, error)
 	UpdateStatus(*extensions.Ingress) (*extensions.Ingress, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*extensions.Ingress, error)
 	List(opts v1.ListOptions) (*extensions.IngressList, error)
 	Watch(opts v1.ListOptions) (watch.Interface, error)
@@ -101,7 +101,7 @@ func (c *ingresses) UpdateStatus(ingress *extensions.Ingress) (result *extension
 }
 
 // Delete takes name of the ingress and deletes it. Returns an error if one occurs.
-func (c *ingresses) Delete(name string, options *api.DeleteOptions) error {
+func (c *ingresses) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("ingresses").
@@ -112,11 +112,11 @@ func (c *ingresses) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *ingresses) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *ingresses) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("ingresses").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -129,7 +129,7 @@ func (c *ingresses) Get(name string, options v1.GetOptions) (result *extensions.
 		Namespace(c.ns).
 		Resource("ingresses").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -141,7 +141,7 @@ func (c *ingresses) List(opts v1.ListOptions) (result *extensions.IngressList, e
 	err = c.client.Get().
 		Namespace(c.ns).
 		Resource("ingresses").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -149,11 +149,11 @@ func (c *ingresses) List(opts v1.ListOptions) (result *extensions.IngressList, e
 
 // Watch returns a watch.Interface that watches the requested ingresses.
 func (c *ingresses) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Namespace(c.ns).
 		Resource("ingresses").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

@@ -38,17 +38,25 @@ import (
 	"github.com/pborman/uuid"
 )
 
-// see Documentation/devel/pod-lifecycle.md for some explanation
-
+// Pod is the struct that reflects a pod and its lifecycle.
+// It provides the necessary methods for state transitions and methods for querying internal state.
+//
+// Unless documented otherwise methods do not refresh the pod state as it is reflected on the file system
+// but only the pod state at the point where this struct was created.
+//
+// See Documentation/devel/pod-lifecycle.md for some explanation.
 type Pod struct {
 	UUID       *types.UUID
 	Nets       []netinfo.NetInfo // list of networks (name, IP, iface) this pod is using
 	MountLabel string            // Label to use for container image
 
-	*lock.FileLock
+	*lock.FileLock                // the lock for the whole pod
+	manifestLock   *lock.FileLock // the lock for the pod manifest in case this pod is mutable
+
 	dataDir string // The data directory where the pod lives in.
 
 	createdByMe bool // true if we're the creator of this pod (only the creator can ToPrepare or ToRun directly from preparing)
+	mutable     bool // if true, the pod manifest of the underlying pod can be modified
 
 	isEmbryo         bool // directory starts as embryo before entering preparing state, serves as stage for acquiring lock before rename to prepare/.
 	isPreparing      bool // when locked at pods/prepare/$uuid the pod is actively being prepared
@@ -226,6 +234,12 @@ func getPod(dataDir string, uuid *types.UUID) (*Pod, error) {
 		return nil, errwrap.Wrap(fmt.Errorf("error opening pod %q", uuid), err)
 	}
 
+	if err == lock.ErrNotExist {
+		// This means it didn't exist in any state, something else might have
+		// deleted it.
+		return nil, errwrap.Wrap(fmt.Errorf("pod %q was not present", uuid), err)
+	}
+
 	if !p.isPrepared && !p.isEmbryo {
 		// preparing, run, exitedGarbage, and garbage dirs use exclusive locks to indicate preparing/aborted, running/exited, and deleting/marked
 		if err = l.TrySharedLock(); err != nil {
@@ -318,6 +332,7 @@ func (p *Pod) garbagePath() string {
 
 // ToPrepare transitions a pod from embryo -> preparing, leaves the pod locked in the prepare directory.
 // only the creator of the pod (via NewPod()) may do this, nobody to race with.
+// This method refreshes the pod state.
 func (p *Pod) ToPreparing() error {
 	if !p.createdByMe {
 		return fmt.Errorf("bug: only pods created by me may transition to preparing")
@@ -352,6 +367,7 @@ func (p *Pod) ToPreparing() error {
 
 // ToPrepared transitions a pod from preparing -> prepared, leaves the pod unlocked in the prepared directory.
 // only the creator of the pod (via NewPod()) may do this, nobody to race with.
+// This method refreshes the pod state.
 func (p *Pod) ToPrepared() error {
 	if !p.createdByMe {
 		return fmt.Errorf("bug: only pods created by me may transition to prepared")
@@ -385,6 +401,7 @@ func (p *Pod) ToPrepared() error {
 
 // ToRun transitions a pod from prepared -> run, leaves the pod locked in the run directory.
 // the creator of the pod (via NewPod()) may also jump directly from preparing -> run
+// This method refreshes the pod state.
 func (p *Pod) ToRun() error {
 	if !p.createdByMe && !p.isPrepared {
 		return fmt.Errorf("bug: only prepared pods may transition to run")
@@ -420,6 +437,7 @@ func (p *Pod) ToRun() error {
 }
 
 // ToExitedGarbage transitions a pod from run -> exitedGarbage
+// This method refreshes the pod state.
 func (p *Pod) ToExitedGarbage() error {
 	if !p.isExited || p.isExitedGarbage {
 		return fmt.Errorf("bug: only exited non-garbage pods may transition to exited-garbage")
@@ -445,6 +463,7 @@ func (p *Pod) ToExitedGarbage() error {
 }
 
 // ToGarbage transitions a pod from abortedPrepared -> garbage or prepared -> garbage
+// This method refreshes the pod state.
 func (p *Pod) ToGarbage() error {
 	if !p.isAbortedPrepare && !p.isPrepared {
 		return fmt.Errorf("bug: only failed prepare or prepared pods may transition to garbage")
@@ -542,8 +561,8 @@ func listPodsFromDir(cdir string) ([]string, error) {
 	return ps, nil
 }
 
-// refreshState() updates the cached members of c to reflect current reality
-// assumes p.FileLock is currently unlocked, and always returns with it unlocked.
+// refreshState() updates the cached members of the pod to reflect current reality.
+// Assumes p.FileLock is currently unlocked, and always returns with it unlocked.
 func (p *Pod) refreshState() error {
 	p.isEmbryo = false
 	p.isPreparing = false
@@ -628,33 +647,6 @@ func (p *Pod) refreshState() error {
 		// locked in non-exited garbage is deleting
 		p.isDeleting = true
 	}
-
-	return nil
-}
-
-// WaitExited waits for a pod to (run and) exit.
-func (p *Pod) WaitExited() error {
-	// isExited implies isExitedGarbage.
-	for !p.isExited && !p.isAbortedPrepare && !p.isGarbage && !p.isGone {
-		if err := p.SharedLock(); err != nil {
-			return err
-		}
-
-		if err := p.Unlock(); err != nil {
-			return err
-		}
-
-		if err := p.refreshState(); err != nil {
-			return err
-		}
-
-		// if we're in the gap between preparing and running in a split prepare/run-prepared usage, take a nap
-		if p.isPrepared {
-			time.Sleep(time.Second)
-		}
-	}
-
-	// TODO(vc): return error or let caller detect the !p.isExited possibilities?
 
 	return nil
 }
@@ -970,10 +962,18 @@ func (p *Pod) AppImageManifest(appName string) (*schema.ImageManifest, error) {
 // CreationTime returns the time when the pod was created.
 // This happens at prepare time.
 func (p *Pod) CreationTime() (time.Time, error) {
-	if p.isPrepared || p.isRunning() || p.AfterRun() {
-		return p.getModTime("pod")
+	if !(p.isPrepared || p.isRunning() || p.IsAfterRun()) {
+		return time.Time{}, nil
 	}
-	return time.Time{}, nil
+	t, err := p.getModTime("pod-created")
+	if err == nil {
+		return t, nil
+	}
+	if !os.IsNotExist(err) {
+		return t, err
+	}
+	// backwards compatibility with rkt before v1.20
+	return p.getModTime("pod")
 }
 
 // StartTime returns the time when the pod was started.
@@ -983,7 +983,7 @@ func (p *Pod) StartTime() (time.Time, error) {
 		retErr error
 	)
 
-	if !p.isRunning() && !p.AfterRun() {
+	if !p.isRunning() && !p.IsAfterRun() {
 		// hasn't started
 		return t, nil
 	}
@@ -1040,7 +1040,26 @@ func (p *Pod) Pid() (int, error) {
 	}
 }
 
+// IsSupervisorReady checks if the pod supervisor (typically systemd-pid1)
+// has reached its ready state. All errors are handled as non-readiness.
+func (p *Pod) IsSupervisorReady() bool {
+	s1rootfs, err := p.Stage1RootfsPath()
+	if err != nil {
+		return false
+	}
+	target, err := os.Readlink(filepath.Join(s1rootfs, "/rkt/supervisor-status"))
+	if err != nil {
+		return false
+	}
+	if target == "ready" {
+		return true
+	}
+
+	return false
+}
+
 // ContainerPid1 returns the pid of the process with pid 1 in the pod.
+// Note: This method blocks indefinitely and refreshes the pod state.
 func (p *Pod) ContainerPid1() (pid int, err error) {
 	// rkt supports two methods to find the container's PID 1: the pid
 	// file and the ppid file.
@@ -1171,9 +1190,14 @@ func (p *Pod) PodManifestAvailable() bool {
 	return true
 }
 
-// AfterRun returns true if the pod is in a post-running state, otherwise it returns false.
-func (p *Pod) AfterRun() bool {
+// IsAfterRun returns true if the pod is in a post-running state, otherwise it returns false.
+func (p *Pod) IsAfterRun() bool {
 	return p.isExitedDeleting || p.isDeleting || p.isExited || p.isGarbage
+}
+
+// IsFinished returns true if the pod is in a terminal state, else false.
+func (p *Pod) IsFinished() bool {
+	return p.isExited || p.isAbortedPrepare || p.isGarbage || p.isGone
 }
 
 // AppExitCode returns the app's exit code.
