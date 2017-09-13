@@ -55,7 +55,7 @@ func TestHostNetwork(t *testing.T) {
 		t.Fatalf("expected %d, got %d", 0, exitCode)
 	}
 
-	// Due to https://github.com/coreos/rkt/issues/3473 we need to trim spaces for each line
+	// Due to https://github.com/rkt/rkt/issues/3473 we need to trim spaces for each line
 	assert.Equal(t, trimLines(string(hostsEtcHosts)), trimLines(output))
 }
 

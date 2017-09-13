@@ -35,8 +35,8 @@ import:
   subpackages:
   - assert
   - mock
-- package: github.com/coreos/rkt
-  version: v1.25.0
+- package: github.com/rkt/rkt
+  version: v1.28.1
   subpackages:
   - lib
 - package: github.com/containernetworking/cni

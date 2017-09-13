@@ -29,7 +29,7 @@ import (
 	"github.com/kubernetes-incubator/rktlet/rktlet/util"
 
 	appcschema "github.com/appc/spec/schema"
-	rktlib "github.com/coreos/rkt/lib"
+	rktlib "github.com/rkt/rkt/api/v1"
 	context "golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )

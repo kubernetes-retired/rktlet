@@ -21,9 +21,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/coreos/rkt/lib"
 	"github.com/golang/glog"
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
+	rkt "github.com/rkt/rkt/api/v1"
 	"golang.org/x/net/context"
 
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
