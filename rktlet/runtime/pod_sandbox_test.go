@@ -25,7 +25,7 @@ import (
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli/mocks"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/net/context"
-	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	"k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )
 
 func strptr(s string) *string    { return &s }

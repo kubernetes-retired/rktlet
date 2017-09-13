@@ -31,7 +31,7 @@ import (
 	appcschema "github.com/appc/spec/schema"
 	rktlib "github.com/coreos/rkt/lib"
 	context "golang.org/x/net/context"
-	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	"k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )
 
 // TODO(tmrts): Move these errors to the container API for code re-use.
@@ -152,6 +152,11 @@ func (s *ImageStore) ListImages(ctx context.Context, req *runtime.ListImagesRequ
 	}
 
 	return &runtime.ListImagesResponse{Images: images}, nil
+}
+
+// ImageFSInfo returns information of the filesystem that is used to store images.
+func (s *ImageStore) ImageFsInfo(ctx context.Context, req *runtime.ImageFsInfoRequest) (*runtime.ImageFsInfoResponse, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (s *ImageStore) getImageManifest(id string) (*appcschema.ImageManifest, error) {

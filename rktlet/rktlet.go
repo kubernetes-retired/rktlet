@@ -25,7 +25,7 @@ import (
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
 	"github.com/kubernetes-incubator/rktlet/rktlet/image"
 	"github.com/kubernetes-incubator/rktlet/rktlet/runtime"
-	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/util/exec"
 )
 

@@ -27,9 +27,9 @@ import (
 	"github.com/kubernetes-incubator/rktlet/rktlet"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
-	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
-	"k8s.io/kubernetes/pkg/util/flag"
+	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/util/logs"
+	"k8s.io/kubernetes/staging/src/k8s.io/apiserver/pkg/util/flag"
 )
 
 const defaultUnixSock = "/var/run/rktlet.sock"

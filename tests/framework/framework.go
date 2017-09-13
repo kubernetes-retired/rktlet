@@ -30,7 +30,7 @@ import (
 	"time"
 
 	"k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	"k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/kubelet/kuberuntime"
 
 	"github.com/kubernetes-incubator/rktlet/rktlet"

@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/net/context"
 
-	runtime "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	runtime "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )
 
 const mockBusyboxFetchResponse = `

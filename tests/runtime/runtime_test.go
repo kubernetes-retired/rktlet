@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	"k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 
 	"github.com/kubernetes-incubator/rktlet/tests/framework"
 	"github.com/stretchr/testify/assert"
@@ -87,7 +87,7 @@ func TestPrivileged(t *testing.T) {
 		},
 	})
 
-	// These cases are based on this list: https://github.com/kubernetes/kubernetes/blob/f49442d4331052c3141c47a3f9701da7082ebcff/pkg/kubelet/api/v1alpha1/runtime/api.proto#L462-L470
+	// These cases are based on this list: https://github.com/kubernetes/kubernetes/blob/f49442d4331052c3141c47a3f9701da7082ebcff/pkg/kubelet/apis/cri/v1alpha1/runtime/api.proto#L462-L470
 	privilegedCases := []struct {
 		Name          string
 		Command       string

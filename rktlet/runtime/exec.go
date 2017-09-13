@@ -30,7 +30,8 @@ import (
 
 	"golang.org/x/net/context"
 
-	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	"k8s.io/client-go/tools/remotecommand"
+	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/kubelet/server/streaming"
 	"k8s.io/kubernetes/pkg/kubelet/util/ioutils"
 	"k8s.io/kubernetes/pkg/util/term"
@@ -81,12 +82,12 @@ func NewExecShim(cli cli.CLI) *execShim {
 	return &execShim{cli: cli}
 }
 
-func (es *execShim) Attach(containerID string, in io.Reader, out, err io.WriteCloser, tty bool, resize <-chan term.Size) error {
+func (es *execShim) Attach(containerID string, in io.Reader, out, err io.WriteCloser, tty bool, resize <-chan remotecommand.TerminalSize) error {
 	return errors.New("TODO")
 }
 
 // Exec executes a given command in a container
-func (es *execShim) Exec(containerID string, cmd []string, in io.Reader, out, errOut io.WriteCloser, tty bool, resize <-chan term.Size) error {
+func (es *execShim) Exec(containerID string, cmd []string, in io.Reader, out, errOut io.WriteCloser, tty bool, resize <-chan remotecommand.TerminalSize) error {
 	uuid, appName, err := parseContainerID(containerID)
 	if err != nil {
 		return err
@@ -122,7 +123,7 @@ func (es *execShim) Exec(containerID string, cmd []string, in io.Reader, out, er
 	return nil
 }
 
-func execWithTty(execCmd *exec.Cmd, in io.Reader, out io.WriteCloser, resize <-chan term.Size) error {
+func execWithTty(execCmd *exec.Cmd, in io.Reader, out io.WriteCloser, resize <-chan remotecommand.TerminalSize) error {
 	p, err := pty.Start(execCmd) // calls execCmd.Start
 	if err != nil {
 		return err

@@ -28,7 +28,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
 	"golang.org/x/net/context"
-	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	runtimeApi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )
 
 func formatPod(metaData *runtimeApi.PodSandboxMetadata) string {

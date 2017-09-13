@@ -27,7 +27,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/pborman/uuid"
 	"golang.org/x/net/context"
-	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	runtimeApi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )
 
 const (

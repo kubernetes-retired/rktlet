@@ -25,7 +25,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )
 
 // TODO: this will be deprecated once https://github.com/coreos/rkt/pull/3396
