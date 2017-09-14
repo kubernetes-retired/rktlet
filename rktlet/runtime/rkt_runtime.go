@@ -34,10 +34,11 @@ type RktRuntime struct {
 	cli.CLI
 	cli.Init
 
-	execShim     *execShim
-	streamServer streaming.Server
-	imageStore   runtimeApi.ImageServiceServer
-	stage1Name   string
+	execShim          *execShim
+	streamServer      streaming.Server
+	imageStore        runtimeApi.ImageServiceServer
+	stage1Name        string
+	networkPluginName string
 }
 
 const internalAppPrefix = "rktletinternal-"
@@ -49,13 +50,15 @@ func New(
 	imageStore runtimeApi.ImageServiceServer,
 	streamServerAddr string,
 	stage1Name string,
+	networkPluginName string,
 ) (runtimeApi.RuntimeServiceServer, error) {
 	runtime := &RktRuntime{
-		CLI:        cli,
-		Init:       init,
-		imageStore: imageStore,
-		execShim:   NewExecShim(cli),
-		stage1Name: stage1Name,
+		CLI:               cli,
+		Init:              init,
+		imageStore:        imageStore,
+		execShim:          NewExecShim(cli),
+		stage1Name:        stage1Name,
+		networkPluginName: networkPluginName,
 	}
 
 	var err error
