@@ -33,7 +33,7 @@ func (r *RktRuntime) fetchStage1Image(ctx context.Context) error {
 	}
 
 	glog.Infof("downloading %q stage1 image, this may take some time", r.stage1Name)
-	output, err := r.RunCommand("image", "fetch", "--no-store=true", "--full=true", r.stage1Name)
+	output, err := r.RunCommand("image", "fetch", "--pull-policy=update", "--full=true", r.stage1Name)
 	if err != nil {
 		return fmt.Errorf("unable to fetch image %q: %v", r.stage1Name, err)
 	}
