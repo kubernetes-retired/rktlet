@@ -341,7 +341,7 @@ func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile, s
 		}
 	}
 
-	if req.GetConfig().GetLinux().GetSecurityContext().Privileged {
+	if sc := req.GetConfig().GetLinux().GetSecurityContext(); sc != nil && sc.Privileged {
 		// TODO: the 'paths' setting is applied to all applications even though only
 		// a subset of them may request to be privileged, however there is no way
 		// to modify paths on a per-app basis currently, so this is the best we can
