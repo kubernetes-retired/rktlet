@@ -1,6 +1,6 @@
 # See the OWNERS file documentation:
 #  https://github.com/kubernetes/community/blob/master/contributors/devel/owners.md
 
-assignees:
-  - euank
-  - yifan-gu
+approvers:
+  - lucab
+  - iaguis
