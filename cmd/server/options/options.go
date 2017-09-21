@@ -38,4 +38,5 @@ func (s *RktletServer) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&s.RktDatadir, "rkt-data-dir", s.RktDatadir, "Path to rkt's data directory. Defaults to '/var/lib/rktlet/data'.")
 	fs.StringVar(&s.StreamServerAddress, "stream-server-address", s.StreamServerAddress, "Address to listen on for api-server streaming requests. MUST BE SECURED BY SOME EXTERNAL MECHANISM.")
 	fs.StringVar(&s.RktStage1Name, "rkt-stage1-name", s.RktStage1Name, "Name of an image to use as stage1. This needs to be specified as 'image:version'. If the image is present in the local store, the version can be ommitted.")
+	fs.StringVar(&s.NetworkPluginName, "net", "", "Name of the network plugin used in the cluster")
 }

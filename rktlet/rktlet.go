@@ -57,7 +57,12 @@ func New(config *Config) (ContainerAndImageService, error) {
 
 	imageStore := image.NewImageStore(image.ImageStoreConfig{CLI: rktCli})
 
-	rktRuntime, err := runtime.New(rktCli, init, imageStore, config.StreamServerAddress, config.RktStage1Name)
+	rktRuntime, err := runtime.New(rktCli,
+		init,
+		imageStore,
+		config.StreamServerAddress,
+		config.RktStage1Name,
+		config.NetworkPluginName)
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +82,8 @@ type Config struct {
 	// This address must be accessible by the api-server. However, it also allows
 	// arbitrary code execution within pods and must be secured.
 	StreamServerAddress string
+
+	NetworkPluginName string
 
 	// TODO, podcidr, networkdir, etc for cni
 }
