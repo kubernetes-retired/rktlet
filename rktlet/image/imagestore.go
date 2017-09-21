@@ -64,6 +64,9 @@ func (s *ImageStore) RemoveImage(ctx context.Context, req *runtime.RemoveImageRe
 	if err != nil {
 		return nil, err
 	}
+	if img.Image == nil {
+		return nil, fmt.Errorf("Image does not exist")
+	}
 
 	if _, err := s.RunCommand("image", "rm", img.Image.Id); err != nil {
 		return nil, fmt.Errorf("failed to remove the image: %v", err)
