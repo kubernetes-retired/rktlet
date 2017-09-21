@@ -18,6 +18,7 @@ package runtime
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -32,6 +33,7 @@ import (
 // is merged/released
 const loggingHelperImage = "quay.io/coreos/rktlet-journal2cri:0.0.1"
 const loggingAppName = internalAppPrefix + "journal2cri"
+const defaultPodLogDir string = "/var/log/pods"
 
 func (r *RktRuntime) fetchLoggingAppImage(ctx context.Context) error {
 	imageName := loggingHelperImage
@@ -52,7 +54,10 @@ func (r *RktRuntime) fetchLoggingAppImage(ctx context.Context) error {
 // addInternalLoggingApp adds the helper app for converting journald logs for this pod to cri logs
 func (r *RktRuntime) addInternalLoggingApp(ctx context.Context, rktUUID string, criLogDir string) error {
 	if criLogDir == "" {
-		return fmt.Errorf("unable to start logging: no cri log directory provided")
+		criLogDir = filepath.Join(defaultPodLogDir, rktUUID)
+	}
+	if err := os.MkdirAll(criLogDir, os.FileMode(0700)); err != nil {
+		return err
 	}
 
 	imageHash, err := r.getImageHash(ctx, loggingHelperImage)
