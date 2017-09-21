@@ -198,3 +198,63 @@ func TestGeneratePortArgs(t *testing.T) {
 		assert.Equal(t, tt.result, generatePortArgs(tt.port), testHint)
 	}
 }
+
+func TestGenerateEnvironmentArgs(t *testing.T) {
+	tests := []struct {
+		env    []*runtimeApi.KeyValue
+		result []string
+	}{
+		// simple test
+		{
+			[]*runtimeApi.KeyValue{
+				&runtimeApi.KeyValue{
+					Key:   "PATH",
+					Value: "/bin:/usr/bin:/usr/sbin",
+				},
+			},
+			[]string{`--environment=PATH='/bin:/usr/bin:/usr/sbin'`},
+		},
+
+		// spaces
+		{
+			[]*runtimeApi.KeyValue{
+				&runtimeApi.KeyValue{
+					Key:   "GREETING",
+					Value: "hello world",
+				},
+			},
+			[]string{`--environment=GREETING='hello world'`},
+		},
+
+		// several env variables
+		{
+			[]*runtimeApi.KeyValue{
+				&runtimeApi.KeyValue{
+					Key:   "PATH",
+					Value: "/bin:/usr/bin:/usr/sbin",
+				},
+				&runtimeApi.KeyValue{
+					Key:   "GREETING",
+					Value: "hello world",
+				},
+			},
+			[]string{`--environment=PATH='/bin:/usr/bin:/usr/sbin'`, `--environment=GREETING='hello world'`},
+		},
+
+		// escaping
+		{
+			[]*runtimeApi.KeyValue{
+				&runtimeApi.KeyValue{
+					Key:   "LYRICS",
+					Value: "it's the final countdown",
+				},
+			},
+			[]string{`--environment=LYRICS='it\'s the final countdown'`},
+		},
+	}
+
+	for i, tt := range tests {
+		testHint := fmt.Sprintf("test case #%d", i)
+		assert.Equal(t, tt.result, generateEnvironmentArgs(tt.env), testHint)
+	}
+}
