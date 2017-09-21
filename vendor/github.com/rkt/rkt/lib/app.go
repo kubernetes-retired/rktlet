@@ -16,7 +16,6 @@ package rkt
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	"github.com/appc/spec/schema"
@@ -137,8 +136,16 @@ func appStateInMutablePod(app *v1.App, pod *pkgPod.Pod) error {
 		}
 	}()
 
+	stage1RootfsPath, err := pod.Stage1RootfsPath()
+	if err != nil {
+		return err
+	}
+	createdFile := common.AppCreatedPathFromStage1Rootfs(stage1RootfsPath, app.Name)
+	startedFile := common.AppStartedPathFromStage1Rootfs(stage1RootfsPath, app.Name)
+	appStatusFile := common.AppStatusPathFromStage1Rootfs(stage1RootfsPath, app.Name)
+
 	// Check if the app is created.
-	fi, err := os.Stat(common.AppCreatedPath(pod.Path(), app.Name))
+	fi, err := os.Stat(createdFile)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("cannot stat app creation file: %v", err)
@@ -151,7 +158,7 @@ func appStateInMutablePod(app *v1.App, pod *pkgPod.Pod) error {
 	app.CreatedAt = &createdAt
 
 	// Check if the app is started.
-	fi, err = os.Stat(common.AppStartedPath(pod.Path(), app.Name))
+	fi, err = os.Stat(startedFile)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("cannot stat app started file: %v", err)
@@ -164,7 +171,6 @@ func appStateInMutablePod(app *v1.App, pod *pkgPod.Pod) error {
 	app.StartedAt = &startedAt
 
 	// Check if the app is exited.
-	appStatusFile := common.AppStatusPath(pod.Path(), app.Name)
 	fi, err = os.Stat(appStatusFile)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -177,11 +183,14 @@ func appStateInMutablePod(app *v1.App, pod *pkgPod.Pod) error {
 	finishedAt := fi.ModTime().UnixNano()
 	app.FinishedAt = &finishedAt
 
-	// Read exit code.
-	exitCode, err := readExitCode(appStatusFile)
+	code, err := pod.AppExitCode(app.Name)
 	if err != nil {
-		return err
+		// if we can't get the exit code (e.g. we didn't have time to write it
+		// after a pod dies) let's continue instead of erroring out, the exit code
+		// will be a generic 1 and we'll let callers handle it.
+		code = 1
 	}
+	exitCode := int32(code)
 	app.ExitCode = &exitCode
 
 	return nil
@@ -240,17 +249,4 @@ func appStateFromPod(pod *pkgPod.Pod) v1.AppState {
 	default:
 		return v1.AppStateUnknown
 	}
-}
-
-func readExitCode(path string) (int32, error) {
-	var exitCode int32
-
-	b, err := ioutil.ReadFile(path)
-	if err != nil {
-		return -1, fmt.Errorf("cannot read app exited file: %v", err)
-	}
-	if _, err := fmt.Sscanf(string(b), "%d", &exitCode); err != nil {
-		return -1, fmt.Errorf("cannot parse exit code: %v", err)
-	}
-	return exitCode, nil
 }

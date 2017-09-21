@@ -461,9 +461,9 @@ func toPodSandboxStatus(pod *rkt.Pod) (*runtimeApi.PodSandboxStatus, error) {
 		return nil, err
 	}
 
-	var startedAt int64
-	if pod.StartedAt != nil {
-		startedAt = *pod.StartedAt
+	var createdAt int64
+	if pod.CreatedAt != nil {
+		createdAt = *pod.CreatedAt
 	}
 
 	state := runtimeApi.PodSandboxState_SANDBOX_NOTREADY
@@ -477,7 +477,7 @@ func toPodSandboxStatus(pod *rkt.Pod) (*runtimeApi.PodSandboxStatus, error) {
 		Id:          pod.UUID,
 		Metadata:    metadata,
 		State:       state,
-		CreatedAt:   startedAt,
+		CreatedAt:   createdAt,
 		Network:     &runtimeApi.PodSandboxNetworkStatus{Ip: ip},
 		Linux:       nil, // TODO
 		Labels:      getKubernetesLabels(pod.UserLabels),
