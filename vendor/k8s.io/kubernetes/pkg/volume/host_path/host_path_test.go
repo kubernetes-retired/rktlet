@@ -23,13 +23,13 @@ import (
 	"os"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/kubernetes/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset/fake"
 	"k8s.io/kubernetes/pkg/util"
-	"k8s.io/kubernetes/pkg/util/uuid"
 	"k8s.io/kubernetes/pkg/volume"
 	volumetest "k8s.io/kubernetes/pkg/volume/testing"
 )
@@ -75,16 +75,9 @@ func TestRecycler(t *testing.T) {
 	plugMgr.InitPlugins([]volume.VolumePlugin{&hostPathPlugin{nil, volume.VolumeConfig{}}}, pluginHost)
 
 	spec := &volume.Spec{PersistentVolume: &v1.PersistentVolume{Spec: v1.PersistentVolumeSpec{PersistentVolumeSource: v1.PersistentVolumeSource{HostPath: &v1.HostPathVolumeSource{Path: "/foo"}}}}}
-	plug, err := plugMgr.FindRecyclablePluginBySpec(spec)
+	_, err := plugMgr.FindRecyclablePluginBySpec(spec)
 	if err != nil {
 		t.Errorf("Can't find the plugin by name")
-	}
-	recycler, err := plug.NewRecycler("pv-name", spec, nil)
-	if err != nil {
-		t.Errorf("Failed to make a new Recycler: %v", err)
-	}
-	if recycler.GetPath() != spec.PersistentVolume.Spec.HostPath.Path {
-		t.Errorf("Expected %s but got %s", spec.PersistentVolume.Spec.HostPath.Path, recycler.GetPath())
 	}
 }
 
@@ -187,6 +180,31 @@ func TestProvisioner(t *testing.T) {
 	}
 
 	os.RemoveAll(pv.Spec.HostPath.Path)
+}
+
+func TestInvalidHostPath(t *testing.T) {
+	plugMgr := volume.VolumePluginMgr{}
+	plugMgr.InitPlugins(ProbeVolumePlugins(volume.VolumeConfig{}), volumetest.NewFakeVolumeHost("fake", nil, nil))
+
+	plug, err := plugMgr.FindPluginByName(hostPathPluginName)
+	if err != nil {
+		t.Fatalf("Unable to find plugin %s by name: %v", hostPathPluginName, err)
+	}
+	spec := &v1.Volume{
+		Name:         "vol1",
+		VolumeSource: v1.VolumeSource{HostPath: &v1.HostPathVolumeSource{Path: "/no/backsteps/allowed/.."}},
+	}
+	pod := &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("poduid")}}
+	mounter, err := plug.NewMounter(volume.NewSpecFromVolume(spec), pod, volume.VolumeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = mounter.SetUp(nil)
+	expectedMsg := "invalid HostPath `/no/backsteps/allowed/..`: must not contain '..'"
+	if err.Error() != expectedMsg {
+		t.Fatalf("expected error `%s` but got `%s`", expectedMsg, err)
+	}
 }
 
 func TestPlugin(t *testing.T) {

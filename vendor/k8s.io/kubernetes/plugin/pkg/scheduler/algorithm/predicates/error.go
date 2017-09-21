@@ -37,6 +37,7 @@ var (
 	ErrMaxVolumeCountExceeded    = newPredicateFailureError("MaxVolumeCount")
 	ErrNodeUnderMemoryPressure   = newPredicateFailureError("NodeUnderMemoryPressure")
 	ErrNodeUnderDiskPressure     = newPredicateFailureError("NodeUnderDiskPressure")
+	ErrVolumeNodeConflict        = newPredicateFailureError("NoVolumeNodeConflict")
 	// ErrFakePredicate is used for test only. The fake predicates returning false also returns error
 	// as ErrFakePredicate.
 	ErrFakePredicate = newPredicateFailureError("FakePredicateError")
@@ -68,6 +69,10 @@ func (e *InsufficientResourceError) Error() string {
 
 func (e *InsufficientResourceError) GetReason() string {
 	return fmt.Sprintf("Insufficient %v", e.ResourceName)
+}
+
+func (e *InsufficientResourceError) GetInsufficientAmount() int64 {
+	return e.requested - (e.capacity - e.used)
 }
 
 type PredicateFailureError struct {

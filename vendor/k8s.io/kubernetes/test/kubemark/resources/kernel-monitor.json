@@ -1,9 +1,20 @@
 {
-	"logPath": "/log/faillog",
+	"plugin": "filelog",
+	"pluginConfig": {
+		"timestamp": "dummy",
+		"message": "dummy",
+		"timestampFormat": "dummy"
+	},
+	"logPath": "/dev/null",
 	"lookback": "10m",
-	"startPattern": "Initializing cgroup subsys cpuset",
 	"bufferSize": 10,
 	"source": "kernel-monitor",
-	"conditions": [],
+	"conditions": [
+		{
+			"type": "KernelDeadlock",
+			"reason": "KernelHasNoDeadlock",
+			"message": "kernel has no deadlock"
+		}
+	],
 	"rules": []
 }

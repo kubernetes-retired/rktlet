@@ -17,12 +17,27 @@ limitations under the License.
 package core
 
 import (
+	"os"
+
+	"k8s.io/apimachinery/pkg/apimachinery/announced"
+	"k8s.io/apimachinery/pkg/apimachinery/registered"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/kubernetes/pkg/api"
 )
+
+// NOTE: the registry, scheme and codecs are created here to allow to install a federation core group
+// that is completely independent from the Kubernetes core group. It's only used for the core group itself.
+// The other apigroups in the federation apiserver use the Kubernetes registry, scheme and codecs.
+
+// GroupFactoryRegistry is the APIGroupFactoryRegistry (overlaps a bit with Registry, see comments in package for details)
+var GroupFactoryRegistry = make(announced.APIGroupFactoryRegistry)
+
+// Registry is an instance of an API registry.  This is an interim step to start removing the idea of a global
+// API registry.
+var Registry = registered.NewOrDie(os.Getenv("KUBE_API_VERSIONS"))
 
 // Scheme is the default instance of runtime.Scheme to which types in the Kubernetes API are already registered.
 var Scheme = runtime.NewScheme()
@@ -54,7 +69,7 @@ func Resource(resource string) schema.GroupResource {
 }
 
 var (
-	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes, addConversionFuncs)
+	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
 	AddToScheme   = SchemeBuilder.AddToScheme
 )
 
@@ -67,7 +82,6 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&api.Service{},
 		&api.Namespace{},
 		&api.NamespaceList{},
-		&api.DeleteOptions{},
 		&api.Secret{},
 		&api.SecretList{},
 		&api.Event{},
@@ -78,7 +92,6 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 
 	// Register Unversioned types under their own special group
 	scheme.AddUnversionedTypes(Unversioned,
-		&metav1.ExportOptions{},
 		&metav1.Status{},
 		&metav1.APIVersions{},
 		&metav1.APIGroupList{},

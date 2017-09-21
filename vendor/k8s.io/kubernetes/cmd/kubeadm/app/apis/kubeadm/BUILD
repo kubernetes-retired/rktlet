@@ -14,13 +14,13 @@ go_library(
         "env.go",
         "register.go",
         "types.go",
+        "well_known_labels.go",
     ],
     tags = ["automanaged"],
     deps = [
-        "//pkg/api:go_default_library",
-        "//vendor:k8s.io/apimachinery/pkg/apis/meta/v1",
-        "//vendor:k8s.io/apimachinery/pkg/runtime",
-        "//vendor:k8s.io/apimachinery/pkg/runtime/schema",
+        "//vendor/k8s.io/apimachinery/pkg/apis/meta/v1:go_default_library",
+        "//vendor/k8s.io/apimachinery/pkg/runtime:go_default_library",
+        "//vendor/k8s.io/apimachinery/pkg/runtime/schema:go_default_library",
     ],
 )
 
@@ -35,6 +35,7 @@ filegroup(
     name = "all-srcs",
     srcs = [
         ":package-srcs",
+        "//cmd/kubeadm/app/apis/kubeadm/fuzzer:all-srcs",
         "//cmd/kubeadm/app/apis/kubeadm/install:all-srcs",
         "//cmd/kubeadm/app/apis/kubeadm/v1alpha1:all-srcs",
         "//cmd/kubeadm/app/apis/kubeadm/validation:all-srcs",

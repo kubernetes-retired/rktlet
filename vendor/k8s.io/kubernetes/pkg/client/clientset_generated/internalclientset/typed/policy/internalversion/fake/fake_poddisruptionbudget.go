@@ -22,9 +22,8 @@ import (
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
-	api "k8s.io/kubernetes/pkg/api"
+	testing "k8s.io/client-go/testing"
 	policy "k8s.io/kubernetes/pkg/apis/policy"
-	core "k8s.io/kubernetes/pkg/client/testing/core"
 )
 
 // FakePodDisruptionBudgets implements PodDisruptionBudgetInterface
@@ -35,9 +34,11 @@ type FakePodDisruptionBudgets struct {
 
 var poddisruptionbudgetsResource = schema.GroupVersionResource{Group: "policy", Version: "", Resource: "poddisruptionbudgets"}
 
+var poddisruptionbudgetsKind = schema.GroupVersionKind{Group: "policy", Version: "", Kind: "PodDisruptionBudget"}
+
 func (c *FakePodDisruptionBudgets) Create(podDisruptionBudget *policy.PodDisruptionBudget) (result *policy.PodDisruptionBudget, err error) {
 	obj, err := c.Fake.
-		Invokes(core.NewCreateAction(poddisruptionbudgetsResource, c.ns, podDisruptionBudget), &policy.PodDisruptionBudget{})
+		Invokes(testing.NewCreateAction(poddisruptionbudgetsResource, c.ns, podDisruptionBudget), &policy.PodDisruptionBudget{})
 
 	if obj == nil {
 		return nil, err
@@ -47,7 +48,7 @@ func (c *FakePodDisruptionBudgets) Create(podDisruptionBudget *policy.PodDisrupt
 
 func (c *FakePodDisruptionBudgets) Update(podDisruptionBudget *policy.PodDisruptionBudget) (result *policy.PodDisruptionBudget, err error) {
 	obj, err := c.Fake.
-		Invokes(core.NewUpdateAction(poddisruptionbudgetsResource, c.ns, podDisruptionBudget), &policy.PodDisruptionBudget{})
+		Invokes(testing.NewUpdateAction(poddisruptionbudgetsResource, c.ns, podDisruptionBudget), &policy.PodDisruptionBudget{})
 
 	if obj == nil {
 		return nil, err
@@ -57,7 +58,7 @@ func (c *FakePodDisruptionBudgets) Update(podDisruptionBudget *policy.PodDisrupt
 
 func (c *FakePodDisruptionBudgets) UpdateStatus(podDisruptionBudget *policy.PodDisruptionBudget) (*policy.PodDisruptionBudget, error) {
 	obj, err := c.Fake.
-		Invokes(core.NewUpdateSubresourceAction(poddisruptionbudgetsResource, "status", c.ns, podDisruptionBudget), &policy.PodDisruptionBudget{})
+		Invokes(testing.NewUpdateSubresourceAction(poddisruptionbudgetsResource, "status", c.ns, podDisruptionBudget), &policy.PodDisruptionBudget{})
 
 	if obj == nil {
 		return nil, err
@@ -65,15 +66,15 @@ func (c *FakePodDisruptionBudgets) UpdateStatus(podDisruptionBudget *policy.PodD
 	return obj.(*policy.PodDisruptionBudget), err
 }
 
-func (c *FakePodDisruptionBudgets) Delete(name string, options *api.DeleteOptions) error {
+func (c *FakePodDisruptionBudgets) Delete(name string, options *v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(core.NewDeleteAction(poddisruptionbudgetsResource, c.ns, name), &policy.PodDisruptionBudget{})
+		Invokes(testing.NewDeleteAction(poddisruptionbudgetsResource, c.ns, name), &policy.PodDisruptionBudget{})
 
 	return err
 }
 
-func (c *FakePodDisruptionBudgets) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
-	action := core.NewDeleteCollectionAction(poddisruptionbudgetsResource, c.ns, listOptions)
+func (c *FakePodDisruptionBudgets) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
+	action := testing.NewDeleteCollectionAction(poddisruptionbudgetsResource, c.ns, listOptions)
 
 	_, err := c.Fake.Invokes(action, &policy.PodDisruptionBudgetList{})
 	return err
@@ -81,7 +82,7 @@ func (c *FakePodDisruptionBudgets) DeleteCollection(options *api.DeleteOptions, 
 
 func (c *FakePodDisruptionBudgets) Get(name string, options v1.GetOptions) (result *policy.PodDisruptionBudget, err error) {
 	obj, err := c.Fake.
-		Invokes(core.NewGetAction(poddisruptionbudgetsResource, c.ns, name), &policy.PodDisruptionBudget{})
+		Invokes(testing.NewGetAction(poddisruptionbudgetsResource, c.ns, name), &policy.PodDisruptionBudget{})
 
 	if obj == nil {
 		return nil, err
@@ -91,13 +92,13 @@ func (c *FakePodDisruptionBudgets) Get(name string, options v1.GetOptions) (resu
 
 func (c *FakePodDisruptionBudgets) List(opts v1.ListOptions) (result *policy.PodDisruptionBudgetList, err error) {
 	obj, err := c.Fake.
-		Invokes(core.NewListAction(poddisruptionbudgetsResource, c.ns, opts), &policy.PodDisruptionBudgetList{})
+		Invokes(testing.NewListAction(poddisruptionbudgetsResource, poddisruptionbudgetsKind, c.ns, opts), &policy.PodDisruptionBudgetList{})
 
 	if obj == nil {
 		return nil, err
 	}
 
-	label, _, _ := core.ExtractFromListOptions(opts)
+	label, _, _ := testing.ExtractFromListOptions(opts)
 	if label == nil {
 		label = labels.Everything()
 	}
@@ -113,14 +114,14 @@ func (c *FakePodDisruptionBudgets) List(opts v1.ListOptions) (result *policy.Pod
 // Watch returns a watch.Interface that watches the requested podDisruptionBudgets.
 func (c *FakePodDisruptionBudgets) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(core.NewWatchAction(poddisruptionbudgetsResource, c.ns, opts))
+		InvokesWatch(testing.NewWatchAction(poddisruptionbudgetsResource, c.ns, opts))
 
 }
 
 // Patch applies the patch and returns the patched podDisruptionBudget.
 func (c *FakePodDisruptionBudgets) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *policy.PodDisruptionBudget, err error) {
 	obj, err := c.Fake.
-		Invokes(core.NewPatchSubresourceAction(poddisruptionbudgetsResource, c.ns, name, data, subresources...), &policy.PodDisruptionBudget{})
+		Invokes(testing.NewPatchSubresourceAction(poddisruptionbudgetsResource, c.ns, name, data, subresources...), &policy.PodDisruptionBudget{})
 
 	if obj == nil {
 		return nil, err

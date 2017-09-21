@@ -19,6 +19,7 @@ package tests
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -89,7 +90,7 @@ func TestDecode(t *testing.T) {
 			json: []byte(`{"items": [{"metadata": {"name": "object1"}, "apiVersion": "test", "kind": "test_kind"}, {"metadata": {"name": "object2"}, "apiVersion": "test", "kind": "test_kind"}], "apiVersion": "test", "kind": "test_list"}`),
 			want: &unstructured.UnstructuredList{
 				Object: map[string]interface{}{"apiVersion": "test", "kind": "test_list"},
-				Items: []*unstructured.Unstructured{
+				Items: []unstructured.Unstructured{
 					{
 						Object: map[string]interface{}{
 							"metadata":   map[string]interface{}{"name": "object1"},
@@ -123,6 +124,7 @@ func TestDecode(t *testing.T) {
 }
 
 func TestUnstructuredGetters(t *testing.T) {
+	trueVar := true
 	unstruct := unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"kind":       "test_kind",
@@ -154,6 +156,10 @@ func TestUnstructuredGetters(t *testing.T) {
 						"name":       "podb",
 						"apiVersion": "v1",
 						"uid":        "2",
+						// though these fields are of type *bool, but when
+						// decoded from JSON, they are unmarshalled as bool.
+						"controller":         true,
+						"blockOwnerDeletion": true,
 					},
 				},
 				"finalizers": []interface{}{
@@ -221,10 +227,12 @@ func TestUnstructuredGetters(t *testing.T) {
 			UID:        "1",
 		},
 		{
-			Kind:       "Pod",
-			Name:       "podb",
-			APIVersion: "v1",
-			UID:        "2",
+			Kind:               "Pod",
+			Name:               "podb",
+			APIVersion:         "v1",
+			UID:                "2",
+			Controller:         &trueVar,
+			BlockOwnerDeletion: &trueVar,
 		},
 	}
 	if got, want := refs, expectedOwnerReferences; !reflect.DeepEqual(got, want) {
@@ -267,14 +275,14 @@ func TestUnstructuredSetters(t *testing.T) {
 						"name":       "poda",
 						"apiVersion": "v1",
 						"uid":        "1",
-						"controller": (*bool)(nil),
 					},
 					{
-						"kind":       "Pod",
-						"name":       "podb",
-						"apiVersion": "v1",
-						"uid":        "2",
-						"controller": &trueVar,
+						"kind":               "Pod",
+						"name":               "podb",
+						"apiVersion":         "v1",
+						"uid":                "2",
+						"controller":         true,
+						"blockOwnerDeletion": true,
 					},
 				},
 				"finalizers": []interface{}{
@@ -307,11 +315,12 @@ func TestUnstructuredSetters(t *testing.T) {
 			UID:        "1",
 		},
 		{
-			Kind:       "Pod",
-			Name:       "podb",
-			APIVersion: "v1",
-			UID:        "2",
-			Controller: &trueVar,
+			Kind:               "Pod",
+			Name:               "podb",
+			APIVersion:         "v1",
+			UID:                "2",
+			Controller:         &trueVar,
+			BlockOwnerDeletion: &trueVar,
 		},
 	}
 	unstruct.SetOwnerReferences(newOwnerReferences)
@@ -320,6 +329,52 @@ func TestUnstructuredSetters(t *testing.T) {
 
 	if !reflect.DeepEqual(unstruct, want) {
 		t.Errorf("Wanted: \n%s\n Got:\n%s", want, unstruct)
+	}
+}
+
+func TestOwnerReferences(t *testing.T) {
+	t.Parallel()
+	trueVar := true
+	falseVar := false
+	refs := []metav1.OwnerReference{
+		{
+			APIVersion: "v2",
+			Kind:       "K2",
+			Name:       "n2",
+			UID:        types.UID("abc1"),
+		},
+		{
+			APIVersion:         "v1",
+			Kind:               "K1",
+			Name:               "n1",
+			UID:                types.UID("abc2"),
+			Controller:         &trueVar,
+			BlockOwnerDeletion: &falseVar,
+		},
+		{
+			APIVersion:         "v3",
+			Kind:               "K3",
+			Name:               "n3",
+			UID:                types.UID("abc3"),
+			Controller:         &falseVar,
+			BlockOwnerDeletion: &trueVar,
+		},
+	}
+	for i, ref := range refs {
+		ref := ref
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			t.Parallel()
+			u1 := unstructured.Unstructured{
+				Object: make(map[string]interface{}),
+			}
+			refsX := []metav1.OwnerReference{ref}
+			u1.SetOwnerReferences(refsX)
+
+			have := u1.GetOwnerReferences()
+			if !reflect.DeepEqual(have, refsX) {
+				t.Errorf("Object references are not the same: %#v != %#v", have, refsX)
+			}
+		})
 	}
 }
 

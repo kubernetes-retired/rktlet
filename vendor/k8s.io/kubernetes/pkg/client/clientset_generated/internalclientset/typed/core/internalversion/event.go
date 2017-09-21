@@ -22,6 +22,7 @@ import (
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/api"
+	scheme "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/scheme"
 )
 
 // EventsGetter has a method to return a EventInterface.
@@ -34,8 +35,8 @@ type EventsGetter interface {
 type EventInterface interface {
 	Create(*api.Event) (*api.Event, error)
 	Update(*api.Event) (*api.Event, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*api.Event, error)
 	List(opts v1.ListOptions) (*api.EventList, error)
 	Watch(opts v1.ListOptions) (watch.Interface, error)
@@ -83,7 +84,7 @@ func (c *events) Update(event *api.Event) (result *api.Event, err error) {
 }
 
 // Delete takes name of the event and deletes it. Returns an error if one occurs.
-func (c *events) Delete(name string, options *api.DeleteOptions) error {
+func (c *events) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("events").
@@ -94,11 +95,11 @@ func (c *events) Delete(name string, options *api.DeleteOptions) error {
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *events) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *events) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("events").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -111,7 +112,7 @@ func (c *events) Get(name string, options v1.GetOptions) (result *api.Event, err
 		Namespace(c.ns).
 		Resource("events").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -123,7 +124,7 @@ func (c *events) List(opts v1.ListOptions) (result *api.EventList, err error) {
 	err = c.client.Get().
 		Namespace(c.ns).
 		Resource("events").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -131,11 +132,11 @@ func (c *events) List(opts v1.ListOptions) (result *api.EventList, err error) {
 
 // Watch returns a watch.Interface that watches the requested events.
 func (c *events) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Namespace(c.ns).
 		Resource("events").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

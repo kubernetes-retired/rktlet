@@ -24,12 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/generic"
+	apistorage "k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/certificates"
 	"k8s.io/kubernetes/pkg/apis/certificates/validation"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/generic"
-	apistorage "k8s.io/kubernetes/pkg/storage"
 )
 
 // csrStrategy implements behavior for CSRs
@@ -61,11 +61,18 @@ func (csrStrategy) PrepareForCreate(ctx genericapirequest.Context, obj runtime.O
 	csr.Spec.Username = ""
 	csr.Spec.UID = ""
 	csr.Spec.Groups = nil
+	csr.Spec.Extra = nil
 	// Inject user.Info from request context
 	if user, ok := genericapirequest.UserFrom(ctx); ok {
 		csr.Spec.Username = user.GetName()
 		csr.Spec.UID = user.GetUID()
 		csr.Spec.Groups = user.GetGroups()
+		if extra := user.GetExtra(); len(extra) > 0 {
+			csr.Spec.Extra = map[string]certificates.ExtraValue{}
+			for k, v := range extra {
+				csr.Spec.Extra[k] = certificates.ExtraValue(v)
+			}
+		}
 	}
 
 	// Be explicit that users cannot create pre-approved certificate requests.
@@ -171,12 +178,12 @@ func (csrApprovalStrategy) ValidateUpdate(ctx genericapirequest.Context, obj, ol
 }
 
 // GetAttrs returns labels and fields of a given object for filtering purposes.
-func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, error) {
+func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, bool, error) {
 	sa, ok := obj.(*certificates.CertificateSigningRequest)
 	if !ok {
-		return nil, nil, fmt.Errorf("not a CertificateSigningRequest")
+		return nil, nil, false, fmt.Errorf("not a CertificateSigningRequest")
 	}
-	return labels.Set(sa.Labels), SelectableFields(sa), nil
+	return labels.Set(sa.Labels), SelectableFields(sa), sa.Initializers != nil, nil
 }
 
 // Matcher returns a generic matcher for a given label and field selector.

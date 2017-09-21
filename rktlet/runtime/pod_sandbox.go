@@ -24,11 +24,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/coreos/rkt/lib"
 	"github.com/golang/glog"
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
+	rkt "github.com/rkt/rkt/api/v1"
 	"golang.org/x/net/context"
-	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	runtimeApi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )
 
 func formatPod(metaData *runtimeApi.PodSandboxMetadata) string {
@@ -99,12 +99,12 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 		return &runtimeApi.RunPodSandboxResponse{PodSandboxId: rktUUID}, fmt.Errorf("unable to get status within 10s: %v", err)
 	}
 
-	// TODO(euank): this is a temporary hack due to https://github.com/coreos/rkt/issues/3423
+	// TODO(euank): this is a temporary hack due to https://github.com/rkt/rkt/issues/3423
 	// it should be removed once that issue is resolved/released
 	time.Sleep(3 * time.Second)
 
 	// Inject internal logging app
-	// TODO: This can be removed once https://github.com/coreos/rkt/pull/3396
+	// TODO: This can be removed once https://github.com/rkt/rkt/pull/3396
 	// handles logging
 	err = r.addInternalLoggingApp(ctx, rktUUID, req.GetConfig().LogDirectory)
 

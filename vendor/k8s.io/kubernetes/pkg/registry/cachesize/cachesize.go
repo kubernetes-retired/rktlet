@@ -60,9 +60,6 @@ const (
 	ServiceAccounts            Resource = "serviceaccounts"
 	Services                   Resource = "services"
 	StorageClasses             Resource = "storageclasses"
-
-	// Default value of watch cache size for a resource if not specified.
-	defaultWatchCacheSize = 100
 )
 
 // TODO: This shouldn't be a global variable.
@@ -76,7 +73,7 @@ func InitializeWatchCacheSizes(expectedRAMCapacityMB int) {
 	// This is the heuristics that from memory capacity is trying to infer
 	// the maximum number of nodes in the cluster and set cache sizes based
 	// on that value.
-	// From our documentation, we officially recomment 120GB machines for
+	// From our documentation, we officially recommend 120GB machines for
 	// 2000 nodes, and we scale from that point. Thus we assume ~60MB of
 	// capacity per node.
 	// TODO: Revisit this heuristics
@@ -112,11 +109,13 @@ func SetWatchCacheSizes(cacheSizes []string) {
 	}
 }
 
-func GetWatchCacheSizeByResource(resource Resource) int { // TODO this should use schema.GroupResource for lookups
-	if value, found := watchCacheSizes[resource]; found {
-		return value
+// GetWatchCacheSizeByResource returns the configured watch cache size for the given resource.
+// A nil value means to use a default size, zero means to disable caching.
+func GetWatchCacheSizeByResource(resource string) (ret *int) { // TODO this should use schema.GroupResource for lookups
+	if value, found := watchCacheSizes[Resource(resource)]; found {
+		return &value
 	}
-	return defaultWatchCacheSize
+	return nil
 }
 
 func maxInt(a, b int) int {

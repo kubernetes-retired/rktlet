@@ -21,9 +21,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/certificates"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/rest"
 )
 
 // Registry is an interface for things that know how to store CSRs.
@@ -57,7 +57,7 @@ func (s *storage) ListCSRs(ctx genericapirequest.Context, options *metainternalv
 }
 
 func (s *storage) CreateCSR(ctx genericapirequest.Context, csr *certificates.CertificateSigningRequest) error {
-	_, err := s.Create(ctx, csr)
+	_, err := s.Create(ctx, csr, false)
 	return err
 }
 
@@ -79,6 +79,6 @@ func (s *storage) GetCSR(ctx genericapirequest.Context, name string, options *me
 }
 
 func (s *storage) DeleteCSR(ctx genericapirequest.Context, name string) error {
-	_, err := s.Delete(ctx, name, nil)
+	_, _, err := s.Delete(ctx, name, nil)
 	return err
 }

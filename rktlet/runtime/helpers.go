@@ -22,12 +22,12 @@ import (
 	"strconv"
 	"strings"
 
-	rkt "github.com/coreos/rkt/lib"
-	"github.com/coreos/rkt/networking/netinfo"
 	"github.com/golang/glog"
 	"github.com/pborman/uuid"
+	rkt "github.com/rkt/rkt/api/v1"
+	"github.com/rkt/rkt/networking/netinfo"
 	"golang.org/x/net/context"
-	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	runtimeApi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )
 
 const (

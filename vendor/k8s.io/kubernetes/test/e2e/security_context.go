@@ -26,8 +26,8 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/util/uuid"
 	"k8s.io/kubernetes/test/e2e/framework"
 
 	. "github.com/onsi/ginkgo"
@@ -72,26 +72,26 @@ var _ = framework.KubeDescribe("Security Context [Feature:SecurityContext]", fun
 
 	It("should support pod.Spec.SecurityContext.RunAsUser", func() {
 		pod := scTestPod(false, false)
-		var uid int64 = 1001
-		pod.Spec.SecurityContext.RunAsUser = &uid
+		userID := int64(1001)
+		pod.Spec.SecurityContext.RunAsUser = &userID
 		pod.Spec.Containers[0].Command = []string{"sh", "-c", "id -u"}
 
 		f.TestContainerOutput("pod.Spec.SecurityContext.RunAsUser", pod, 0, []string{
-			fmt.Sprintf("%v", uid),
+			fmt.Sprintf("%v", userID),
 		})
 	})
 
 	It("should support container.SecurityContext.RunAsUser", func() {
 		pod := scTestPod(false, false)
-		var uid int64 = 1001
-		var overrideUid int64 = 1002
-		pod.Spec.SecurityContext.RunAsUser = &uid
+		userID := int64(1001)
+		overrideUserID := int64(1002)
+		pod.Spec.SecurityContext.RunAsUser = &userID
 		pod.Spec.Containers[0].SecurityContext = new(v1.SecurityContext)
-		pod.Spec.Containers[0].SecurityContext.RunAsUser = &overrideUid
+		pod.Spec.Containers[0].SecurityContext.RunAsUser = &overrideUserID
 		pod.Spec.Containers[0].Command = []string{"sh", "-c", "id -u"}
 
 		f.TestContainerOutput("pod.Spec.SecurityContext.RunAsUser", pod, 0, []string{
-			fmt.Sprintf("%v", overrideUid),
+			fmt.Sprintf("%v", overrideUserID),
 		})
 	})
 

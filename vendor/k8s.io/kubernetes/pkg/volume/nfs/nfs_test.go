@@ -23,7 +23,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	utiltesting "k8s.io/client-go/pkg/util/testing"
+	utiltesting "k8s.io/client-go/util/testing"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset/fake"
 	"k8s.io/kubernetes/pkg/util/mount"
@@ -89,32 +89,10 @@ func TestRecycler(t *testing.T) {
 	plugMgr.InitPlugins([]volume.VolumePlugin{&nfsPlugin{nil, volume.VolumeConfig{}}}, volumetest.NewFakeVolumeHost(tmpDir, nil, nil))
 
 	spec := &volume.Spec{PersistentVolume: &v1.PersistentVolume{Spec: v1.PersistentVolumeSpec{PersistentVolumeSource: v1.PersistentVolumeSource{NFS: &v1.NFSVolumeSource{Path: "/foo"}}}}}
-	plug, err := plugMgr.FindRecyclablePluginBySpec(spec)
-	if err != nil {
+	_, plugin_err := plugMgr.FindRecyclablePluginBySpec(spec)
+	if plugin_err != nil {
 		t.Errorf("Can't find the plugin by name")
 	}
-	recycler, err := plug.NewRecycler("pv-name", spec, nil)
-	if err != nil {
-		t.Errorf("Failed to make a new Recycler: %v", err)
-	}
-	if recycler.GetPath() != spec.PersistentVolume.Spec.NFS.Path {
-		t.Errorf("Expected %s but got %s", spec.PersistentVolume.Spec.NFS.Path, recycler.GetPath())
-	}
-}
-
-type mockRecycler struct {
-	path string
-	host volume.VolumeHost
-	volume.MetricsNil
-}
-
-func (r *mockRecycler) GetPath() string {
-	return r.path
-}
-
-func (r *mockRecycler) Recycle() error {
-	// return nil means recycle passed
-	return nil
 }
 
 func contains(modes []v1.PersistentVolumeAccessMode, mode v1.PersistentVolumeAccessMode) bool {

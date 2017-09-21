@@ -22,6 +22,7 @@ import (
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/api"
+	scheme "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/scheme"
 )
 
 // PersistentVolumeClaimsGetter has a method to return a PersistentVolumeClaimInterface.
@@ -35,8 +36,8 @@ type PersistentVolumeClaimInterface interface {
 	Create(*api.PersistentVolumeClaim) (*api.PersistentVolumeClaim, error)
 	Update(*api.PersistentVolumeClaim) (*api.PersistentVolumeClaim, error)
 	UpdateStatus(*api.PersistentVolumeClaim) (*api.PersistentVolumeClaim, error)
-	Delete(name string, options *api.DeleteOptions) error
-	DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
 	Get(name string, options v1.GetOptions) (*api.PersistentVolumeClaim, error)
 	List(opts v1.ListOptions) (*api.PersistentVolumeClaimList, error)
 	Watch(opts v1.ListOptions) (watch.Interface, error)
@@ -100,7 +101,7 @@ func (c *persistentVolumeClaims) UpdateStatus(persistentVolumeClaim *api.Persist
 }
 
 // Delete takes name of the persistentVolumeClaim and deletes it. Returns an error if one occurs.
-func (c *persistentVolumeClaims) Delete(name string, options *api.DeleteOptions) error {
+func (c *persistentVolumeClaims) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("persistentvolumeclaims").
@@ -111,11 +112,11 @@ func (c *persistentVolumeClaims) Delete(name string, options *api.DeleteOptions)
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *persistentVolumeClaims) DeleteCollection(options *api.DeleteOptions, listOptions v1.ListOptions) error {
+func (c *persistentVolumeClaims) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	return c.client.Delete().
 		Namespace(c.ns).
 		Resource("persistentvolumeclaims").
-		VersionedParams(&listOptions, api.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Body(options).
 		Do().
 		Error()
@@ -128,7 +129,7 @@ func (c *persistentVolumeClaims) Get(name string, options v1.GetOptions) (result
 		Namespace(c.ns).
 		Resource("persistentvolumeclaims").
 		Name(name).
-		VersionedParams(&options, api.ParameterCodec).
+		VersionedParams(&options, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -140,7 +141,7 @@ func (c *persistentVolumeClaims) List(opts v1.ListOptions) (result *api.Persiste
 	err = c.client.Get().
 		Namespace(c.ns).
 		Resource("persistentvolumeclaims").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Do().
 		Into(result)
 	return
@@ -148,11 +149,11 @@ func (c *persistentVolumeClaims) List(opts v1.ListOptions) (result *api.Persiste
 
 // Watch returns a watch.Interface that watches the requested persistentVolumeClaims.
 func (c *persistentVolumeClaims) Watch(opts v1.ListOptions) (watch.Interface, error) {
+	opts.Watch = true
 	return c.client.Get().
-		Prefix("watch").
 		Namespace(c.ns).
 		Resource("persistentvolumeclaims").
-		VersionedParams(&opts, api.ParameterCodec).
+		VersionedParams(&opts, scheme.ParameterCodec).
 		Watch()
 }
 

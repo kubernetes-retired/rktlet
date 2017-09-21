@@ -21,12 +21,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/coreos/rkt/lib"
 	"github.com/golang/glog"
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
+	rkt "github.com/rkt/rkt/api/v1"
 	"golang.org/x/net/context"
 
-	runtimeApi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	runtimeApi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 	"k8s.io/kubernetes/pkg/kubelet/server/streaming"
 )
 
@@ -271,4 +271,15 @@ func (r *RktRuntime) Status(ctx context.Context, req *runtimeApi.StatusRequest) 
 	}
 
 	return &resp, nil
+}
+
+// ContainerStats returns stats of the container. If the container does not
+// exist, the call returns an error.
+func (r *RktRuntime) ContainerStats(ctx context.Context, req *runtimeApi.ContainerStatsRequest) (*runtimeApi.ContainerStatsResponse, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+// ListContainerStats returns stats of all running containers.
+func (r *RktRuntime) ListContainerStats(ctx context.Context, req *runtimeApi.ListContainerStatsRequest) (*runtimeApi.ListContainerStatsResponse, error) {
+	return nil, fmt.Errorf("not implemented")
 }

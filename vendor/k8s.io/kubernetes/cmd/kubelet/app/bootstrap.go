@@ -18,7 +18,6 @@ package app
 
 import (
 	"fmt"
-	"io/ioutil"
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
@@ -26,11 +25,11 @@ import (
 	"github.com/golang/glog"
 
 	"k8s.io/apimachinery/pkg/types"
-	certutil "k8s.io/client-go/pkg/util/cert"
+	certificates "k8s.io/client-go/kubernetes/typed/certificates/v1beta1"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	certificates "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/certificates/v1beta1"
+	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/kubernetes/pkg/kubelet/util/csr"
 )
 
@@ -74,18 +73,9 @@ func bootstrapClientCert(kubeconfigPath string, bootstrapPath string, certDir st
 	if err != nil {
 		return fmt.Errorf("unable to build bootstrap key path: %v", err)
 	}
-	keyData, generatedKeyFile, err := loadOrGenerateKeyFile(keyPath)
+	keyData, _, err := certutil.LoadOrGenerateKeyFile(keyPath)
 	if err != nil {
 		return err
-	}
-	if generatedKeyFile {
-		defer func() {
-			if !success {
-				if err := os.Remove(keyPath); err != nil {
-					glog.Warningf("Cannot clean up the key file %q: %v", keyPath, err)
-				}
-			}
-		}()
 	}
 
 	// Get the cert.
@@ -160,23 +150,4 @@ func loadRESTClientConfig(kubeconfig string) (*restclient.Config, error) {
 		&clientcmd.ConfigOverrides{},
 		loader,
 	).ClientConfig()
-}
-
-func loadOrGenerateKeyFile(keyPath string) (data []byte, wasGenerated bool, err error) {
-	loadedData, err := ioutil.ReadFile(keyPath)
-	if err == nil {
-		return loadedData, false, err
-	}
-	if !os.IsNotExist(err) {
-		return nil, false, fmt.Errorf("error loading key from %s: %v", keyPath, err)
-	}
-
-	generatedData, err := certutil.MakeEllipticPrivateKeyPEM()
-	if err != nil {
-		return nil, false, fmt.Errorf("error generating key: %v", err)
-	}
-	if err := certutil.WriteKey(keyPath, generatedData); err != nil {
-		return nil, false, fmt.Errorf("error writing key to %s: %v", keyPath, err)
-	}
-	return generatedData, true, nil
 }

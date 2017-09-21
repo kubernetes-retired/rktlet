@@ -26,10 +26,10 @@ import (
 
 	"golang.org/x/net/context"
 
-	runtimeapi "k8s.io/kubernetes/pkg/kubelet/api/v1alpha1/runtime"
+	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )
 
-// TODO: this will be deprecated once https://github.com/coreos/rkt/pull/3396
+// TODO: this will be deprecated once https://github.com/rkt/rkt/pull/3396
 // is merged/released
 const loggingHelperImage = "quay.io/coreos/rktlet-journal2cri:0.0.1"
 const loggingAppName = internalAppPrefix + "journal2cri"

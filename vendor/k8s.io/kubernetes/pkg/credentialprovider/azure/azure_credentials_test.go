@@ -17,6 +17,7 @@ limitations under the License.
 package azure
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/arm/containerregistry"
@@ -41,12 +42,21 @@ func Test(t *testing.T) {
 		Value: &[]containerregistry.Registry{
 			{
 				Name: to.StringPtr("foo"),
+				RegistryProperties: &containerregistry.RegistryProperties{
+					LoginServer: to.StringPtr("foo-microsoft.azurecr.io"),
+				},
 			},
 			{
 				Name: to.StringPtr("bar"),
+				RegistryProperties: &containerregistry.RegistryProperties{
+					LoginServer: to.StringPtr("bar-microsoft.azurecr.io"),
+				},
 			},
 			{
 				Name: to.StringPtr("baz"),
+				RegistryProperties: &containerregistry.RegistryProperties{
+					LoginServer: to.StringPtr("baz-microsoft.azurecr.io"),
+				},
 			},
 		},
 	}
@@ -57,7 +67,7 @@ func Test(t *testing.T) {
 	provider := &acrProvider{
 		registryClient: fakeClient,
 	}
-	provider.loadConfig([]byte(configStr))
+	provider.loadConfig(bytes.NewBufferString(configStr))
 
 	creds := provider.Provide()
 
@@ -73,7 +83,7 @@ func Test(t *testing.T) {
 		}
 	}
 	for _, val := range *result.Value {
-		registryName := *val.Name + ".azurecr.io"
+		registryName := getLoginServer(val)
 		if _, found := creds[registryName]; !found {
 			t.Errorf("Missing expected registry: %s", registryName)
 		}

@@ -25,6 +25,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
+	"k8s.io/kubernetes/pkg/util/i18n"
 
 	"github.com/spf13/cobra"
 )
@@ -32,7 +33,7 @@ import (
 func NewCmdCertificate(f cmdutil.Factory, out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "certificate SUBCOMMAND",
-		Short: "Modify certificate resources.",
+		Short: i18n.T("Modify certificate resources."),
 		Long:  "Modify certificate resources.",
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Help()
@@ -68,7 +69,7 @@ func NewCmdCertificateApprove(f cmdutil.Factory, out io.Writer) *cobra.Command {
 	options := CertificateOptions{}
 	cmd := &cobra.Command{
 		Use:   "approve (-f FILENAME | NAME)",
-		Short: "Approve a certificate signing request",
+		Short: i18n.T("Approve a certificate signing request"),
 		Long: templates.LongDesc(`
 		Approve a certificate signing request.
 
@@ -118,7 +119,7 @@ func NewCmdCertificateDeny(f cmdutil.Factory, out io.Writer) *cobra.Command {
 	options := CertificateOptions{}
 	cmd := &cobra.Command{
 		Use:   "deny (-f FILENAME | NAME)",
-		Short: "Deny a certificate signing request",
+		Short: i18n.T("Deny a certificate signing request"),
 		Long: templates.LongDesc(`
 		Deny a certificate signing request.
 
@@ -161,12 +162,12 @@ func (options *CertificateOptions) RunCertificateDeny(f cmdutil.Factory, out io.
 
 func (options *CertificateOptions) modifyCertificateCondition(f cmdutil.Factory, out io.Writer, modify func(csr *certificates.CertificateSigningRequest) (*certificates.CertificateSigningRequest, string)) error {
 	var found int
-	mapper, typer := f.Object()
+	mapper, _ := f.Object()
 	c, err := f.ClientSet()
 	if err != nil {
 		return err
 	}
-	r := resource.NewBuilder(mapper, typer, resource.ClientMapperFunc(f.ClientForMapping), f.Decoder(true)).
+	r := f.NewBuilder(true).
 		ContinueOnError().
 		FilenameParam(false, &options.FilenameOptions).
 		ResourceNames("certificatesigningrequest", options.csrNames...).

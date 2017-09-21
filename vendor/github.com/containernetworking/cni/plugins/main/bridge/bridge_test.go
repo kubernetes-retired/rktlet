@@ -24,8 +24,6 @@ import (
 	"github.com/containernetworking/cni/pkg/testutils"
 	"github.com/containernetworking/cni/pkg/types"
 
-	"github.com/containernetworking/cni/pkg/utils/hwaddr"
-
 	"github.com/vishvananda/netlink"
 
 	. "github.com/onsi/ginkgo"
@@ -181,19 +179,9 @@ var _ = Describe("bridge Operations", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(links)).To(Equal(3)) // Bridge, veth, and loopback
 			for _, l := range links {
-				switch {
-				case l.Attrs().Name == BRNAME:
-					{
-						_, isBridge := l.(*netlink.Bridge)
-						Expect(isBridge).To(Equal(true))
-						hwAddr := fmt.Sprintf("%s", l.Attrs().HardwareAddr)
-						Expect(hwAddr).To(HavePrefix(hwaddr.PrivateMACPrefixString))
-					}
-				case l.Attrs().Name != BRNAME && l.Attrs().Name != "lo":
-					{
-						_, isVeth := l.(*netlink.Veth)
-						Expect(isVeth).To(Equal(true))
-					}
+				if l.Attrs().Name != BRNAME && l.Attrs().Name != "lo" {
+					_, isVeth := l.(*netlink.Veth)
+					Expect(isVeth).To(Equal(true))
 				}
 			}
 			Expect(err).NotTo(HaveOccurred())
@@ -208,9 +196,6 @@ var _ = Describe("bridge Operations", func() {
 			link, err := netlink.LinkByName(IFNAME)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(link.Attrs().Name).To(Equal(IFNAME))
-
-			hwAddr := fmt.Sprintf("%s", link.Attrs().HardwareAddr)
-			Expect(hwAddr).To(HavePrefix(hwaddr.PrivateMACPrefixString))
 
 			// Ensure the default route
 			routes, err := netlink.RouteList(link, 0)
@@ -251,74 +236,4 @@ var _ = Describe("bridge Operations", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 	})
-
-	It("ensure bridge address", func() {
-
-		const IFNAME = "bridge0"
-		const EXPECTED_IP = "10.0.0.0/8"
-		const CHANGED_EXPECTED_IP = "10.1.2.3/16"
-
-		conf := &NetConf{
-			NetConf: types.NetConf{
-				Name: "testConfig",
-				Type: "bridge",
-			},
-			BrName: IFNAME,
-			IsGW:   true,
-			IPMasq: false,
-			MTU:    5000,
-		}
-
-		gwnFirst := &net.IPNet{
-			IP:   net.IPv4(10, 0, 0, 0),
-			Mask: net.CIDRMask(8, 32),
-		}
-
-		gwnSecond := &net.IPNet{
-			IP:   net.IPv4(10, 1, 2, 3),
-			Mask: net.CIDRMask(16, 32),
-		}
-
-		err := originalNS.Do(func(ns.NetNS) error {
-			defer GinkgoRecover()
-
-			bridge, err := setupBridge(conf)
-			Expect(err).NotTo(HaveOccurred())
-			// Check if ForceAddress has default value
-			Expect(conf.ForceAddress).To(Equal(false))
-
-			err = ensureBridgeAddr(bridge, gwnFirst, conf.ForceAddress)
-			Expect(err).NotTo(HaveOccurred())
-
-			//Check if IP address is set correctly
-			addrs, err := netlink.AddrList(bridge, syscall.AF_INET)
-			Expect(len(addrs)).To(Equal(1))
-			addr := addrs[0].IPNet.String()
-			Expect(addr).To(Equal(EXPECTED_IP))
-
-			//The bridge IP address has been changed. Error expected when ForceAddress is set to false.
-			err = ensureBridgeAddr(bridge, gwnSecond, false)
-			Expect(err).To(HaveOccurred())
-
-			//The IP address should stay the same.
-			addrs, err = netlink.AddrList(bridge, syscall.AF_INET)
-			Expect(len(addrs)).To(Equal(1))
-			addr = addrs[0].IPNet.String()
-			Expect(addr).To(Equal(EXPECTED_IP))
-
-			//Reconfigure IP when ForceAddress is set to true and IP address has been changed.
-			err = ensureBridgeAddr(bridge, gwnSecond, true)
-			Expect(err).NotTo(HaveOccurred())
-
-			//Retrieve the IP address after reconfiguration
-			addrs, err = netlink.AddrList(bridge, syscall.AF_INET)
-			Expect(len(addrs)).To(Equal(1))
-			addr = addrs[0].IPNet.String()
-			Expect(addr).To(Equal(CHANGED_EXPECTED_IP))
-
-			return nil
-		})
-		Expect(err).NotTo(HaveOccurred())
-	})
-
 })

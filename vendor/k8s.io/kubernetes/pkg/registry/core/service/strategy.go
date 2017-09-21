@@ -24,11 +24,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/apiserver/pkg/registry/generic"
+	apistorage "k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/validation"
-	"k8s.io/kubernetes/pkg/genericapiserver/registry/generic"
-	apistorage "k8s.io/kubernetes/pkg/storage"
 )
 
 // svcStrategy implements behavior for Services
@@ -104,12 +104,12 @@ func (svcStrategy) Export(ctx genericapirequest.Context, obj runtime.Object, exa
 }
 
 // GetAttrs returns labels and fields of a given object for filtering purposes.
-func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, error) {
+func GetAttrs(obj runtime.Object) (labels.Set, fields.Set, bool, error) {
 	service, ok := obj.(*api.Service)
 	if !ok {
-		return nil, nil, fmt.Errorf("Given object is not a service")
+		return nil, nil, false, fmt.Errorf("given object is not a service")
 	}
-	return labels.Set(service.ObjectMeta.Labels), ServiceToSelectableFields(service), nil
+	return labels.Set(service.ObjectMeta.Labels), ServiceToSelectableFields(service), service.Initializers != nil, nil
 }
 
 func MatchServices(label labels.Selector, field fields.Selector) apistorage.SelectionPredicate {
