@@ -91,6 +91,7 @@ type RunConfig struct {
 	InsecureSeccomp      bool           // Do not add seccomp restrictions
 	UseOverlay           bool           // run pod with overlay fs
 	HostsEntries         HostsEntries   // The entries in /etc/hosts
+	IPCMode              string         // whether to stay in the host IPC namespace
 }
 
 // CommonConfig defines the configuration shared by both Run and Prepare
@@ -677,6 +678,14 @@ func Run(cfg RunConfig, dir string, dataDir string) {
 		args = append(args, "--mutable")
 	}
 
+	if cfg.IPCMode != "" {
+		if interfaceVersionSupportsIPCMode(s1v) {
+			args = append(args, "--ipc="+cfg.IPCMode)
+		} else {
+			log.Printf("warning: --ipc option is not supported by stage1")
+		}
+	}
+
 	args = append(args, cfg.UUID.String())
 
 	// make sure the lock fd stays open across exec
@@ -870,8 +879,7 @@ func setupStage1Image(cfg RunConfig, cdir string, useOverlay bool) error {
 			return err
 		}
 
-		// pass an empty appName: make sure it remains consistent with
-		// overlayStatusDirTemplate
+		// pass an empty appName
 		if err := overlayRender(cfg, string(treeStoreID), cdir, s1, ""); err != nil {
 			return errwrap.Wrap(errors.New("error rendering overlay filesystem"), err)
 		}

@@ -1,5 +1,5 @@
-hash: 6398949a9bb93aeaadb0790cfd7217d8d013ee8fdad719bf217c13a7ee71f7d3
-updated: 2017-09-13T17:07:01.082081549+02:00
+hash: 6976330fd2f10937396a236eb63368fd8bbaa2c562dd35e6e428ae395ad13b4d
+updated: 2017-09-21T16:52:58.338638137+02:00
 imports:
 - name: cloud.google.com/go
   version: 3b1ae45394a234c385be014e9a488f2bb6eef821
@@ -11,9 +11,6 @@ imports:
 - name: github.com/appc/spec
   version: fc380db5fc13c6dd71a5b0bf2af0d182865d1b1d
   subpackages:
-  - aci
-  - pkg/device
-  - pkg/tarheader
   - schema
   - schema/common
   - schema/types
@@ -87,6 +84,10 @@ imports:
   - health
   - httputil
   - timeutil
+- name: github.com/coreos/rkt
+  version: ec37f3cb649bfb72408906e7cbf330e4aeda1075
+  subpackages:
+  - api/v1alpha
 - name: github.com/davecgh/go-spew
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
   subpackages:
@@ -253,8 +254,6 @@ imports:
   - zfs
 - name: github.com/google/gofuzz
   version: 44d81051d367757e1c7c6a5a86423ece9afcf63c
-- name: github.com/hashicorp/errwrap
-  version: 7554cd9344cec97297fa6649b055a8c98c2a1e55
 - name: github.com/hashicorp/golang-lru
   version: a0d98a5f288019575c6d1f4bb1573fef2d1fcdc4
   subpackages:
@@ -282,7 +281,7 @@ imports:
 - name: github.com/mitchellh/go-wordwrap
   version: ad45545899c7b13c020ea92b2072220eefad42b8
 - name: github.com/moby/moby
-  version: 0dbc182b6c4f6a72933680f98a6240a7681d94ee
+  version: 409d4711812c5c23815a783524e543ec653a234b
   subpackages:
   - daemon/caps
 - name: github.com/opencontainers/runc
@@ -334,24 +333,11 @@ imports:
 - name: github.com/PuerkitoBio/urlesc
   version: 5bd2802263f21d8788851d5305584c82a5c75d7e
 - name: github.com/rkt/rkt
-  version: 3abde24bc284b7ded5784c56b4e8184c28999641
+  version: 020d59b98f082425ffc54672d9deef1549a1a908
   subpackages:
   - api/v1
-  - common
   - lib
   - networking/netinfo
-  - pkg/fileutil
-  - pkg/fs
-  - pkg/group
-  - pkg/label
-  - pkg/lock
-  - pkg/log
-  - pkg/mountinfo
-  - pkg/passwd
-  - pkg/pod
-  - pkg/selinux
-  - pkg/sys
-  - pkg/user
 - name: github.com/seccomp/libseccomp-golang
   version: 1b506fc7c24eec5a3693cdcbed40d9c226cfc6a1
 - name: github.com/Sirupsen/logrus
@@ -754,11 +740,13 @@ imports:
   - staging/src/k8s.io/apiserver/pkg/util/flag
   - third_party/forked/golang/expansion
 - name: k8s.io/metrics
-  version: 4c4fab5431c05c651266d559d0b89a0a77ccdf30
+  version: 4faa73f37a1635813affc8fbc36ba49a15e81a24
   subpackages:
   - pkg/apis/metrics
   - pkg/apis/metrics/v1alpha1
+  - pkg/apis/metrics/v1beta1
   - pkg/client/clientset_generated/clientset
   - pkg/client/clientset_generated/clientset/scheme
   - pkg/client/clientset_generated/clientset/typed/metrics/v1alpha1
+  - pkg/client/clientset_generated/clientset/typed/metrics/v1beta1
 testImports: []

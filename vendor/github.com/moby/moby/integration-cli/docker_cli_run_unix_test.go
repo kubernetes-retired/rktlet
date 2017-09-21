@@ -677,7 +677,7 @@ func (s *DockerSuite) TestRunWithSwappinessInvalid(c *check.C) {
 }
 
 func (s *DockerSuite) TestRunWithMemoryReservation(c *check.C) {
-	testRequires(c, memoryReservationSupport)
+	testRequires(c, SameHostDaemon, memoryReservationSupport)
 
 	file := "/sys/fs/cgroup/memory/memory.soft_limit_in_bytes"
 	out, _ := dockerCmd(c, "run", "--memory-reservation", "200M", "--name", "test", "busybox", "cat", file)
@@ -689,7 +689,7 @@ func (s *DockerSuite) TestRunWithMemoryReservation(c *check.C) {
 
 func (s *DockerSuite) TestRunWithMemoryReservationInvalid(c *check.C) {
 	testRequires(c, memoryLimitSupport)
-	testRequires(c, memoryReservationSupport)
+	testRequires(c, SameHostDaemon, memoryReservationSupport)
 	out, _, err := dockerCmdWithError("run", "-m", "500M", "--memory-reservation", "800M", "busybox", "true")
 	c.Assert(err, check.NotNil)
 	expected := "Minimum memory limit can not be less than memory reservation limit"
@@ -1060,7 +1060,7 @@ func (s *DockerSuite) TestRunSeccompProfileAllow32Bit(c *check.C) {
 	testRequires(c, SameHostDaemon, seccompEnabled, IsAmd64)
 	ensureSyscallTest(c)
 
-	icmd.RunCommand(dockerBinary, "run", "syscall-test", "exit32-test", "id").Assert(c, icmd.Success)
+	icmd.RunCommand(dockerBinary, "run", "syscall-test", "exit32-test").Assert(c, icmd.Success)
 }
 
 // TestRunSeccompAllowSetrlimit checks that 'docker run debian:jessie ulimit -v 1048510' succeeds.
@@ -1401,7 +1401,7 @@ func (s *DockerSuite) TestRunDeviceSymlink(c *check.C) {
 
 // TestRunPIDsLimit makes sure the pids cgroup is set with --pids-limit
 func (s *DockerSuite) TestRunPIDsLimit(c *check.C) {
-	testRequires(c, pidsLimit)
+	testRequires(c, SameHostDaemon, pidsLimit)
 
 	file := "/sys/fs/cgroup/pids/pids.max"
 	out, _ := dockerCmd(c, "run", "--name", "skittles", "--pids-limit", "4", "busybox", "cat", file)

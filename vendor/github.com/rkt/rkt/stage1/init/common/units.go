@@ -226,7 +226,7 @@ func (uw *UnitWriter) SetupAppIO(p *stage1commontypes.Pod, ra *schema.RuntimeApp
 		((flavor == "coreos" || flavor == "kvm") && systemdVersion < 231) {
 		// Explicit error if systemd is too old for attaching
 		if stdin != "" || stdout != "" || stderr != "" {
-			uw.err = fmt.Errorf("stage1 systemd %q does not support attachable I/O", systemdVersion)
+			uw.err = fmt.Errorf("stage1 systemd %d does not support attachable I/O", systemdVersion)
 			return opts
 		}
 		opts = append(opts, unit.NewUnitOption("Service", "StandardInput", "null"))
@@ -595,7 +595,17 @@ func (uw *UnitWriter) appSystemdUnit(pa *preparedApp, binPath string, opts []*un
 		}
 
 		if systemdVersion >= 233 {
-			opts = append(opts, unit.NewUnitOption("Service", "ProtectKernelTunables", "true"))
+			// ProtectKernelTunables is introduced in systemd-v232 but didn't work
+			// until v233 due to a systemd bug, see
+			// https://github.com/systemd/systemd/pull/4594
+			// However, from v233, setting ProtectKernelTunables + RootDirectory causes
+			// MountAPIVFS to be enabled unconditionally, which we don't want.
+			//
+			// opts = append(opts, unit.NewUnitOption("Service", "ProtectKernelTunables", "true"))
+
+			// MountAPIVFS is introduced in systemd-233. Don't let systemd mount /sys:
+			// it is mounted by prepare-app (tested by TestVolumeSysfs)
+			opts = append(opts, unit.NewUnitOption("Service", "MountAPIVFS", "false"))
 		}
 
 		// MountFlags=shared creates a new mount namespace and (as unintuitive
