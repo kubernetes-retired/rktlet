@@ -27,6 +27,7 @@ import (
 	rkt "github.com/rkt/rkt/api/v1"
 	"github.com/rkt/rkt/networking/netinfo"
 	"golang.org/x/net/context"
+	"k8s.io/kubernetes/pkg/api/v1"
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )
 
@@ -170,6 +171,32 @@ func getImageName(annotations map[string]string) string {
 	return name
 }
 
+func generateSeccompArg(annotations map[string]string, containerName string) (string, error) {
+	// by default kubernetes doesn't enable seccomp
+	defaultSeccomp := "--seccomp=mode=retain,@appc.io/all"
+
+	profile, ok := annotations[v1.SeccompContainerAnnotationKeyPrefix+containerName]
+	if !ok {
+		profile, ok = annotations[v1.SeccompPodAnnotationKey]
+		if !ok {
+			return defaultSeccomp, nil
+		}
+	}
+
+	if profile == "unconfined" {
+		return defaultSeccomp, nil
+	}
+
+	if profile == "docker/default" {
+		// use rkt default's, which matches docker's
+		return "", nil
+	}
+
+	// TODO(iaguis): handle custom profiles
+
+	return "", fmt.Errorf("seccomp profile %q not supported", profile)
+}
+
 func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID string) ([]string, error) {
 	config := req.Config
 
@@ -232,7 +259,6 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 		// once upstream has adopted the whitelist based interface.
 		// See https://github.com/kubernetes/kubernetes/pull/33614.
 		var caplist []string
-		var err error
 		if secContext := linux.GetSecurityContext(); secContext != nil {
 			if secContext.Privileged {
 				cmd = append(cmd, "--seccomp=mode=retain,@appc.io/all")
@@ -240,6 +266,12 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 				// TODO: device cgroup should be made permissive
 				// TODO: host's /dev's devices should all be visible in the container
 			} else {
+				seccompArg, err := generateSeccompArg(config.Annotations, config.Metadata.Name)
+				if err != nil {
+					return nil, err
+				}
+				cmd = append(cmd, seccompArg)
+
 				if secContext.Capabilities != nil {
 					caplist, err = tweakCapabilities(defaultCapabilities, secContext.Capabilities.AddCapabilities, secContext.Capabilities.DropCapabilities)
 					if err != nil {
