@@ -323,6 +323,16 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 			glog.Warningf("unexpected nil mount: %v, %+v", mnt, config)
 			continue
 		}
+
+		created, err := maybeCreateHostPathVolume(mnt)
+		if err != nil {
+			glog.Errorf("create volume HostPath %q for Pod %q failed: %v", mnt.HostPath, req.PodSandboxId, err)
+			return nil, err
+		}
+		if created {
+			glog.V(4).Infof("created volume HostPath %q for Pod %q", mnt.HostPath, req.PodSandboxId)
+		}
+
 		volumeName := uuid.NewUUID()
 		cmd = append(cmd, fmt.Sprintf("--mnt-volume=name=%s,kind=host,source=%s,target=%s,readOnly=%t", volumeName, mnt.HostPath, mnt.ContainerPath, mnt.Readonly))
 	}
@@ -343,6 +353,17 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 	}
 
 	return cmd, nil
+}
+
+// maybeCreateHostPathVolume creates the source dir for Mount if it doesn't
+// exist since rkt doesn't do it. It returns whether the dir was created.
+func maybeCreateHostPathVolume(mount *runtimeApi.Mount) (created bool, err error) {
+	if _, err = os.Stat(mount.HostPath); os.IsNotExist(err) {
+		if err = os.MkdirAll(mount.HostPath, os.ModePerm); err == nil {
+			return true, nil
+		}
+	}
+	return false, err
 }
 
 func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile, stage1Name, networkPluginName string) []string {
