@@ -17,7 +17,9 @@ By default, the `rktlet` service will listen on a unix socket `/var/run/rktlet.s
 
 ```shell
 # In the Kubernetes repo's root dir.
-$ export LOG_LEVEL=6 CONTAINER_RUNTIME=remote
+$ export LOG_LEVEL=6
+$ export CGROUP_DRIVER=systemd
+$ export CONTAINER_RUNTIME=remote
 $ export CONTAINER_RUNTIME_ENDPOINT=/var/run/rktlet.sock
 $ export IMAGE_SERVICE_ENDPOINT=/var/run/rktlet.sock
 $ ./hack/local-up-cluster.sh

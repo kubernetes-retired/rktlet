@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors.
+Copyright 2016-2017 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package cli
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/golang/glog"
@@ -35,6 +36,30 @@ func NewSystemd(systemdRunPath string, execer utilexec.Interface) Init {
 	return &systemd{systemdRunPath, execer}
 }
 
+// cgroupParentToSliceName converts a cgroup path such as:
+//   /kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod5c5979ec_9871_11e7_b58f_c85b763781a4.slice
+// into a systemd slice name such as:
+//   kubepods-besteffort-pod5c5979ec_9871_11e7_b58f_c85b763781a4.slice
+//
+// The systemd slice name must observe the following rules:
+// - the name does not start with a "/" (otherwise that's interpreted as a mount unit)
+// - the dashes ("-") are representing subdirectories
+// - the name finishes with ".slice"
+//
+// The Kubelet must be started with --cgroup-driver=systemd
+// (CGROUP_DRIVER=systemd in hack/local-up-cluster.sh), otherwise the
+// cgroupParent will not be convertible.
+func cgroupParentToSliceName(cgroupParent string) (string, error) {
+	// Example for podBase: "kubepods-besteffort-pod5c5979ec_9871_11e7_b58f_c85b763781a4.slice"
+	podBase := path.Base(cgroupParent)
+
+	if !strings.HasSuffix(podBase, ".slice") {
+		return "", fmt.Errorf("cgroup %q not convertible to slice name: please start the Kubelet with --cgroup-driver=systemd", cgroupParent)
+	}
+
+	return podBase, nil
+}
+
 // StartProcess runs the 'command + args' as a child of the init process,
 // and returns the id of the process.
 func (s *systemd) StartProcess(cgroupParent, command string, args ...string) (id string, err error) {
@@ -42,14 +67,15 @@ func (s *systemd) StartProcess(cgroupParent, command string, args ...string) (id
 
 	cmdList := []string{s.systemdRunPath, "--unit=" + unitName, "--setenv=RKT_EXPERIMENT_APP=true", "--service-type=notify"}
 	if cgroupParent != "" {
-		// The cgroup parent must have a suffix of .slice.
 		// If cgroupParent doesn't exist in some of the subsystems,
 		// it will be created (e.g. systemd, memeory, cpu). Otherwise
 		// the process will be put inside them.
-		//
-		// TODO(yifan): Verify that this works with the upstream QoS
-		// imeplementation for systemd based nodes.
-		cmdList = append(cmdList, "--slice="+cgroupParent)
+		slice, err := cgroupParentToSliceName(cgroupParent)
+		if err != nil {
+			glog.Warningf("%v", err)
+			return "", err
+		}
+		cmdList = append(cmdList, "--slice="+slice)
 	}
 	cmdList = append(cmdList, command)
 	cmdList = append(cmdList, args...)
