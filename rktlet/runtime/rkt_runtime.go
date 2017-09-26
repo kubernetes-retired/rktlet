@@ -23,6 +23,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/kubernetes-incubator/rktlet/rktlet/cli"
+	"github.com/kubernetes-incubator/rktlet/rktlet/util"
 	rkt "github.com/rkt/rkt/api/v1"
 	"golang.org/x/net/context"
 
@@ -129,7 +130,16 @@ func (r *RktRuntime) ContainerStatus(ctx context.Context, req *runtimeApi.Contai
 }
 
 func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.CreateContainerRequest) (*runtimeApi.CreateContainerResponse, error) {
-	imageID := req.GetConfig().GetImage().Image
+	imageSpec := req.GetConfig().GetImage()
+	if imageSpec == nil {
+		return nil, fmt.Errorf("unable to get image spec")
+	}
+
+	var err error
+	var imageID string
+	if imageID, err = util.GetCanonicalImageName(imageSpec.Image); err != nil {
+		return nil, fmt.Errorf("unable to apply default tag for img %q, %v", imageID, err)
+	}
 
 	command, err := generateAppAddCommand(req, imageID)
 	if err != nil {
