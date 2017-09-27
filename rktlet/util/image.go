@@ -73,3 +73,12 @@ func GetCanonicalImageName(imageName string) (string, error) {
 
 	return imageID, nil
 }
+
+func ExistInSlice(inSlice []string, key string) bool {
+	for _, v := range inSlice {
+		if v == key {
+			return true
+		}
+	}
+	return false
+}
