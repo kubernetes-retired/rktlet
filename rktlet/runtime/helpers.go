@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors.
+Copyright 2016-2017 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	actypes "github.com/appc/spec/schema/types"
 	"github.com/golang/glog"
 	"github.com/pborman/uuid"
 	rkt "github.com/rkt/rkt/api/v1"
@@ -70,7 +71,11 @@ func parseContainerID(containerID string) (uuid, appName string, err error) {
 	if len(values) != 2 {
 		return "", "", fmt.Errorf("invalid container ID %q", containerID)
 	}
-	return values[0], values[1], nil
+	appName, err = actypes.SanitizeACName(values[1])
+	if err != nil {
+		return "", "", err
+	}
+	return values[0], appName, nil
 }
 
 func buildContainerID(uuid, appName string) (containerID string) {
@@ -93,8 +98,13 @@ func parseAppName(appName string) (attempt uint32, containerName string, err err
 	return uint32(a), values[1], nil
 }
 
-func buildAppName(attempt uint32, containerName string) string {
-	return fmt.Sprintf("%d-%s", attempt, containerName)
+func buildAppName(attempt uint32, containerName string) (string, error) {
+	sName, err := actypes.SanitizeACName(containerName)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%d-%s", attempt, sName), nil
 }
 
 func toContainerStatus(uuid string, app *rkt.App) (*runtimeApi.ContainerStatus, error) {
@@ -211,7 +221,10 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 	annotations = append(annotations, fmt.Sprintf("%s=%s", kubernetesReservedAnnoImageNameKey, config.Image.Image))
 
 	// Generate app name.
-	appName := buildAppName(config.Metadata.Attempt, config.Metadata.Name)
+	appName, err := buildAppName(config.Metadata.Attempt, config.Metadata.Name)
+	if err != nil {
+		return nil, err
+	}
 
 	// TODO(yifan): Split the function into sub-functions.
 	// Generate the command and arguments for 'rkt app add'.
