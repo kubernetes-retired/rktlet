@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors.
+Copyright 2016-2017 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -196,5 +196,64 @@ func TestGeneratePortArgs(t *testing.T) {
 	for i, tt := range tests {
 		testHint := fmt.Sprintf("test case #%d", i)
 		assert.Equal(t, tt.result, generatePortArgs(tt.port), testHint)
+	}
+}
+
+func TestBuildAppName(t *testing.T) {
+	tests := []struct {
+		inputAttempt  uint32
+		inputName     string
+		resultAppName string
+	}{
+		// Case 0, normal lowercase characters
+		{
+			0,
+			"containername",
+			"0-containername",
+		},
+		// Case 1, convertion from uppercase to lowercase
+		{
+			0,
+			"ContainerName",
+			"0-containername",
+		},
+	}
+
+	for i, tt := range tests {
+		testHint := fmt.Sprintf("test case #%d", i)
+		appName, err := buildAppName(tt.inputAttempt, tt.inputName)
+		if err != nil {
+			t.Errorf("error building app name from container name %s: %v\n", tt.inputName, err)
+			continue
+		}
+		assert.Equal(t, tt.resultAppName, appName, testHint)
+	}
+}
+
+func TestParseContainerID(t *testing.T) {
+	tests := []struct {
+		inputID       string
+		resultAppName string
+	}{
+		// Case 0, normal lowercase characters
+		{
+			"01234567-89ab-cdef-0123-456789abcdef:containerid",
+			"containerid",
+		},
+		// Case 1, convertion from uppercase to lowercase
+		{
+			"01234567-89ab-cdef-0123-456789abcdef:ContainerID",
+			"containerid",
+		},
+	}
+
+	for i, tt := range tests {
+		testHint := fmt.Sprintf("test case #%d", i)
+		_, appName, err := parseContainerID(tt.inputID)
+		if err != nil {
+			t.Errorf("error parsing container ID %s: %v\n", tt.inputID, err)
+			continue
+		}
+		assert.Equal(t, tt.resultAppName, appName, testHint)
 	}
 }
