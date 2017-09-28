@@ -19,7 +19,7 @@ package cli
 import "regexp"
 
 // pod "379ae074-f1ca-4bdc-8493-e7278b00009f" is already stopped
-var alreadyStoppedRegex = regexp.MustCompile(`^pod "[^"]+" is already stopped$`)
+var alreadyStoppedRegex = regexp.MustCompile(`pod "[^"]+" is already stopped`)
 
 // RktStopIsNotExistError determines if an error resulting from running `rkt
 // stop` or `rkt app stop` is the result of the pod already being stopped
@@ -31,7 +31,7 @@ func RktStopIsAlreadyStoppedError(err error) bool {
 }
 
 // stop: cannot get pod: no matches found for "37edaae0-f048-4db5-b3fb-c0de3aa8e9d8"
-var isNotExistStopError = regexp.MustCompile(`^stop: cannot get pod: no matches found for "[^"]+"$`)
+var isNotExistStopError = regexp.MustCompile(`stop: cannot get pod: no matches found for "[^"]+"`)
 
 func RktStopIsNotExistError(err error) bool {
 	if err == nil {
