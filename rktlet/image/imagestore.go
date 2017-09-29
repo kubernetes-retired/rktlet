@@ -205,14 +205,13 @@ func (s *ImageStore) getImageUser(manifest *appcschema.ImageManifest) string {
 
 // PullImage pulls an image into the store
 func (s *ImageStore) PullImage(ctx context.Context, req *runtime.PullImageRequest) (*runtime.PullImageResponse, error) {
-
-	canonicalImageName, err := util.ApplyDefaultImageTag(req.Image.Image)
+	canonicalImageName, err := util.GetCanonicalImageName(req.Image.GetImage())
 	if err != nil {
 		return nil, fmt.Errorf("unable to default tag for img %q, %v", req.Image.Image, err)
 	}
 
 	// TODO auth
-	output, err := s.RunCommand("image", "fetch", "--pull-policy=update", "--full=true", "docker://"+canonicalImageName)
+	output, err := s.RunCommand("image", "fetch", "--pull-policy=update", "--full=true", canonicalImageName)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch image %q: %v", canonicalImageName, err)
 	}
