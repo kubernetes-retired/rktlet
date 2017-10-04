@@ -82,20 +82,7 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 		return nil, fmt.Errorf("waited 10s for pod sandbox to start, but it didn't: %v", k8sPodUid)
 	}
 
-	// Wait for the status to be running too, up to 10 more seconds
-	var status *runtimeApi.PodSandboxStatusResponse
-	for i := 0; i < 100; i++ {
-		status, err = r.PodSandboxStatus(ctx, &runtimeApi.PodSandboxStatusRequest{PodSandboxId: rktUUID})
-		if err == nil {
-			break
-		}
-		if st := status.GetStatus(); st == nil || st.State != runtimeApi.PodSandboxState_SANDBOX_READY {
-			continue
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if status.GetStatus().State != runtimeApi.PodSandboxState_SANDBOX_READY {
-		glog.Warningf("sandbox got a UUID but did not have a ready status after 10s: %v, %v", status, err)
+	if err = r.waitPodSandboxStatus(ctx, rktUUID, runtimeApi.PodSandboxState_SANDBOX_READY); err != nil {
 		return &runtimeApi.RunPodSandboxResponse{PodSandboxId: rktUUID}, fmt.Errorf("unable to get status within 10s: %v", err)
 	}
 
@@ -117,15 +104,46 @@ func (r *RktRuntime) stopPodSandbox(ctx context.Context, id string, force bool) 
 		"--force="+strconv.FormatBool(force),
 		id,
 	)
-	if err == nil {
-		return nil
+
+	if err != nil {
+		if !cli.RktStopIsAlreadyStoppedError(err) && !cli.RktStopIsNotExistError(err) {
+			return err
+		}
+
+		glog.V(4).Infof("ignoring stop error for idempotency: %v", err)
 	}
 
-	if cli.RktStopIsAlreadyStoppedError(err) || cli.RktStopIsNotExistError(err) {
-		glog.V(4).Infof("ignoring stop error for idempotency: %v", err)
-		return nil
+	if err := r.waitPodSandboxStatus(ctx, id, runtimeApi.PodSandboxState_SANDBOX_NOTREADY); err != nil {
+		return fmt.Errorf("unable to get status within 10s: %v", err)
 	}
-	return err
+
+	return nil
+}
+
+func (r *RktRuntime) waitPodSandboxStatus(ctx context.Context, id string, expectedState runtimeApi.PodSandboxState) error {
+	// Wait for the status to be running, up to 10 seconds
+	var status *runtimeApi.PodSandboxStatusResponse
+	var err error
+	for i := 0; i < 100; i++ {
+		status, err = r.PodSandboxStatus(ctx, &runtimeApi.PodSandboxStatusRequest{PodSandboxId: id})
+		if err != nil {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		st := status.GetStatus()
+		if st == nil || st.State != expectedState {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		// if st.State is finally the same as expectedState, break.
+		break
+	}
+	if status == nil || status.GetStatus().State != expectedState {
+		glog.Warningf("sandbox got a UUID but did not have a ready status after 10s: %v, %v", status, err)
+		return err
+	}
+
+	return nil
 }
 
 func (r *RktRuntime) StopPodSandbox(ctx context.Context, req *runtimeApi.StopPodSandboxRequest) (*runtimeApi.StopPodSandboxResponse, error) {
