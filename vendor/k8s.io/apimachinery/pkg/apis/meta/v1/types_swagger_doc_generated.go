@@ -53,6 +53,8 @@ var map_APIResource = map[string]string{
 	"name":         "name is the plural name of the resource.",
 	"singularName": "singularName is the singular name of the resource.  This allows clients to handle plural and singular opaquely. The singularName is more correct for reporting status on a single item and both singular and plural are allowed from the kubectl CLI interface.",
 	"namespaced":   "namespaced indicates if a resource is namespaced or not.",
+	"group":        "group is the preferred group of the resource.  Empty implies the group of the containing resource list. For subresources, this may have a different value, for example: Scale\".",
+	"version":      "version is the preferred version of the resource.  Empty implies the version of the containing resource list For subresources, this may have a different value, for example: v1 (while inside a v1beta1 version of the core resource's group)\".",
 	"kind":         "kind is the kind for the resource (e.g. 'Foo' is the kind for a resource 'foo')",
 	"verbs":        "verbs is a list of supported kube verbs (this includes get, list, watch, create, update, patch, delete, deletecollection, and proxy)",
 	"shortNames":   "shortNames is a list of suggested short names of the resource.",
@@ -157,12 +159,22 @@ func (LabelSelector) SwaggerDoc() map[string]string {
 var map_LabelSelectorRequirement = map[string]string{
 	"":         "A label selector requirement is a selector that contains values, a key, and an operator that relates the key and values.",
 	"key":      "key is the label key that the selector applies to.",
-	"operator": "operator represents a key's relationship to a set of values. Valid operators ard In, NotIn, Exists and DoesNotExist.",
+	"operator": "operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist.",
 	"values":   "values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch.",
 }
 
 func (LabelSelectorRequirement) SwaggerDoc() map[string]string {
 	return map_LabelSelectorRequirement
+}
+
+var map_List = map[string]string{
+	"":         "List holds a list of objects, which may not be known by the server.",
+	"metadata": "Standard list metadata. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds",
+	"items":    "List of objects",
+}
+
+func (List) SwaggerDoc() map[string]string {
+	return map_List
 }
 
 var map_ListMeta = map[string]string{
@@ -295,7 +307,7 @@ var map_StatusDetails = map[string]string{
 	"kind":              "The kind attribute of the resource associated with the status StatusReason. On some operations may differ from the requested resource Kind. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds",
 	"uid":               "UID of the resource. (when there is a single resource which can be described). More info: http://kubernetes.io/docs/user-guide/identifiers#uids",
 	"causes":            "The Causes array includes more details associated with the StatusReason failure. Not all StatusReasons may provide detailed causes.",
-	"retryAfterSeconds": "If specified, the time in seconds before the operation should be retried.",
+	"retryAfterSeconds": "If specified, the time in seconds before the operation should be retried. Some errors may indicate the client must take an alternate action - for those errors this field may indicate how long to wait before taking the alternate action.",
 }
 
 func (StatusDetails) SwaggerDoc() map[string]string {

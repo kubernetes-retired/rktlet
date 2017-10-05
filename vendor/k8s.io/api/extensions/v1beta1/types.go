@@ -158,8 +158,12 @@ type ThirdPartyResourceData struct {
 }
 
 // +genclient
+// +genclient:method=GetScale,verb=get,subresource=scale,result=Scale
+// +genclient:method=UpdateScale,verb=update,subresource=scale,input=Scale,result=Scale
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
+// DEPRECATED - This group version of Deployment is deprecated by apps/v1beta2/Deployment. See the release notes for
+// more information.
 // Deployment enables declarative updates for Pods and ReplicaSets.
 type Deployment struct {
 	metav1.TypeMeta `json:",inline"`
@@ -333,7 +337,9 @@ type DeploymentStatus struct {
 	// +optional
 	AvailableReplicas int32 `json:"availableReplicas,omitempty" protobuf:"varint,4,opt,name=availableReplicas"`
 
-	// Total number of unavailable pods targeted by this deployment.
+	// Total number of unavailable pods targeted by this deployment. This is the total number of
+	// pods that are still required for the deployment to have 100% available capacity. They may
+	// either be pods that are running but not yet available or pods that still have not been created.
 	// +optional
 	UnavailableReplicas int32 `json:"unavailableReplicas,omitempty" protobuf:"varint,5,opt,name=unavailableReplicas"`
 
@@ -531,6 +537,8 @@ type DaemonSetStatus struct {
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
+// DEPRECATED - This group version of DaemonSet is deprecated by apps/v1beta2/DaemonSet. See the release notes for
+// more information.
 // DaemonSet represents the configuration of a daemon set.
 type DaemonSet struct {
 	metav1.TypeMeta `json:",inline"`
@@ -764,8 +772,12 @@ type IngressBackend struct {
 }
 
 // +genclient
+// +genclient:method=GetScale,verb=get,subresource=scale,result=Scale
+// +genclient:method=UpdateScale,verb=update,subresource=scale,input=Scale,result=Scale
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
+// DEPRECATED - This group version of ReplicaSet is deprecated by apps/v1beta2/ReplicaSet. See the release notes for
+// more information.
 // ReplicaSet represents the configuration of a ReplicaSet.
 type ReplicaSet struct {
 	metav1.TypeMeta `json:",inline"`
@@ -959,13 +971,29 @@ type PodSecurityPolicySpec struct {
 	// +optional
 	ReadOnlyRootFilesystem bool `json:"readOnlyRootFilesystem,omitempty" protobuf:"varint,14,opt,name=readOnlyRootFilesystem"`
 	// DefaultAllowPrivilegeEscalation controls the default setting for whether a
-	// process can gain more privileges than it's parent process.
+	// process can gain more privileges than its parent process.
 	// +optional
 	DefaultAllowPrivilegeEscalation *bool `json:"defaultAllowPrivilegeEscalation,omitempty" protobuf:"varint,15,opt,name=defaultAllowPrivilegeEscalation"`
 	// AllowPrivilegeEscalation determines if a pod can request to allow
 	// privilege escalation.
 	// +optional
 	AllowPrivilegeEscalation bool `json:"allowPrivilegeEscalation,omitempty" protobuf:"varint,16,opt,name=allowPrivilegeEscalation"`
+	// is a white list of allowed host paths. Empty indicates that all host paths may be used.
+	// +optional
+	AllowedHostPaths []AllowedHostPath `json:"allowedHostPaths,omitempty" protobuf:"bytes,17,rep,name=allowedHostPaths"`
+}
+
+// defines the host volume conditions that will be enabled by a policy
+// for pods to use. It requires the path prefix to be defined.
+type AllowedHostPath struct {
+	// is the path prefix that the host volume must match.
+	// It does not support `*`.
+	// Trailing slashes are trimmed when validating the path prefix with a host path.
+	//
+	// Examples:
+	// `/foo` would allow `/foo`, `/foo/` and `/foo/bar`
+	// `/foo` would not allow `/food` or `/etc/foo`
+	PathPrefix string `json:"pathPrefix,omitempty" protobuf:"bytes,1,rep,name=pathPrefix"`
 }
 
 // FS Type gives strong typing to different file systems that are used by volumes.
