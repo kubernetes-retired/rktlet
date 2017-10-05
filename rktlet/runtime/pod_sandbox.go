@@ -82,8 +82,13 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 		return nil, fmt.Errorf("waited 10s for pod sandbox to start, but it didn't: %v", k8sPodUid)
 	}
 
-	if err = r.waitPodSandboxStatus(ctx, rktUUID, runtimeApi.PodSandboxState_SANDBOX_READY); err != nil {
-		return &runtimeApi.RunPodSandboxResponse{PodSandboxId: rktUUID}, fmt.Errorf("unable to get status within 10s: %v", err)
+	statusResp, err := r.PodSandboxStatus(ctx, &runtimeApi.PodSandboxStatusRequest{PodSandboxId: rktUUID})
+	if err != nil {
+		return &runtimeApi.RunPodSandboxResponse{PodSandboxId: rktUUID}, fmt.Errorf("unable to get status: %v", err)
+	}
+
+	if statusResp.Status.State != runtimeApi.PodSandboxState_SANDBOX_READY {
+		return &runtimeApi.RunPodSandboxResponse{PodSandboxId: rktUUID}, fmt.Errorf("sandbox timeout: %v", err)
 	}
 
 	// Inject internal logging app
@@ -109,33 +114,7 @@ func (r *RktRuntime) stopPodSandbox(ctx context.Context, id string, force bool) 
 		glog.V(4).Infof("ignoring stop error for idempotency: %v", err)
 	}
 
-	if err := r.waitPodSandboxStatus(ctx, id, runtimeApi.PodSandboxState_SANDBOX_NOTREADY); err != nil {
-		return fmt.Errorf("unable to get status within 10s: %v", err)
-	}
-
-	return nil
-}
-
-func (r *RktRuntime) waitPodSandboxStatus(ctx context.Context, id string, expectedState runtimeApi.PodSandboxState) error {
-	// Wait for the status to be running, up to 10 seconds
-	var status *runtimeApi.PodSandboxStatusResponse
-	var err error
-	for i := 0; i < 100; i++ {
-		status, err = r.PodSandboxStatus(ctx, &runtimeApi.PodSandboxStatusRequest{PodSandboxId: id})
-		if err != nil {
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-		st := status.GetStatus()
-		if st == nil || st.State != expectedState {
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-		// if st.State is finally the same as expectedState, break.
-		break
-	}
-	if status == nil || status.GetStatus().State != expectedState {
-		glog.Warningf("sandbox got a UUID but did not have a ready status after 10s: %v, %v", status, err)
+	if _, err := r.PodSandboxStatus(ctx, &runtimeApi.PodSandboxStatusRequest{PodSandboxId: id}); err != nil {
 		return err
 	}
 
@@ -152,25 +131,22 @@ func (r *RktRuntime) RemovePodSandbox(ctx context.Context, req *runtimeApi.Remov
 	// the sandbox, they must be forcibly terminated
 	r.stopPodSandbox(ctx, req.PodSandboxId, true)
 
-	// Retry rm a few times to work around
-	// https://github.com/kubernetes-incubator/rktlet/issues/21#issuecomment-264842608
-	// TODO(euank): this won't be needed once the above is fixed
-	var err error
-	maxRetries := 5
-	for i := 0; i < maxRetries; i++ {
-		_, err = r.RunCommand("rm", req.PodSandboxId)
-		if i == maxRetries-1 || err == nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	_, err := r.RunCommand("rm", req.PodSandboxId)
+
 	return &runtimeApi.RemovePodSandboxResponse{}, err
 }
 
 func (r *RktRuntime) PodSandboxStatus(ctx context.Context, req *runtimeApi.PodSandboxStatusRequest) (*runtimeApi.PodSandboxStatusResponse, error) {
-	resp, err := r.RunCommand("status", req.PodSandboxId, "--format=json")
+	resp, err := r.RunCommand("status", req.PodSandboxId, "--format=json", "--wait-ready=10s")
 	if err != nil {
-		return nil, err
+		glog.Warningf("sandbox got a UUID but did not have a ready status after 10s: %v", err)
+
+		// the pod wasn't ready after 10s, try to get its status so we can
+		// return meaningful data to the kubelet
+		resp, err = r.RunCommand("status", req.PodSandboxId, "--format=json")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if len(resp) != 1 {
