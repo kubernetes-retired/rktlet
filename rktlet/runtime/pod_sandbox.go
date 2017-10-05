@@ -86,10 +86,6 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 		return &runtimeApi.RunPodSandboxResponse{PodSandboxId: rktUUID}, fmt.Errorf("unable to get status within 10s: %v", err)
 	}
 
-	// TODO(euank): this is a temporary hack due to https://github.com/rkt/rkt/issues/3423
-	// it should be removed once that issue is resolved/released
-	time.Sleep(3 * time.Second)
-
 	// Inject internal logging app
 	// TODO: This can be removed once https://github.com/rkt/rkt/pull/3396
 	// handles logging
