@@ -65,7 +65,7 @@ func cgroupParentToSliceName(cgroupParent string) (string, error) {
 func (s *systemd) StartProcess(cgroupParent, command string, args ...string) (id string, err error) {
 	unitName := fmt.Sprintf("rktlet-%s", uuid.New())
 
-	cmdList := []string{s.systemdRunPath, "--unit=" + unitName, "--setenv=RKT_EXPERIMENT_APP=true", "--service-type=notify"}
+	cmdList := []string{s.systemdRunPath, "--unit=" + unitName, "--setenv=RKT_EXPERIMENT_APP=true", "--setenv=RKT_EXPERIMENT_ATTACH=true", "--service-type=notify"}
 	if cgroupParent != "" {
 		// If cgroupParent doesn't exist in some of the subsystems,
 		// it will be created (e.g. systemd, memeory, cpu). Otherwise
