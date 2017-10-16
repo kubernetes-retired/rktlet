@@ -68,8 +68,8 @@ func (s *ImageStore) RemoveImage(ctx context.Context, req *runtime.RemoveImageRe
 		return nil, fmt.Errorf("Image does not exist")
 	}
 
-	if _, err := s.RunCommand("image", "rm", img.Image.Id); err != nil {
-		return nil, fmt.Errorf("failed to remove the image: %v", err)
+	if output, err := s.RunCommand("image", "rm", img.Image.Id); err != nil {
+		return nil, fmt.Errorf("failed to remove the image, output: %s\nerr: %v", output, err)
 	}
 
 	return &runtime.RemoveImageResponse{}, nil
@@ -214,7 +214,7 @@ func (s *ImageStore) PullImage(ctx context.Context, req *runtime.PullImageReques
 	// TODO auth
 	output, err := s.RunCommand("image", "fetch", "--pull-policy=update", "--full=true", "docker://"+canonicalImageName)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch image %q: %v", canonicalImageName, err)
+		return nil, fmt.Errorf("unable to fetch image %q\noutput: %s\nerr: %v", canonicalImageName, output, err)
 	}
 	if len(output) < 1 {
 		return nil, fmt.Errorf("malformed fetch image response for %q; must include image id: %v", canonicalImageName, output)

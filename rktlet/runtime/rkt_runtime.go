@@ -131,8 +131,8 @@ func (r *RktRuntime) CreateContainer(ctx context.Context, req *runtimeApi.Create
 	if err != nil {
 		return nil, err
 	}
-	if _, err := r.RunCommand(command[0], command[1:]...); err != nil {
-		return nil, err
+	if output, err := r.RunCommand(command[0], command[1:]...); err != nil {
+		return nil, fmt.Errorf("output: %s\n, err: %v", output, err)
 	}
 
 	appName, err := buildAppName(req.Config.Metadata.Attempt, req.Config.Metadata.Name)
@@ -151,8 +151,8 @@ func (r *RktRuntime) StartContainer(ctx context.Context, req *runtimeApi.StartCo
 		return nil, err
 	}
 
-	if _, err := r.RunCommand("app", "start", uuid, "--app="+appName); err != nil {
-		return nil, err
+	if output, err := r.RunCommand("app", "start", uuid, "--app="+appName); err != nil {
+		return nil, fmt.Errorf("output: %s\n, err: %v", output, err)
 	}
 	return &runtimeApi.StartContainerResponse{}, nil
 }
@@ -165,8 +165,8 @@ func (r *RktRuntime) StopContainer(ctx context.Context, req *runtimeApi.StopCont
 	}
 
 	// TODO(yifan): Support timeout.
-	if _, err := r.RunCommand("app", "stop", uuid, "--app="+appName); err != nil {
-		return nil, err
+	if output, err := r.RunCommand("app", "stop", uuid, "--app="+appName); err != nil {
+		return nil, fmt.Errorf("output: %s\n, err: %v", output, err)
 	}
 	return &runtimeApi.StopContainerResponse{}, nil
 }
@@ -237,8 +237,8 @@ func (r *RktRuntime) RemoveContainer(ctx context.Context, req *runtimeApi.Remove
 	}
 
 	// TODO(yifan): Support timeout.
-	if _, err := r.RunCommand("app", "rm", uuid, "--app="+appName); err != nil {
-		return nil, err
+	if output, err := r.RunCommand("app", "rm", uuid, "--app="+appName); err != nil {
+		return nil, fmt.Errorf("output: %s\n, err: %v", output, err)
 	}
 	return &runtimeApi.RemoveContainerResponse{}, nil
 }
