@@ -400,7 +400,7 @@ func maybeCreateHostPathVolume(mount *runtimeApi.Mount) (created bool, err error
 }
 
 func generateAppSandboxCommand(req *runtimeApi.RunPodSandboxRequest, uuidfile, stage1Name, networkPluginName string) ([]string, error) {
-	cmd := []string{"app", "sandbox", "--uuid-file-save=" + uuidfile}
+	cmd := []string{"app", "--debug", "sandbox", "--uuid-file-save=" + uuidfile}
 
 	// annotation takes preference over configuration
 	if val, ok := req.Config.Annotations[k8sRktStage1NameAnno]; ok {
