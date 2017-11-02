@@ -18,9 +18,17 @@ package util
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 
 	dockerref "github.com/docker/distribution/reference"
 	"k8s.io/kubernetes/pkg/util/parsers"
+)
+
+const dockerPrefix string = "docker://"
+
+var (
+	HashRegexp = regexp.MustCompile(`^(sha1|sha2|sha256|sha512)-.*$`)
 )
 
 // TODO(euank): this is taken from kubelet/image/image_manager.go.
@@ -44,4 +52,24 @@ func ApplyDefaultImageTag(image string) (string, error) {
 		image = named.String()
 	}
 	return image, nil
+}
+
+func GetCanonicalImageName(imageName string) (string, error) {
+	var err error
+	imgName := strings.TrimPrefix(imageName, dockerPrefix)
+	if HashRegexp.FindString(imgName) != "" {
+		return imgName, nil
+	}
+
+	canonicalImageName, err := ApplyDefaultImageTag(imgName)
+	if err != nil {
+		return "", fmt.Errorf("unable to apply default tag for img %q, %v", imageName, err)
+	}
+
+	imageID := canonicalImageName
+	if !strings.HasPrefix(canonicalImageName, dockerPrefix) {
+		imageID = dockerPrefix + canonicalImageName
+	}
+
+	return imageID, nil
 }
