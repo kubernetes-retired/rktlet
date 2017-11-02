@@ -98,7 +98,7 @@ func (r *RktRuntime) RunPodSandbox(ctx context.Context, req *runtimeApi.RunPodSa
 }
 
 func (r *RktRuntime) stopPodSandbox(ctx context.Context, id string, force bool) error {
-	_, err := r.RunCommand(
+	output, err := r.RunCommand(
 		"stop",
 		"--force="+strconv.FormatBool(force),
 		id,
@@ -109,7 +109,7 @@ func (r *RktRuntime) stopPodSandbox(ctx context.Context, id string, force bool) 
 			return err
 		}
 
-		glog.V(4).Infof("ignoring stop error for idempotency: %v", err)
+		glog.V(4).Infof("ignoring stop error for idempotency,\noutput: %s\nerr: %v", output, err)
 	}
 
 	if _, err := r.PodSandboxStatus(ctx, &runtimeApi.PodSandboxStatusRequest{PodSandboxId: id}); err != nil {
@@ -129,9 +129,9 @@ func (r *RktRuntime) RemovePodSandbox(ctx context.Context, req *runtimeApi.Remov
 	// the sandbox, they must be forcibly terminated
 	r.stopPodSandbox(ctx, req.PodSandboxId, true)
 
-	_, err := r.RunCommand("rm", req.PodSandboxId)
+	output, err := r.RunCommand("rm", req.PodSandboxId)
 
-	return &runtimeApi.RemovePodSandboxResponse{}, err
+	return &runtimeApi.RemovePodSandboxResponse{}, fmt.Errorf("output: %s\nerr: %v\n", output, err)
 }
 
 func (r *RktRuntime) PodSandboxStatus(ctx context.Context, req *runtimeApi.PodSandboxStatusRequest) (*runtimeApi.PodSandboxStatusResponse, error) {
