@@ -86,16 +86,23 @@ func (s *ImageStore) ImageStatus(ctx context.Context, req *runtime.ImageStatusRe
 
 	reqImg := req.Image.Image
 	// TODO this should be done in kubelet (see comment on ApplyDefaultImageTag)
-	reqImg, err = util.ApplyDefaultImageTag(reqImg)
-	if err != nil {
-		return nil, err
+
+	// We should not apply the default image tag, if the input image name
+	// is a pure hash string.
+	if util.HashRegexp.FindString(reqImg) == "" {
+		reqImg, err = util.ApplyDefaultImageTag(reqImg)
+		if err != nil {
+			return nil, err
+		}
 	}
 
+	// The input image name can be one of the two types: pure hash string like
+	// "sha512-..." or a human readable name like "docker://busybox:latest".
+	// For the former case, we just need to compare image ID to the hash string.
+	// For the latter, we need to iterate over []img.RepoTags.
 	for _, img := range images.Images {
-		for _, name := range img.RepoTags {
-			if name == reqImg {
-				return &runtime.ImageStatusResponse{Image: img}, nil
-			}
+		if img.Id == reqImg || util.ExistInSlice(img.RepoTags, reqImg) {
+			return &runtime.ImageStatusResponse{Image: img}, nil
 		}
 	}
 
