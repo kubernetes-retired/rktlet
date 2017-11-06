@@ -23,7 +23,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/pborman/uuid"
-	utilexec "k8s.io/kubernetes/pkg/util/exec"
+	utilexec "k8s.io/utils/exec"
 )
 
 type systemd struct {

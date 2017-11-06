@@ -53,7 +53,7 @@ func TestPullImage(t *testing.T) {
 		if subCommand != "fetch" {
 			t.Fatalf("Expected runCommand to be a fetch command; was %v", subCommand)
 		}
-		if image != "docker://"+testImage+":latest" {
+		if image != "docker://docker.io/library/"+testImage+":latest" {
 			t.Fatalf("Expected rkt fetch to be for image %v, was %+v", testImage, image)
 		}
 	}).Return(strings.Split(mockBusyboxFetchResponse, "\n"), nil)

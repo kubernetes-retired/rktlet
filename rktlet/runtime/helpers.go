@@ -29,7 +29,7 @@ import (
 	rkt "github.com/rkt/rkt/api/v1"
 	"github.com/rkt/rkt/networking/netinfo"
 	"golang.org/x/net/context"
-	"k8s.io/kubernetes/pkg/api/v1"
+	k8sApi "k8s.io/kubernetes/pkg/api"
 	runtimeApi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 )
 
@@ -182,19 +182,24 @@ func getImageName(annotations map[string]string) string {
 	return name
 }
 
-func generateSeccompArg(annotations map[string]string, containerName string) (string, error) {
+func generateSeccompArg(seccompProfile string, annotations map[string]string, containerName string) (string, error) {
 	// by default kubernetes doesn't enable seccomp
 	defaultSeccomp := "--seccomp=mode=retain,@appc.io/all"
 
-	profile, ok := annotations[v1.SeccompContainerAnnotationKeyPrefix+containerName]
-	if !ok {
-		profile, ok = annotations[v1.SeccompPodAnnotationKey]
+	profile := seccompProfile
+	if profile == "" {
+		// fall back to the annotations mechanism for k8s 1.7
+		aProfile, ok := annotations[k8sApi.SeccompContainerAnnotationKeyPrefix+containerName]
 		if !ok {
-			return defaultSeccomp, nil
+			aProfile, ok = annotations[k8sApi.SeccompPodAnnotationKey]
+			if !ok {
+				return defaultSeccomp, nil
+			}
 		}
+		profile = aProfile
 	}
 
-	if profile == "unconfined" {
+	if profile == "unconfined" || profile == "" {
 		return defaultSeccomp, nil
 	}
 
@@ -299,7 +304,7 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 				// TODO: device cgroup should be made permissive
 				// TODO: host's /dev's devices should all be visible in the container
 			} else {
-				seccompArg, err := generateSeccompArg(config.Annotations, config.Metadata.Name)
+				seccompArg, err := generateSeccompArg(secContext.SeccompProfilePath, config.Annotations, config.Metadata.Name)
 				if err != nil {
 					return nil, err
 				}
