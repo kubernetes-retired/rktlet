@@ -27,11 +27,11 @@ func TestCanonicalImageName(t *testing.T) {
 	}{
 		{
 			"busybox",
-			"docker://busybox:latest",
+			"docker://docker.io/library/busybox:latest",
 		},
 		{
 			"docker://busybox",
-			"docker://busybox:latest",
+			"docker://docker.io/library/busybox:latest",
 		},
 		{
 			"busybox:latest",
