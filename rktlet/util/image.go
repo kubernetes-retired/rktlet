@@ -38,7 +38,7 @@ var (
 // applyDefaultImageTag parses a docker image string, if it doesn't contain any tag or digest,
 // a default tag will be applied.
 func ApplyDefaultImageTag(image string) (string, error) {
-	named, err := dockerref.ParseNamed(image)
+	named, err := dockerref.ParseNormalizedNamed(image)
 	if err != nil {
 		return "", fmt.Errorf("couldn't parse image reference %q: %v", image, err)
 	}

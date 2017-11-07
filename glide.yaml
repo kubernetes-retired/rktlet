@@ -1,37 +1,44 @@
 package: github.com/kubernetes-incubator/rktlet
 import:
 - package: k8s.io/kubernetes
-  version: v1.7.5
+  version: v1.8.0
   subpackages:
   - pkg/api
   - pkg/api/resource
+  - pkg/credentialprovider
   - pkg/kubelet/apis/cri/v1alpha1/runtime
+  - pkg/kubelet/apis/cri/testing
   - pkg/kubelet/container
+  - pkg/kubelet/container/testing
   - pkg/kubelet/kuberuntime
   - pkg/kubelet/server/streaming
   - pkg/kubelet/util/ioutils
   - pkg/util/exec
   - pkg/util/logs
 - package: k8s.io/client-go
-  version: v4.0.0
+  version: 32ad290dcba233ec6f0a1abf45b38f4179a2b6ff
   subpackages:
   - pkg/api
 - package: golang.org/x/net
-  version: f2499483f923065a842d38eb4c7f1927e6fc6e6d
+  version: 1c05540f6879653db88113bc4a2b70aec4bd491f
   subpackages:
   - context
 - package: golang.org/x/tools
   version: 2382e3994d48b1d22acc2c86bcad0a2aff028e32
 - package: google.golang.org/grpc
-  version: 777daa17ff9b5daef1cfdf915088a2ada3332bf0
+  version: d2e1b51f33ff8c5e4a15560ff049d200e83726c5
+- package: github.com/google/cadvisor/info/v1
+  version: v0.27.1
 - package: github.com/golang/glog
   version: 44145f04b68cf362d9c4df2182967c2275eaefed
+- package: github.com/golang/mock
+  version: 13f360950a79f5864a972c786a10a50e44b69541
 - package: github.com/vektra/mockery
   version: 50e94ccca3830b02af862920ec59f3dab0794901
   subpackages:
   - cmd/mockery
 - package: github.com/stretchr/testify
-  version: e3a8ff8ce36581f87a15341206f205b1da467059
+  version: f6abca593680b2315d2075e0f5e2a9751e3f431a
   subpackages:
   - assert
   - mock
@@ -40,17 +47,25 @@ import:
   subpackages:
   - lib
 - package: github.com/containernetworking/cni
-  version: v0.3.0
+  version: v0.4.0
   subpackages:
   - pkg/types
 - package: github.com/appc/spec
   version: fc380db5fc13c6dd71a5b0bf2af0d182865d1b1d
-- package: github.com/moby/moby/daemon/caps
+- package: github.com/moby/moby
+  subpackages:
+  - daemon/caps
 - package: github.com/spf13/pflag
   version: 5ccb023bc27df288a957c5e994cd44fd19619465
 - package: github.com/coreos/go-systemd
   version: v15
   subpackages:
-    - sdjournal
+  - sdjournal
+- package: k8s.io/api
+  version: fc9f1c302b03be84bd3a31a41daac22881cd94d8
 - package: k8s.io/apimachinery
-  version: 1fd2e63a9a370677308a42f24fd40c86438afddf
+  version: 1441bddc96c6d8804f024408c49fc8bc8f735590
+- package: k8s.io/utils
+- package: k8s.io/kube-openapi
+- package: github.com/json-iterator/go
+  version: 1.0.2

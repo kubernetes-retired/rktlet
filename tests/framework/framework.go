@@ -29,8 +29,16 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/kubernetes/pkg/api/v1"
+	cadvisorapi "github.com/google/cadvisor/info/v1"
+
+	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/kubernetes/pkg/credentialprovider"
+	apitest "k8s.io/kubernetes/pkg/kubelet/apis/cri/testing"
 	"k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
+	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
+	containertest "k8s.io/kubernetes/pkg/kubelet/container/testing"
 	"k8s.io/kubernetes/pkg/kubelet/kuberuntime"
 
 	"github.com/kubernetes-incubator/rktlet/rktlet"
@@ -248,7 +256,40 @@ func (p *Pod) RunContainerToExit(ctx context.Context, cfg *runtime.ContainerConf
 	time.Sleep(1 * time.Second)
 
 	var stdout, stderr bytes.Buffer
-	err = kuberuntime.ReadLogs(logPath(p.t.LogDir, p.Metadata.Uid, cfg.Metadata.Name, cfg.Metadata.Attempt), &v1.PodLogOptions{}, &stdout, &stderr)
+
+	fakeRuntimeService := apitest.NewFakeRuntimeService()
+	fakeImageService := apitest.NewFakeImageService()
+	machineInfo := &cadvisorapi.MachineInfo{}
+	osInterface := &containertest.FakeOS{}
+	keyring := &credentialprovider.BasicDockerKeyring{}
+
+	manager, err := kuberuntime.NewFakeKubeRuntimeManager(fakeRuntimeService,
+		fakeImageService, machineInfo, osInterface, &containertest.FakeRuntimeHelper{}, keyring)
+
+	fakePod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       apitypes.UID(p.Metadata.Uid),
+			Name:      p.Metadata.Name,
+			Namespace: p.Metadata.Namespace,
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: resp.GetContainerId(),
+				},
+			},
+		},
+	}
+
+	tPod := &kubecontainer.Pod{
+		ID:        apitypes.UID(p.Metadata.Uid),
+		Name:      p.Metadata.Name,
+		Namespace: p.Metadata.Namespace,
+	}
+
+	containerID, _ := manager.GetPodContainerID(tPod)
+
+	err = manager.GetContainerLogs(fakePod, containerID, &v1.PodLogOptions{}, &stdout, &stderr)
 	if err != nil {
 		// Hack warning! Work around https://github.com/kubernetes-incubator/rktlet/issues/88
 		// ReadLogs wraps errors so os.IsNotExist doesn't work
@@ -260,13 +301,6 @@ func (p *Pod) RunContainerToExit(ctx context.Context, cfg *runtime.ContainerConf
 	// merge stdout/stderr
 	stdout.Write(stderr.Bytes())
 	return stdout.String(), statusResp.GetStatus().ExitCode
-}
-
-func logPath(root string, uid string, name string, attempt uint32) string {
-	// https://github.com/kubernetes/kubernetes/blob/b5cf713bc73db6d94f78a2c6cd49ef981c0c80dd/pkg/kubelet/kuberuntime/helpers.go#L209-L222
-	containerLogsPath := fmt.Sprintf("%s_%d.log", name, attempt)
-	podLogsDir := filepath.Join(root, uid)
-	return filepath.Join(podLogsDir, containerLogsPath)
 }
 
 // WaitStable waits for the given pod to be in a 'running' state and for at

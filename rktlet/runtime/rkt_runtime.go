@@ -295,3 +295,8 @@ func (r *RktRuntime) ContainerStats(ctx context.Context, req *runtimeApi.Contain
 func (r *RktRuntime) ListContainerStats(ctx context.Context, req *runtimeApi.ListContainerStatsRequest) (*runtimeApi.ListContainerStatsResponse, error) {
 	return nil, fmt.Errorf("not implemented")
 }
+
+// UpdateContainerResources updates ContainerConfig of the container.
+func (r *RktRuntime) UpdateContainerResources(ctx context.Context, req *runtimeApi.UpdateContainerResourcesRequest) (*runtimeApi.UpdateContainerResourcesResponse, error) {
+	return nil, fmt.Errorf("not implemented")
+}

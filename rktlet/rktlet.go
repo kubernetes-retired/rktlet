@@ -26,7 +26,7 @@ import (
 	"github.com/kubernetes-incubator/rktlet/rktlet/image"
 	"github.com/kubernetes-incubator/rktlet/rktlet/runtime"
 	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
-	"k8s.io/kubernetes/pkg/util/exec"
+	"k8s.io/utils/exec"
 )
 
 func New(config *Config) (ContainerAndImageService, error) {

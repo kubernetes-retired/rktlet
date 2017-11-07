@@ -27,8 +27,8 @@ import (
 	"github.com/kubernetes-incubator/rktlet/rktlet"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
+	"k8s.io/kubernetes/pkg/kubectl/util/logs"
 	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
-	"k8s.io/kubernetes/pkg/util/logs"
 	"k8s.io/kubernetes/staging/src/k8s.io/apiserver/pkg/util/flag"
 )
 
