@@ -1,12 +1,101 @@
-## Local cluster
+# Getting started
 
-* Build and start rktlet:
+## Building rktlet
 
 ```shell
 # In the rktlet repo's root dir.
 $ make
 go build -o bin/rktlet ./cmd/server/main.go
+```
 
+## Use rktlet in kube-spawn
+
+kube-spawn is a tool for creating multi-node Kubernetes clusters on Linux with each node being a system-nspawn container.
+
+**Note:** This guide assumes kube-spawn v0.2.0 and a built [rkt](https://github.com/rkt/rkt).
+
+First, create a cluster configuration with rkt.
+Substitute the paths for rkt, rkt's stage1, and rktlet with the ones on your machine.
+
+```shell
+$ export CNI_PATH=$GOPATH/bin
+$ sudo -E KUBE_SPAWN_RKT_BIN=$GOPATH/bin/rkt \
+          KUBE_SPAWN_RKT_STAGE1_IMAGE=$GOPATH/bin/stage1-coreos.aci \
+          KUBE_SPAWN_RKTLET_BIN=$GOPATH/bin/rktlet \
+          kube-spawn create --container-runtime=rkt
+creating cluster environment "default"
+spawning kubernetes version "v1.7.5"
+spawning with container runtime "rkt"
+ensuring environment
+{
+    "cniVersion": "0.2.0",
+    "ip4": {
+        "ip": "10.22.3.135/16",
+        "gateway": "10.22.0.1",
+        "routes": [
+            {
+                "dst": "0.0.0.0/0",
+                "gw": "10.22.0.1"
+            }
+        ]
+    },
+    "dns": {}
+}checking base image
+making iptables FORWARD chain defaults to ACCEPT...
+setting iptables rule to allow CNI traffic...
+generating scripts
+copy files into environment
+created cluster config
+```
+
+Let's start the cluster now!
+
+```shell
+$ sudo -E kube-spawn start
+using config from /var/lib/kube-spawn/default
+using "coreos" base image from /var/lib/machines
+spawning cluster "default" (2 machines)
+Image resized.
+Resize '/var/lib/machines' of 'max'
+waiting for machine "kubespawndefault0" to start up
+waiting for machine "kubespawndefault1" to start up
+machine "kubespawndefault0" started
+bootstrapping "kubespawndefault0"
+machine "kubespawndefault1" started
+bootstrapping "kubespawndefault1"
+cluster "default" started
+[!] note: init on master can take a couple of minutes until all pods are up
+Connected to machine kubespawndefault0. Press ^] three times within 1s to exit session.
+[kubeadm] WARNING: kubeadm is in beta, please do not use it for production clusters.
+[init] Using Kubernetes version: v1.7.5
+[init] Using Authorization modes: [Node RBAC]
+[preflight] Skipping pre-flight checks
+
+[...]
+
+cluster "default" initialized
+```
+
+Now you can access the cluster and schedule pods:
+
+```
+$ kubectl get nodes
+NAME                STATUS    ROLES     AGE       VERSION
+kubespawndefault0   Ready     master    2m        v1.7.5
+kubespawndefault1   Ready     <none>    2m        v1.7.5
+$ kubectl run nginx --image=nginx
+deployment "nginx" created
+$ kubectl get pods
+NAME                     READY     STATUS    RESTARTS   AGE
+nginx-4217019353-bfmzp   1/1       Running   0          22s
+```
+
+## Use rktlet in a local cluster
+
+* Start rktlet:
+
+```shell
+# After building rktlet, in the rktlet repo's root dir.
 $ sudo ./bin/rktlet -v=4
 ...
 ```
@@ -46,7 +135,7 @@ NAME      READY     STATUS    RESTARTS   AGE
 nginx     1/1       Running   0          57s
 ```
 
-### Using the rkt cli
+## Using the rkt cli
 
 By default, `rktlet` will configure rkt to use a data directory in
 `/var/lib/rktlet/data`. It may be convenient to create a wrapper script to
