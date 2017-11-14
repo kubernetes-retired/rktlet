@@ -30,7 +30,7 @@ It will be available in an initial usable form quickly in order to validate the 
 
 In order to fulfill the above goals, the rkt CRI integration will make the following choices:
 
-*TODO: Pretty picture goes here*
+![rktlet-interaction](rktlet-interaction.png)
 
 ### Remain in-process with Kubelet
 
