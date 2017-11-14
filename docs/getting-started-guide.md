@@ -118,6 +118,97 @@ NAME                     READY     STATUS    RESTARTS   AGE
 nginx-4217019353-bfmzp   1/1       Running   0          22s
 ```
 
+## Use rktlet in minikube
+
+rktlet is not yet officially supported on minikube.
+However, it can run with some manual steps.
+
+Follow the [minikube installation instructions](https://github.com/kubernetes/minikube/#installation).
+
+Then, start the minikube configuring kubelet's cgroup-driver as systemd.
+We'll also give it more RAM since the default is a bit tight.
+
+```shell
+# In the minikube repo's root dir
+$ minikube start --extra-config=kubelet.CgroupDriver=systemd --memory=3072
+```
+
+Then, you need to copy the rkt and rktlet binaries, and the rkt stage1 image to the minikube machine.
+Substitute the paths for rkt, rkt's stage1, and rktlet with the ones on your machine.
+
+```shell
+$ export RKT_BIN_PATH=$GOPATH/src/github.com/rkt/rkt/build-rkt/target/bin/rkt
+$ export STAGE1_PATH=$GOPATH/src/github.com/rkt/rkt/build-rkt/target/bin/stage1-coreos.aci
+$ export RKTLET_BIN_PATH=$GOPATH/src/github.com/kubernetes-incubator/rktlet/bin/rktlet
+$ scp -i ~/.minikube/machines/minikube/id_rsa -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=/dev/null $RKT_BIN_PATH $STAGE1_PATH $RKTLET_BIN_PATH docker@$(minikube ip):
+The authenticity of host '192.168.99.100 (192.168.99.100)' can't be established.
+ECDSA key fingerprint is SHA256:algjLoZxaREX+nNzCQc0UWkNGuAQ7o6kxwMJBELZffg.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added '192.168.99.100' (ECDSA) to the list of known hosts.
+rkt                                                                                                                                        100%   20MB  62.2MB/s   00:00
+stage1-coreos.aci                                                                                                                             100%   56MB  89.3MB/s   00:00
+rktlet                                                                                                                                     100%   29MB  66.3MB/s   00:00
+```
+
+Then, you need to ssh into the minikube VM and do some changes.
+
+```shell
+$ minikube ssh
+                         _             _
+            _         _ ( )           ( )
+  ___ ___  (_)  ___  (_)| |/')  _   _ | |_      __
+/' _ ` _ `\| |/' _ `\| || , <  ( ) ( )| '_`\  /'__`\
+| ( ) ( ) || || ( ) || || |\`\ | (_) || |_) )(  ___/
+(_) (_) (_)(_)(_) (_)(_)(_) (_)`\___/'(_,__/'`\____)
+
+(minikube) $ sudo sysctl fs.inotify.max_user_watches=524288
+(minikube) $ sudo sysctl fs.inotify.max_user_instances=1024
+(minikube) $ sudo mv rktlet rkt stage1-coreos.aci /usr/local/bin/
+(minikube) $ sudo sed -i 's/\(ExecStart.*$\)/\1 --container-runtime=remote --remote-runtime-endpoint=\/var\/run\/rktlet.sock --remote-image-endpoint=\/var\/run\/rktlet.sock/' /etc/systemd/system/localkube.service
+(minikube) $ cat << EOF | sudo tee /etc/systemd/system/rktlet.service
+[Unit]
+Description=rktlet: The rkt implementation of a Kubernetes Container Runtime
+Documentation=https://github.com/kubernetes-incubator/rktlet/tree/master/docs
+
+[Service]
+ExecStart=/usr/local/bin/rktlet
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+(minikube) $ sudo systemctl daemon-reload
+(minikube) $ sudo systemctl start rktlet
+(minikube) $ sudo systemctl restart localkube
+(minikube) $ exit
+```
+
+You should now have a minikube instance using rktlet!
+
+```shell
+$ kubectl cluster-info dump | grep ContainerRuntime
+                    "ContainerRuntimeVersion": "rkt://0.1.0",
+$ kubectl run --image nginx nginx
+$ kubectl get pods
+NAME                    READY     STATUS    RESTARTS   AGE
+nginx-7c87f569d-ljj8b   1/1       Running   0          30s
+$ kubectl expose deployment nginx --port=80 --type=NodePort
+service "nginx" exposed
+$ kubectl get services
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)        AGE
+kubernetes   ClusterIP   10.0.0.1     <none>        443/TCP        4m
+nginx        NodePort    10.0.0.21    <none>        80:31777/TCP   12s
+$ curl $(minikube ip):31777
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+
+[...]
+```
+
 ## Use rktlet in a local cluster
 
 * Start rktlet:
