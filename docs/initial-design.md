@@ -20,7 +20,7 @@ The CRI integration must work as well as the existing integration in terms of fe
 
 The new integration should not be any more difficult to deploy and configure than the existing integration.
 
-### Easy to Develop 
+### Easy to Develop
 
 This iteration should be as easy to work and iterate on as the original one.
 
