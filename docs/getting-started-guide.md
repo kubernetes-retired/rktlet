@@ -8,6 +8,34 @@ $ make
 go build -o bin/rktlet ./cmd/server/main.go
 ```
 
+## Configure Kubernetes to use rktlet
+
+Assuming the rktlet process is running with the default configuration you need to pass the following options to the Kubelet:
+
+```
+--cgroup-driver=systemd \
+--container-runtime=remote \
+--container-runtime-endpoint=/var/run/rktlet.sock \
+--image-service-endpoint=/var/run/rktlet.sock
+```
+
+### Configure stream server address
+
+For some operations (e.g. `kubectl exec`) the kubelet sends a streaming request to rktlet and rktlet generates a URL that is sent to the API server.
+Then, the API server will connect to that URL to carry out the requested operation.
+
+![CRI-streaming-request](CRI-streaming-request.png)
+
+For this to work, rktlet needs to know on which address to listen for streaming requests.
+This address must be reachable from the master node (running the API server).
+
+You can specify the address with the rktlet flag `--stream-server-address`.
+For example, assuming the IP of the node where the rktlet is running is `192.168.1.100` and that IP address is reachable from the master node, you can execute rktlet as follows.
+
+```
+# rktlet --stream-server-address=192.168.1.100:10241
+```
+
 ## Use rktlet in kube-spawn
 
 kube-spawn is a tool for creating multi-node Kubernetes clusters on Linux with each node being a system-nspawn container.
