@@ -20,7 +20,7 @@ Currently the project is under development and being tested against Kubernetes H
 
 Kubernetes tracking:
 
-- [Conformance testing](https://github.com/kubernetes-incubator/rktlet/issues/95): 89/94 passing as of 2017-02-08
+- [Conformance testing](https://github.com/kubernetes-incubator/rktlet/issues/95): 129/145 passing as of 2017-11-15
 
 ## Documentation
 
