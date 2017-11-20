@@ -24,6 +24,8 @@ import (
 
 type RktletServer struct {
 	*rktlet.Config
+
+	ShowVersion bool
 }
 
 func NewRktletServer() *RktletServer {
@@ -39,4 +41,5 @@ func (s *RktletServer) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&s.StreamServerAddress, "stream-server-address", s.StreamServerAddress, "Address to listen on for api-server streaming requests. MUST BE SECURED BY SOME EXTERNAL MECHANISM.")
 	fs.StringVar(&s.RktStage1Name, "rkt-stage1-name", s.RktStage1Name, "Name of an image to use as stage1. This needs to be specified as 'image:version'. If the image is present in the local store, the version can be ommitted.")
 	fs.StringVar(&s.NetworkPluginName, "net", "", "Name of the network plugin used in the cluster")
+	fs.BoolVar(&s.ShowVersion, "version", false, "Show version")
 }

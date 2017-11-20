@@ -19,11 +19,16 @@ PKGPATH := ${PWD}/${GP}/src/${PARENT}/${PKG}
 GO_TEST_ARGS ?= 
 export GOPATH=${PWD}/${GP}
 
+ORG_PATH := github.com/kubernetes-incubator
+REPO_PATH := ${ORG_PATH}/rktlet
+VERSION := $(shell git describe --dirty --always)
+GLDFLAGS := -X ${REPO_PATH}/version.Version=${VERSION}
+
 all: build
 
 build: path-setup
 	cd "${PKGPATH}" && \
-	go build -o bin/rktlet ./cmd/server/main.go
+	go build -o bin/rktlet -ldflags "${GLDFLAGS}" ./cmd/server/main.go
 
 path-setup:
 	@if [ ! -d "${GP}" ]; then mkdir -p "${GP}/src/${PARENT}" "${GP}/pkg" "${GP}/bin"; fi && \
