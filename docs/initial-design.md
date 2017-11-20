@@ -20,7 +20,7 @@ The CRI integration must work as well as the existing integration in terms of fe
 
 The new integration should not be any more difficult to deploy and configure than the existing integration.
 
-### Easy to Develop 
+### Easy to Develop
 
 This iteration should be as easy to work and iterate on as the original one.
 
@@ -28,26 +28,20 @@ It will be available in an initial usable form quickly in order to validate the 
 
 ## Design
 
-In order to fulfill the above goals, the rkt CRI integration will make the following choices:
+rktlet works together with systemd and rkt to provide an implementation of the CRI to the Kubelet.
 
-*TODO: Pretty picture goes here*
+![rktlet-interaction](rktlet-interaction.png)
 
-### Remain in-process with Kubelet
+The Kubelet uses [gRPC](https://grpc.io/) to send requests to rktlet.
+For example, pods are requested to be created by the Kubelet via calling the `RunPodSandbox()` CRI method.
+rktlet will then start a systemd transient service calling `systemd-run` which will in turn create a new rkt sandbox by running the rkt binary with the [`app sandbox`](https://github.com/rkt/rkt/blob/v1.29.0/Documentation/proposals/app-level-api.md#rkt-app-sandbox) command.
 
-The current rkt container runtime integration is able to be deployed simply by deploying the kubelet binary. Similarly, the Docker integration (as visible in the [dockershim](https://github.com/kubernetes/kubernetes/tree/83035a52ce59d39f216079ebb3968e3d3b69085f/pkg/kubelet/dockershim) package) is making the choice to remain there.
+After a sandbox is created, the Kubelet can request containers to be added to the pod (`CreateContainer()`), removed from the pod (`RemoveContainer()`), started (`StartContainer()`), and stopped (`StopContainer()`) among others.
+rktlet will then run the rkt binary with the corresponding [`rkt app`](https://github.com/rkt/rkt/blob/v1.29.0/Documentation/proposals/app-level-api.md#rkt-app-add) commands (`app add`, `app rm`, `app start`, or `app stop`).
 
-This is, in no small part, to make it *Easy to Deploy*. Remaining in-process also helps this integration not regress on performance, one axis of being *Full-Featured*.
+The rest of the CRI methods are also serviced by executing the rkt binary.
 
-### Developed as a Separate Repository
-
-Brian Grant's discussion on splitting the Kubernetes project into [separate repos](https://github.com/kubernetes/kubernetes/issues/24343) is a compelling argument for why it makes sense to split this work into a separate repo. In order to be *Easy to Develop*, this iteration will be maintained as a separate repository, and re-vendored back in.
-
-This choice will also allow better long-term growth in terms of better
-issue-management, testing pipelines, and so on. Unfortunately, in the short
-term, it's possible that some aspects of this will also cause pain and it's
-very difficult to weight each side correctly.
-
-### Exec the rkt binary (initially)
+### Why exec the rkt binary?
 
 While significant work on the rkt
 [api-service](https://coreos.com/rkt/docs/latest/subcommands/api-service.html)
@@ -56,5 +50,4 @@ and was never transitioned to entirely.
 
 In addition, the rkt cli has historically been the primary interface to the rkt runtime. The initial integration will execute the rkt binary directly, other than for the `run` operation which will be parented by `systemd` (which will be assumed to exist in the initial implementation as well).
 
-In the future, these decisions are expected to be changed such that rkt is vendored as a library dependency for all operations, and run is refactored to work under other init systems.
-
+In the future, these decisions might be changed such that rkt is vendored as a library dependency for all operations, and run is refactored to work under other init systems.
