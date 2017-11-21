@@ -301,7 +301,6 @@ func generateAppAddCommand(req *runtimeApi.CreateContainerRequest, imageID strin
 			if secContext.Privileged {
 				cmd = append(cmd, "--seccomp=mode=retain,@appc.io/all")
 				caplist = getAllCapabilites()
-				// TODO: device cgroup should be made permissive
 				// TODO: host's /dev's devices should all be visible in the container
 			} else {
 				seccompArg, err := generateSeccompArg(secContext.SeccompProfilePath, config.Annotations, config.Metadata.Name)
