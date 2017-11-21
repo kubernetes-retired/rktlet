@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
@@ -25,6 +26,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/kubernetes-incubator/rktlet/cmd/server/options"
 	"github.com/kubernetes-incubator/rktlet/rktlet"
+	"github.com/kubernetes-incubator/rktlet/version"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 	"k8s.io/kubernetes/pkg/kubectl/util/logs"
@@ -34,12 +36,21 @@ import (
 
 const defaultUnixSock = "/var/run/rktlet.sock"
 
+func printVersion() {
+	fmt.Println("rktlet version:", version.Version)
+}
+
 func main() {
 	s := options.NewRktletServer()
 	s.AddFlags(pflag.CommandLine)
 	flag.InitFlags()
 	logs.InitLogs()
 	defer logs.FlushLogs()
+
+	if s.ShowVersion {
+		printVersion()
+		os.Exit(0)
+	}
 
 	exitCh := make(chan os.Signal, 1)
 	signal.Notify(exitCh, syscall.SIGINT, syscall.SIGTERM)
