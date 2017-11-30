@@ -37,11 +37,11 @@ path-setup:
 
 build-in-rkt:
 	sudo rkt run --uuid-file-save=/tmp/rktlet-build-uuid \
-		docker://golang:1.7 --insecure-options=image,ondisk \
+		docker://golang:1.9 --insecure-options=image,ondisk \
 		--volume src,kind=host,source="$(shell pwd)" \
 		--mount volume=src,target=/go/src/github.com/kubernetes-incubator/rktlet \
 		--working-dir /go/src/github.com/kubernetes-incubator/rktlet \
-		--exec=go -- build -o bin/container/rktlet ./cmd/server/main.go
+		--exec=go -- build -o bin/container/rktlet -ldflags "${GLDFLAGS}" ./cmd/server/main.go
 
 glide:
 	glide update --strip-vendor
