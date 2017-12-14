@@ -1,3 +1,5 @@
+![rktlet logo](logos/rktlet-logo.png)
+
 # rktlet - rkt-based implementation of Kubernetes Container Runtime Interface
 [![Build Status](https://travis-ci.org/kubernetes-incubator/rktlet.svg?branch=master)](https://travis-ci.org/kubernetes-incubator/rktlet)
 
