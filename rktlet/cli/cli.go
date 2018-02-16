@@ -141,24 +141,26 @@ func (c *cli) With(cfg CLIConfig) CLI {
 	return NewRktCLI(c.rktPath, c.execer, copyCfg)
 }
 
-func (c *cli) RunCommand(subcmd string, args ...string) ([]string, error) {
-	command := c.Command(subcmd, args...)
+// RunCommand execute a rkt command with the given subCmd and args.
+func (c *cli) RunCommand(subCmd string, args ...string) ([]string, error) {
+	command := c.Command(subCmd, args...)
 	glog.V(4).Infof("rkt: calling cmd %v", command)
 	cmd := c.execer.Command(command[0], command[1:]...)
 
 	out, err := cmd.CombinedOutput()
+	output := string(out)
 	if err != nil {
-		glog.Warningf("rkt: cmd %v %v errored with %v", subcmd, args, err)
-		return nil, fmt.Errorf("failed to run %v %v: %v\noutput: %s", subcmd, args, err, out)
+		glog.Warningf("rkt: cmd %v %v errored with %v, %q", subCmd, args, err, output)
+		return nil, fmt.Errorf("failed to run %v %v: %v\noutput: %s", subCmd, args, err, output)
 	}
 
-	return strings.Split(strings.TrimSpace(string(out)), "\n"), nil
+	return strings.Split(strings.TrimSpace(output), "\n"), nil
 }
 
 // Command returns the final rkt command that will be executed by RunCommand.
 // e.g. `rkt status --debug=true $UUID`.
-func (c *cli) Command(subcmd string, args ...string) []string {
-	return append(append([]string{c.rktPath, subcmd}, c.globalFlags...), args...)
+func (c *cli) Command(subCmd string, args ...string) []string {
+	return append(append([]string{c.rktPath, subCmd}, c.globalFlags...), args...)
 }
 
 // TODO(tmrts): implement CLI with timeout
